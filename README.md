@@ -255,7 +255,7 @@ export function customPlugin(): PreviewPlugin {
 注意：扩展名在列表里不代表所有格式都已经高保真还原。当前版本已经让这些格式进入容器内对应插件路径，但复杂格式会分为不同能力级别：
 
 - 原生预览：图片、视频、音频、文本、PDF。
-- 基础解析预览：`docx`、`xlsx/xls/csv/ods`、`pptx`、`ofd`、`zip`、`eml`、`drawio`、`excalidraw`、`dxf`、`gltf/glb/obj/stl`。
+- 基础解析预览：`docx`、`rtf`、`odt/fodt`、`xlsx/xls/csv/ods`、`pptx/ppsx`、`odp/fodp`、`ofd`、`zip`、`eml`、`drawio`、`excalidraw`、`dxf`、`gltf/glb/obj/stl`。
 - 已识别但需要增强：`doc`、`ppt`、`dwg`、`msg`、`rar/7z`、`numbers/key`、`wps/et/dps`、`fbx/dae/ply/3mf` 等建议后续接入 WASM、专用解析器或服务端转换。
 
 视频、音频能否播放还取决于浏览器支持的容器和编码格式。`heic/heif`、`avi/mkv/flv/wmv` 等格式通常需要浏览器支持、转码或后续插件增强。
@@ -358,13 +358,14 @@ export function customPlugin(): PreviewPlugin {
 - [x] `dotx` 基础 HTML 预览
 - [ ] `doc`
 - [ ] `dot`
-- [ ] `rtf`
-- [ ] `odt`
-- [ ] `fodt`
+- [x] `rtf`
+- [x] `odt`
+- [x] `fodt`
 - [ ] `wps`
-- [ ] Word 图片和复杂样式保真
-- [ ] Word 页眉页脚
-- [ ] Word 批注
+- [x] Word 图片基础预览
+- [ ] Word 复杂样式高保真
+- [x] Word 页眉页脚
+- [x] Word 批注
 
 ### 表格
 
@@ -389,11 +390,11 @@ export function customPlugin(): PreviewPlugin {
 - [x] `ppsx` 文本提取预览
 - [ ] `ppt`
 - [ ] `pps`
-- [ ] `odp`
-- [ ] `fodp`
+- [x] `odp`
+- [x] `fodp`
 - [ ] `key`
 - [ ] `dps`
-- [ ] PPT 图片预览
+- [x] PPT 图片预览
 - [ ] PPT 布局还原
 - [ ] PPT 动画预览
 

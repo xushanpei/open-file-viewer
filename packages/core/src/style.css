@@ -346,6 +346,17 @@
   line-height: 1.7;
 }
 
+.ofv-document img {
+  max-width: 100%;
+  height: auto;
+}
+
+.ofv-document-extra {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+}
+
 .ofv-details {
   margin-top: 12px;
 }
@@ -397,6 +408,55 @@
   border: 1px solid var(--ofv-border);
   border-radius: 8px;
   background: var(--ofv-surface);
+}
+
+.ofv-slide-stage {
+  position: relative;
+  width: min(100%, 960px);
+  min-height: auto;
+  margin: 0 auto;
+  padding: 0;
+  overflow: hidden;
+  background: #ffffff;
+  color: #111827;
+  box-shadow: 0 8px 24px rgba(17, 24, 39, 0.12);
+}
+
+.ofv-slide-element {
+  position: absolute;
+  overflow: hidden;
+}
+
+.ofv-slide-text {
+  display: flex;
+  align-items: flex-start;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: clamp(10px, 1.8vw, 18px);
+  line-height: 1.25;
+}
+
+.ofv-slide-picture img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.ofv-slide-image {
+  margin: 12px 0 0;
+}
+
+.ofv-slide-image > img {
+  display: block;
+  max-width: 100%;
+  max-height: 360px;
+  object-fit: contain;
+}
+
+.ofv-slide-image figcaption {
+  margin-top: 6px;
+  color: var(--ofv-text-muted);
+  font-size: 12px;
 }
 
 .ofv-text-block {
