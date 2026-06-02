@@ -21,6 +21,12 @@ export interface PreviewFile {
   blob?: Blob;
 }
 
+export interface PreviewItem {
+  file: PreviewSource;
+  fileName?: string;
+  mimeType?: string;
+}
+
 export interface PreviewSize {
   width: number;
   height: number;
@@ -37,7 +43,9 @@ export interface PreviewToolbarOptions {
 
 export interface PreviewOptions {
   container: HTMLElement | string;
-  file: PreviewSource;
+  file?: PreviewSource;
+  files?: Array<PreviewSource | PreviewItem>;
+  initialIndex?: number;
   fileName?: string;
   mimeType?: string;
   width?: number | string;
@@ -77,6 +85,10 @@ export interface PreviewPlugin {
 
 export interface FileViewer {
   reload: (file?: PreviewSource) => Promise<void>;
+  next: () => Promise<void>;
+  previous: () => Promise<void>;
+  goTo: (index: number) => Promise<void>;
+  getCurrentIndex: () => number;
   resize: () => void;
   destroy: () => void;
 }

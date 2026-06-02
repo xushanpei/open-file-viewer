@@ -22,11 +22,11 @@ import "./style.css";
 const App = {
   components: { OpenFileViewer },
   setup() {
-    const file = ref<File | Blob>(
+    const files = ref<Array<File | Blob>>([
       new Blob(["Vue adapter demo\n\n选择本地文件后会在自定义容器内预览。"], {
         type: "text/plain"
       })
-    );
+    ]);
     const theme = ref<PreviewTheme>("light");
     const plugins = [
       imagePlugin(),
@@ -43,7 +43,7 @@ const App = {
       textPlugin()
     ];
 
-    return { file, plugins, theme };
+    return { files, plugins, theme };
   },
   template: `
     <main class="demo-shell">
@@ -51,9 +51,10 @@ const App = {
         <h1>Vue File Viewer</h1>
         <input
           type="file"
+          multiple
           @change="event => {
-            const next = event.target.files && event.target.files[0]
-            if (next) file = next
+            const next = Array.from(event.target.files || [])
+            if (next.length) files = next
           }"
         />
         <select v-model="theme">
@@ -62,7 +63,7 @@ const App = {
           <option value="auto">auto</option>
         </select>
       </header>
-      <OpenFileViewer :file="file" :file-name="file.name || 'welcome.txt'" height="70vh" :plugins="plugins" :theme="theme" toolbar />
+      <OpenFileViewer :file="files[0]" :files="files" :file-name="files[0].name || 'welcome.txt'" height="70vh" :plugins="plugins" :theme="theme" toolbar />
     </main>
   `
 };

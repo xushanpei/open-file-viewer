@@ -168,7 +168,9 @@ createViewer(options: PreviewOptions): FileViewer
 | 参数 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `container` | `HTMLElement \| string` | 必填 | 预览容器 |
-| `file` | `File \| Blob \| string \| ArrayBuffer` | 必填 | 文件对象、Blob、URL 或 ArrayBuffer |
+| `file` | `File \| Blob \| string \| ArrayBuffer` | 单文件必填 | 文件对象、Blob、URL 或 ArrayBuffer |
+| `files` | `(PreviewSource \| PreviewItem)[]` | - | 多文件预览队列 |
+| `initialIndex` | `number` | `0` | 多文件队列初始预览索引 |
 | `fileName` | `string` | 自动推断 | 文件名，用于识别扩展名 |
 | `mimeType` | `string` | 自动推断 | MIME 类型 |
 | `width` | `number \| string` | 容器原始宽度 | 预览容器宽度 |
@@ -282,7 +284,7 @@ export function customPlugin(): PreviewPlugin {
 - [x] 全屏预览
 - [x] 打印
 - [x] 搜索
-- [ ] 多文件预览队列
+- [x] 多文件预览队列
 
 ### 图片
 

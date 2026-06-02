@@ -22,11 +22,11 @@ import "./style.css";
 
 function App() {
   const [theme, setTheme] = useState<PreviewTheme>("light");
-  const [file, setFile] = useState<File | Blob>(
+  const [files, setFiles] = useState<Array<File | Blob>>([
     new Blob(["React adapter demo\n\n选择本地文件后会在自定义容器内预览。"], {
       type: "text/plain"
     })
-  );
+  ]);
   const plugins = useMemo(
     () => [
       imagePlugin(),
@@ -51,10 +51,11 @@ function App() {
         <h1>React File Viewer</h1>
         <input
           type="file"
+          multiple
           onChange={(event) => {
-            const next = event.target.files?.[0];
-            if (next) {
-              setFile(next);
+            const next = Array.from(event.target.files || []);
+            if (next.length > 0) {
+              setFiles(next);
             }
           }}
         />
@@ -65,8 +66,9 @@ function App() {
         </select>
       </header>
       <FileViewer
-        file={file}
-        fileName={file instanceof File ? file.name : "welcome.txt"}
+        file={files[0]}
+        files={files}
+        fileName={files[0] instanceof File ? files[0].name : "welcome.txt"}
         height="70vh"
         plugins={plugins}
         theme={theme}

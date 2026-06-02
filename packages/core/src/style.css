@@ -84,6 +84,18 @@
   background: var(--ofv-button-hover);
 }
 
+.ofv-toolbar button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.ofv-toolbar-queue {
+  min-width: 42px;
+  color: var(--ofv-text-muted);
+  font-size: 13px;
+  text-align: center;
+}
+
 .ofv-toolbar-search {
   display: flex;
   align-items: center;

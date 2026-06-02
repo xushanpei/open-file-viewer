@@ -19,6 +19,7 @@ export type {
   PreviewFile,
   PreviewFit,
   PreviewInstance,
+  PreviewItem,
   PreviewOptions,
   PreviewPlugin,
   PreviewSize,

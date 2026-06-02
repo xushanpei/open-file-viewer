@@ -5,8 +5,10 @@ import type {
   FileViewer,
   PreviewFile,
   PreviewInstance,
+  PreviewItem,
   PreviewOptions,
   PreviewPlugin,
+  PreviewSource,
   PreviewToolbarOptions
 } from "./types";
 
@@ -30,7 +32,22 @@ export function createViewer(options: PreviewOptions): FileViewer {
   const viewport = document.createElement("div");
   viewport.className = "ofv-viewport";
 
-  const toolbar = createToolbar(options.toolbar, viewport);
+  const queue = normalizeQueue(options);
+  let currentIndex = clampIndex(options.initialIndex || 0, queue.length);
+
+  const goTo = async (index: number) => {
+    if (destroyed || queue.length === 0) {
+      return;
+    }
+    currentIndex = clampIndex(index, queue.length);
+    await renderQueueItem(currentIndex);
+  };
+
+  const toolbar = createToolbar(options.toolbar, viewport, {
+    getLength: () => queue.length,
+    next: () => goTo(currentIndex + 1),
+    previous: () => goTo(currentIndex - 1)
+  });
   if (toolbar) {
     host.append(toolbar.element);
   }
@@ -44,7 +61,6 @@ export function createViewer(options: PreviewOptions): FileViewer {
     ...options
   };
 
-  let currentFile: PreviewFile | undefined;
   let currentInstance: PreviewInstance | undefined;
   let destroyed = false;
   let renderToken = 0;
@@ -76,7 +92,7 @@ export function createViewer(options: PreviewOptions): FileViewer {
     currentInstance = undefined;
     viewport.replaceChildren();
     setLoading(true);
-    toolbar?.update(file);
+    toolbar?.update(file, currentIndex, queue.length);
 
     const plugins = [...(options.plugins || []), fallbackPlugin()];
     const plugin = await findPlugin(plugins, file);
@@ -113,22 +129,37 @@ export function createViewer(options: PreviewOptions): FileViewer {
     }
   };
 
-  void (async () => {
-    currentFile = await normalizeFile(options.file, options.fileName, options.mimeType);
-    await renderFile(currentFile);
-  })();
+  async function renderQueueItem(index: number) {
+    const item = queue[index];
+    const file = await normalizeFile(item.file, item.fileName, item.mimeType);
+    await renderFile(file);
+  }
+
+  void goTo(currentIndex);
 
   return {
     async reload(file) {
       if (destroyed) {
         return;
       }
-      currentFile = await normalizeFile(
-        file ?? options.file,
-        options.fileName,
-        options.mimeType
-      );
-      await renderFile(currentFile);
+      if (file !== undefined) {
+        queue.splice(currentIndex, 1, {
+          file,
+          fileName: options.fileName,
+          mimeType: options.mimeType
+        });
+      }
+      await renderQueueItem(currentIndex);
+    },
+    async next() {
+      await goTo(currentIndex + 1);
+    },
+    async previous() {
+      await goTo(currentIndex - 1);
+    },
+    goTo,
+    getCurrentIndex() {
+      return currentIndex;
     },
     resize,
     destroy() {
@@ -145,6 +176,39 @@ export function createViewer(options: PreviewOptions): FileViewer {
       }
     }
   };
+}
+
+function normalizeQueue(options: PreviewOptions): PreviewItem[] {
+  if (options.files && options.files.length > 0) {
+    return options.files.map((item) =>
+      isPreviewItem(item)
+        ? item
+        : {
+            file: item
+          }
+    );
+  }
+  if (options.file === undefined) {
+    throw new Error("File viewer requires either file or files.");
+  }
+  return [
+    {
+      file: options.file,
+      fileName: options.fileName,
+      mimeType: options.mimeType
+    }
+  ];
+}
+
+function isPreviewItem(item: PreviewSource | PreviewItem): item is PreviewItem {
+  return typeof item === "object" && item !== null && "file" in item;
+}
+
+function clampIndex(index: number, length: number): number {
+  if (length <= 0) {
+    return 0;
+  }
+  return Math.min(Math.max(index, 0), length - 1);
 }
 
 function applyTheme(
@@ -177,11 +241,16 @@ function applyTheme(
 
 function createToolbar(
   toolbar: PreviewOptions["toolbar"],
-  viewport: HTMLElement
+  viewport: HTMLElement,
+  queue: {
+    getLength: () => number;
+    next: () => void | Promise<void>;
+    previous: () => void | Promise<void>;
+  }
 ):
   | {
       element: HTMLElement;
-      update: (file: PreviewFile) => void;
+      update: (file: PreviewFile, index: number, length: number) => void;
       destroy: () => void;
     }
   | undefined {
@@ -200,6 +269,9 @@ function createToolbar(
   element.setAttribute("aria-label", "File preview toolbar");
 
   let file: PreviewFile | undefined;
+  let queueLabel: HTMLSpanElement | undefined;
+  let previousButton: HTMLButtonElement | undefined;
+  let nextButton: HTMLButtonElement | undefined;
   const disposers: Array<() => void> = [];
   const search = createSearchController(viewport);
 
@@ -213,6 +285,29 @@ function createToolbar(
     element.append(button);
     disposers.push(() => button.removeEventListener("click", action));
   };
+
+  const addQueueButton = (label: string, title: string, action: () => void | Promise<void>) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = label;
+    button.title = title;
+    button.setAttribute("aria-label", title);
+    const listener = () => {
+      void action();
+    };
+    button.addEventListener("click", listener);
+    element.append(button);
+    disposers.push(() => button.removeEventListener("click", listener));
+    return button;
+  };
+
+  if (queue.getLength() > 1) {
+    previousButton = addQueueButton("Prev", "Previous file", queue.previous);
+    nextButton = addQueueButton("Next", "Next file", queue.next);
+    queueLabel = document.createElement("span");
+    queueLabel.className = "ofv-toolbar-queue";
+    element.append(queueLabel);
+  }
 
   if (options.download !== false) {
     addButton("Download", "Download file", () => {
@@ -259,9 +354,18 @@ function createToolbar(
 
   return {
     element,
-    update(nextFile) {
+    update(nextFile, index, length) {
       file = nextFile;
       search.clear();
+      if (queueLabel) {
+        queueLabel.textContent = `${index + 1} / ${length}`;
+      }
+      if (previousButton) {
+        previousButton.disabled = index <= 0;
+      }
+      if (nextButton) {
+        nextButton.disabled = index >= length - 1;
+      }
     },
     destroy() {
       search.clear();

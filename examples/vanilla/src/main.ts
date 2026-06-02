@@ -29,19 +29,22 @@ const themeInput = document.querySelector<HTMLSelectElement>("#theme")!;
 const applyButton = document.querySelector<HTMLButtonElement>("#apply")!;
 
 let viewer: FileViewer | null = null;
-let currentFile: File | string = new Blob(
-  [
-    `Open File Viewer\n\n请选择一个本地文件。\n\n这个预览器会固定渲染在右侧容器里，不会跳转新窗口。`
-  ],
-  { type: "text/plain" }
-);
+let currentFiles: Array<File | Blob> = [
+  new Blob(
+    [
+      `Open File Viewer\n\n请选择一个本地文件。\n\n这个预览器会固定渲染在右侧容器里，不会跳转新窗口。`
+    ],
+    { type: "text/plain" }
+  )
+];
 
 function render() {
   viewer?.destroy();
   viewer = createViewer({
     container,
-    file: currentFile,
-    fileName: currentFile instanceof File ? currentFile.name : "welcome.txt",
+    file: currentFiles[0],
+    files: currentFiles,
+    fileName: currentFiles[0] instanceof File ? currentFiles[0].name : "welcome.txt",
     width: widthInput.value,
     height: heightInput.value,
     fit: fitInput.value as PreviewFit,
@@ -72,7 +75,7 @@ fileInput.addEventListener("change", () => {
   if (!file) {
     return;
   }
-  currentFile = file;
+  currentFiles = Array.from(fileInput.files || []);
   render();
 });
 

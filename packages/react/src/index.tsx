@@ -37,6 +37,7 @@ export function FileViewer({
     };
   }, [
     options.file,
+    options.files,
     options.fileName,
     options.mimeType,
     options.fit,

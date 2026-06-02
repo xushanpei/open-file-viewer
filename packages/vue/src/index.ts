@@ -7,7 +7,11 @@ export const OpenFileViewer = defineComponent({
   props: {
     file: {
       type: [String, Blob, ArrayBuffer, File] as PropType<PreviewSource>,
-      required: true
+      required: false
+    },
+    files: {
+      type: Array as PropType<PreviewOptions["files"]>,
+      default: undefined
     },
     fileName: String,
     mimeType: String,
@@ -48,6 +52,7 @@ export const OpenFileViewer = defineComponent({
       viewer = createViewer({
         container: containerRef.value,
         file: props.file,
+        files: props.files,
         fileName: props.fileName,
         mimeType: props.mimeType,
         width: props.width,
@@ -62,6 +67,7 @@ export const OpenFileViewer = defineComponent({
     watch(
       () => [
         props.file,
+        props.files,
         props.fileName,
         props.mimeType,
         props.width,
