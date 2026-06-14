@@ -149,6 +149,24 @@ describe("cadPlugin", () => {
     expect(container.textContent).toContain("AC1027");
   });
 
+  it("uses MIME type to render extensionless DWG blobs", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const bytes = new Uint8Array([..."AC1027\0\0DWGDATA"].map((char) => char.charCodeAt(0)));
+
+    createViewer({
+      container,
+      file: new Blob([bytes.buffer], { type: "application/acad" }),
+      plugins: [cadPlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-cad-conversion")));
+
+    expect(container.textContent).toContain("DWG 文件预览");
+    expect(container.textContent).toContain("AutoCAD 2013");
+    expect(container.textContent).toContain("ODA File Converter");
+  });
+
   it("renders DWF container hints for compressed files", async () => {
     const container = document.createElement("div");
     document.body.append(container);
@@ -168,6 +186,24 @@ describe("cadPlugin", () => {
     expect(container.textContent).toContain("ZIP/PK 压缩容器");
     expect(container.textContent).toContain("manifest");
     expect(container.textContent).toContain("50 4B 03 04");
+  });
+
+  it("routes BIM and mechanical CAD files to a dedicated CAD guidance panel", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    createViewer({
+      container,
+      file: new Blob(["ISO-10303-21;"], { type: "application/x-step" }),
+      fileName: "building.ifc",
+      plugins: [cadPlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-cad")));
+
+    expect(container.textContent).toContain("CAD 基础预览");
+    expect(container.textContent).toContain(".ifc");
+    expect(container.textContent).toContain("已识别为图纸/工程格式");
   });
 });
 

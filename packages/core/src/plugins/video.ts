@@ -3,8 +3,11 @@ import type { PreviewPlugin } from "../types";
 
 const videoExtensions = new Set([
   "mp4",
+  "mpg",
+  "mpeg",
+  "mpe",
+  "mpv",
   "webm",
-  "ogg",
   "ogv",
   "mov",
   "m4v",
@@ -13,6 +16,8 @@ const videoExtensions = new Set([
   "flv",
   "wmv",
   "3gp",
+  "3g2",
+  "m2ts",
   "m3u8"
 ]);
 const videoMimeTypes = new Set([
@@ -53,7 +58,7 @@ export function videoPlugin(): PreviewPlugin {
       let mpegtsPlayer: any = null;
       const ext = ctx.file.extension.toLowerCase();
       const isHls = ext === "m3u8" || hlsMimeTypes.has(mimeType);
-      const isMpegTs = mimeType === "video/mp2t";
+      const isMpegTs = ext === "m2ts" || mimeType === "video/mp2t";
       const isDash = mimeType === "application/dash+xml";
       const isFlv = ext === "flv" || mimeType === "video/x-flv";
       const formatLabel = (ctx.file.extension || ctx.file.mimeType || "video").toUpperCase();

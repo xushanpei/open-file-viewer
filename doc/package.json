@@ -9,7 +9,8 @@
   },
   "dependencies": {
     "@open-file-viewer/core": "workspace:*",
-    "pdfjs-dist": "^4.10.38"
+    "pdfjs-dist": "^4.10.38",
+    "prismjs": "^1.30.0"
   },
   "devDependencies": {
     "typescript": "^5.7.2",

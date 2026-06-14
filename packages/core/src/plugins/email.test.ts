@@ -19,9 +19,19 @@ const parseEmail = vi.hoisted(() =>
   }))
 );
 
+const getFileData = vi.hoisted(() => vi.fn());
+const getAttachment = vi.hoisted(() => vi.fn());
+
 vi.mock("postal-mime", () => ({
   default: class {
     parse = parseEmail;
+  }
+}));
+
+vi.mock("@kenjiuno/msgreader", () => ({
+  default: class {
+    getFileData = getFileData;
+    getAttachment = getAttachment;
   }
 }));
 
@@ -210,6 +220,55 @@ describe("emailPlugin", () => {
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:inline-0");
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:inline-1");
     expect(URL.revokeObjectURL).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps MSG attachment MIME tags instead of relying only on filenames", async () => {
+    getFileData.mockReturnValueOnce({
+      senderName: "Alice",
+      senderEmail: "alice@example.com",
+      recipients: [{ recipType: "to", name: "Bob", email: "bob@example.com" }],
+      subject: "MSG",
+      body: "Body",
+      attachments: [
+        {
+          fileName: "photo.bin",
+          attachMimeTag: "image/png; name=photo.bin",
+          pidContentId: "photo"
+        }
+      ]
+    });
+    getAttachment.mockReturnValueOnce({
+      fileName: "photo.bin",
+      content: new Uint8Array([1, 2, 3])
+    });
+
+    const createdBlobs: Blob[] = [];
+    vi.stubGlobal("URL", {
+      ...URL,
+      createObjectURL: vi.fn((blob: Blob) => {
+        createdBlobs.push(blob);
+        return `blob:msg-${createdBlobs.length}`;
+      }),
+      revokeObjectURL: vi.fn()
+    });
+
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    const viewer = createViewer({
+      container,
+      file: new Blob(["raw msg"], { type: "application/vnd.ms-outlook" }),
+      fileName: "message.msg",
+      plugins: [emailPlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-email-attachment-item")));
+
+    expect(container.textContent).toContain("MSG");
+    expect(container.querySelector(".ofv-email-attachment-item")?.textContent).toContain("photo.bin");
+    expect(createdBlobs[1].type).toBe("image/png");
+
+    viewer.destroy();
   });
 });
 

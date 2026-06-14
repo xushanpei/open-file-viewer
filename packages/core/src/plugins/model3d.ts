@@ -2,7 +2,23 @@ import type { PreviewContext, PreviewInstance, PreviewPlugin, PreviewSize } from
 import { createObjectUrl, revokeObjectUrl } from "../dom";
 import { resolveFormat } from "./utils";
 
-const modelExtensions = new Set(["gltf", "glb", "obj", "stl", "fbx", "dae", "ply", "3mf"]);
+const modelExtensions = new Set([
+  "gltf",
+  "glb",
+  "obj",
+  "stl",
+  "fbx",
+  "dae",
+  "ply",
+  "3mf",
+  "3ds",
+  "usd",
+  "usda",
+  "usdc",
+  "usdz",
+  "wrl",
+  "vrml"
+]);
 const modelMimeTypes = new Set([
   "model/gltf+json",
   "model/gltf-binary",
@@ -10,6 +26,10 @@ const modelMimeTypes = new Set([
   "model/obj",
   "model/vnd.collada+xml",
   "model/3mf",
+  "model/3ds",
+  "model/vnd.usd",
+  "model/vnd.usdz+zip",
+  "model/vrml",
   "application/sla",
   "application/vnd.ms-pki.stl",
   "application/ply",
@@ -22,17 +42,25 @@ const modelMimeFormatMap: Record<string, string> = {
   "model/obj": "obj",
   "model/vnd.collada+xml": "dae",
   "model/3mf": "3mf",
+  "model/3ds": "3ds",
+  "model/vnd.usd": "usd",
+  "model/vnd.usdz+zip": "usdz",
+  "model/vrml": "wrl",
   "application/sla": "stl",
   "application/vnd.ms-pki.stl": "stl",
   "application/ply": "ply",
   "application/vnd.autodesk.fbx": "fbx"
 };
+const textLikeExtensions = new Set(["json", "txt", "md", "xml", "yaml", "yml", "csv", "tsv", "js", "ts", "tsx", "jsx", "html", "css"]);
 
 export function model3dPlugin(): PreviewPlugin {
   return {
     name: "model3d",
     match(file) {
-      return modelExtensions.has(file.extension) || (file.extension === "" && modelMimeTypes.has(file.mimeType));
+      return (
+        modelExtensions.has(file.extension) ||
+        (modelMimeTypes.has(file.mimeType) && (file.extension === "" || file.extension === "bin" || !textLikeExtensions.has(file.extension)))
+      );
     },
     async render(ctx) {
       const THREE = await import("three");

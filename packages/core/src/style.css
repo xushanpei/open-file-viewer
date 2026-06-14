@@ -8,6 +8,9 @@
   --ofv-button-hover: #eef2f7;
   --ofv-highlight: #fde68a;
   box-sizing: border-box;
+  display: block;
+  width: 100%;
+  max-width: 100%;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
@@ -40,14 +43,19 @@
   display: flex;
   flex-direction: column;
   width: 100%;
+  max-width: 100%;
   height: 100%;
+  min-width: 0;
   min-height: 160px;
+  overflow: hidden;
 }
 
 .ofv-viewport {
   flex: 1 1 auto;
+  min-width: 0;
   min-height: 0;
   width: 100%;
+  max-width: 100%;
   overflow: auto;
   background: var(--ofv-bg);
   color: var(--ofv-text);
@@ -56,8 +64,10 @@
 .ofv-toolbar {
   display: flex;
   flex: 0 0 auto;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+  min-width: 0;
   min-height: 42px;
   padding: 6px 8px;
   border-bottom: 1px solid var(--ofv-border);
@@ -67,6 +77,7 @@
 
 .ofv-toolbar button,
 .ofv-toolbar input {
+  max-width: 100%;
   min-height: 30px;
   border: 1px solid var(--ofv-border);
   border-radius: 6px;
@@ -77,7 +88,9 @@
 }
 
 .ofv-toolbar button {
+  flex: 0 1 auto;
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .ofv-toolbar button:hover {
@@ -98,6 +111,7 @@
 }
 
 .ofv-toolbar-queue {
+  flex: 0 0 auto;
   min-width: 42px;
   color: var(--ofv-text-muted);
   font-size: 13px;
@@ -106,16 +120,21 @@
 
 .ofv-toolbar-search {
   display: flex;
+  flex: 1 1 180px;
   align-items: center;
   gap: 6px;
   margin-left: auto;
+  min-width: 0;
 }
 
 .ofv-toolbar-search input {
-  width: 160px;
+  flex: 1 1 120px;
+  width: min(160px, 100%);
+  min-width: 0;
 }
 
 .ofv-toolbar-search-count {
+  flex: 0 0 auto;
   min-width: 24px;
   color: var(--ofv-text-muted);
   font-size: 13px;
@@ -167,7 +186,9 @@
   display: flex;
   flex-direction: column;
   width: 100%;
+  max-width: 100%;
   height: 100%;
+  min-width: 0;
   min-height: 0;
   background: var(--ofv-bg);
 }
@@ -175,8 +196,10 @@
 .ofv-image-controls {
   display: flex;
   flex: 0 0 auto;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+  min-width: 0;
   min-height: 40px;
   padding: 6px 8px;
   border-bottom: 1px solid var(--ofv-border);
@@ -211,6 +234,7 @@
   align-items: center;
   justify-content: center;
   min-height: 0;
+  min-width: 0;
   overflow: hidden;
   cursor: grab;
   touch-action: none;
@@ -245,6 +269,8 @@
 
 .ofv-pdf {
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   min-height: 100%;
   padding: 16px;
   overflow: auto;
@@ -253,6 +279,8 @@
 
 .ofv-pdf-page {
   display: block;
+  max-width: 100%;
+  height: auto;
   margin: 0 auto 16px;
   background: #fff;
   box-shadow: 0 8px 24px rgba(17, 24, 39, 0.28);
@@ -307,6 +335,8 @@
 
 .ofv-panel {
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   min-height: 100%;
   padding: 16px;
   overflow: auto;
@@ -315,6 +345,8 @@
 }
 
 .ofv-section {
+  min-width: 0;
+  overflow-wrap: anywhere;
   margin: 0 0 16px;
   padding: 14px;
   border: 1px solid var(--ofv-border);
@@ -389,19 +421,24 @@
 }
 
 .ofv-docx-document {
+  width: 100%;
   max-width: 100%;
+  min-width: 0;
   overflow: auto;
   color: #111827;
 }
 
 .ofv-docx-document .ofv-docx-wrapper {
   align-items: center;
-  min-width: max-content;
+  width: max-content;
+  max-width: 100%;
+  min-width: 0;
   padding: 24px;
   background: #e5e7eb;
 }
 
 .ofv-docx-document section.ofv-docx {
+  max-width: 100%;
   color: #111827;
   overflow: hidden;
 }
@@ -427,6 +464,7 @@
 .ofv-tabs {
   display: flex;
   flex-wrap: wrap;
+  min-width: 0;
   gap: 8px;
   margin-bottom: 12px;
 }
@@ -492,6 +530,8 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+  max-width: 100%;
+  min-width: 0;
   margin: 0 0 10px;
   padding: 8px;
   border: 1px solid var(--ofv-border);
@@ -648,11 +688,14 @@
 .ofv-epub-meta {
   display: grid;
   gap: 8px;
+  min-width: 0;
   max-width: 520px;
 }
 
 .ofv-epub-reader {
+  max-width: 100%;
   max-height: min(760px, 74vh);
+  min-width: 0;
   overflow: auto;
   padding: 28px;
   border: 1px solid var(--ofv-border);
@@ -663,6 +706,7 @@
 
 .ofv-epub-chapter {
   max-width: 760px;
+  min-width: 0;
   margin: 0 auto 36px;
   padding-bottom: 28px;
   border-bottom: 1px solid var(--ofv-border);
@@ -710,7 +754,9 @@
 .ofv-xps-pages {
   display: grid;
   gap: 18px;
+  max-width: 100%;
   max-height: min(760px, 74vh);
+  min-width: 0;
   overflow: auto;
   padding: 20px;
   border: 1px solid var(--ofv-border);
@@ -719,7 +765,9 @@
 }
 
 .ofv-xps-page {
+  width: min(100%, 840px);
   max-width: 840px;
+  min-width: 0;
   margin: 0 auto;
   padding: 22px;
   border: 1px solid var(--ofv-border);
@@ -746,6 +794,7 @@
 }
 
 .ofv-slide {
+  min-width: 0;
   min-height: 160px;
   padding: 18px;
   border: 1px solid var(--ofv-border);
@@ -755,6 +804,8 @@
 
 .ofv-pptx-viewer {
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   min-height: 160px;
   overflow: auto;
   background: var(--ofv-bg);
@@ -762,6 +813,7 @@
 
 .ofv-presentation-summary {
   display: grid;
+  min-width: 0;
   gap: 12px;
 }
 
@@ -789,6 +841,7 @@
 .ofv-presentation-slides {
   display: grid;
   gap: 8px;
+  min-width: 0;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -834,6 +887,7 @@
 }
 
 .ofv-text-block {
+  max-width: 100%;
   max-height: 520px;
   overflow: auto;
   margin: 0;
@@ -847,6 +901,7 @@
 }
 
 .ofv-file-list {
+  max-width: 100%;
   max-height: 520px;
   overflow: auto;
   margin: 12px 0 0;
@@ -857,6 +912,8 @@
 .ofv-svg-stage {
   display: block;
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   height: min(620px, 70vh);
   border: 1px solid var(--ofv-border);
   border-radius: 8px;
@@ -869,6 +926,8 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+  max-width: 100%;
+  min-width: 0;
   margin: 0 0 12px;
   padding: 10px;
   border: 1px solid var(--ofv-border);
@@ -901,6 +960,7 @@
 .ofv-cad-summary {
   display: grid;
   gap: 8px;
+  min-width: 0;
   max-width: 520px;
   margin: 12px 0;
 }
@@ -909,6 +969,7 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 6px 14px;
+  min-width: 0;
   margin: 8px 0 0;
   padding-left: 18px;
   font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
@@ -936,6 +997,7 @@
 .ofv-ofd-pages {
   display: grid;
   gap: 18px;
+  min-width: 0;
   margin: 12px 0;
 }
 
@@ -946,6 +1008,7 @@
 .ofv-ofd-page svg {
   display: block;
   width: min(100%, 760px);
+  max-width: 100%;
   max-height: 760px;
   border: 1px solid var(--ofv-border);
   border-radius: 6px;
@@ -962,7 +1025,9 @@
 .ofv-model-stage {
   position: relative;
   width: 100%;
+  max-width: 100%;
   height: 100%;
+  min-width: 0;
   min-height: 360px;
   background: var(--ofv-bg);
 }
@@ -993,7 +1058,8 @@
   z-index: 1;
   top: 12px;
   right: 12px;
-  min-width: 180px;
+  width: max-content;
+  min-width: min(180px, calc(100% - 24px));
   max-width: min(260px, calc(100% - 24px));
   padding: 10px 12px;
   border: 1px solid var(--ofv-border);
@@ -1008,7 +1074,8 @@
   z-index: 1;
   top: 190px;
   right: 12px;
-  min-width: 180px;
+  width: max-content;
+  min-width: min(180px, calc(100% - 24px));
   max-width: min(260px, calc(100% - 24px));
   padding: 10px 12px;
   border: 1px solid var(--ofv-border);
@@ -1080,15 +1147,20 @@
 /* Archive / Zip layout styling */
 .ofv-archive-layout {
   display: flex;
+  flex-wrap: wrap;
   width: 100%;
+  max-width: 100%;
   height: 100%;
+  min-width: 0;
   background: var(--ofv-surface);
   min-height: 360px;
 }
 
 .ofv-archive-sidebar {
   width: 320px;
-  flex: 0 0 320px;
+  flex: 1 1 220px;
+  min-width: 0;
+  max-width: 100%;
   border-right: 1px solid var(--ofv-border);
   display: flex;
   flex-direction: column;
@@ -1106,11 +1178,13 @@
 
 .ofv-archive-tree {
   flex: 1;
-  overflow-y: auto;
+  min-width: 0;
+  overflow: auto;
 }
 
 .ofv-archive-main {
   flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   overflow: auto;
@@ -1195,6 +1269,8 @@
   display: flex;
   flex-direction: column;
   justify-content: center;
+  width: 100%;
+  min-width: 0;
   padding: 40px;
   color: var(--ofv-text);
   max-width: 600px;
@@ -1220,6 +1296,7 @@
   margin-top: 12px;
   display: flex;
   flex-wrap: wrap;
+  min-width: 0;
   gap: 8px;
 }
 
@@ -1227,6 +1304,8 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+  max-width: 100%;
   padding: 6px 12px;
   background: var(--ofv-surface-muted);
   border: 1px solid var(--ofv-border);
@@ -1244,6 +1323,7 @@
 
 .ofv-email-body-iframe {
   width: 100%;
+  max-width: 100%;
   border: none;
   border-radius: 4px;
   background: #ffffff;
@@ -1253,7 +1333,9 @@
 /* GIS / Map Visualization Styles */
 .ofv-map-stage {
   width: 100%;
+  max-width: 100%;
   height: 100%;
+  min-width: 0;
   position: relative;
   background: var(--ofv-bg);
   min-height: 360px;
@@ -1279,6 +1361,7 @@
 .ofv-map-popup {
   font-family: inherit;
   color: var(--ofv-text);
+  min-width: 0;
   max-width: 280px;
 }
 
@@ -1322,7 +1405,9 @@
   display: flex;
   flex-direction: column;
   width: 100%;
+  max-width: 100%;
   height: 100%;
+  min-width: 0;
   min-height: 0;
   overflow: hidden;
   background: var(--ofv-surface);
@@ -1331,10 +1416,12 @@
 .ofv-code-header {
   display: flex;
   flex: 0 0 auto;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   min-height: 54px;
+  min-width: 0;
   padding: 10px 14px;
   border-bottom: 1px solid var(--ofv-border);
   background: var(--ofv-surface);
@@ -1365,13 +1452,14 @@
 .ofv-code-actions {
   display: flex;
   flex: 0 0 auto;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
 }
 
 .ofv-code-status {
-  min-width: 74px;
+  min-width: min(74px, 100%);
   text-align: right;
 }
 
@@ -1420,6 +1508,8 @@
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   flex: 1 1 auto;
+  max-width: 100%;
+  min-width: 0;
   min-height: 0;
   overflow: auto;
   background: var(--ofv-surface-muted);
@@ -1427,6 +1517,8 @@
 
 .ofv-code-editor {
   flex: 1 1 auto;
+  max-width: 100%;
+  min-width: 0;
   min-height: 280px;
   overflow: hidden;
   background: var(--ofv-surface-muted);
@@ -1479,6 +1571,7 @@
 .ofv-code-container pre {
   margin: 0;
   padding: 18px 20px;
+  max-width: 100%;
   min-width: max-content;
   background: transparent !important;
   font-family: var(--ofv-font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
@@ -1531,8 +1624,10 @@
 /* Markdown container styling */
 .ofv-markdown-body {
   width: 100%;
+  max-width: 100%;
   height: 100%;
-  overflow-y: auto;
+  min-width: 0;
+  overflow: auto;
   padding: 32px;
   box-sizing: border-box;
   background: var(--ofv-surface);
@@ -1629,6 +1724,7 @@
 }
 
 .ofv-markdown-body pre {
+  max-width: 100%;
   padding: 16px;
   overflow: auto;
   font-size: 85%;
@@ -1662,7 +1758,10 @@
 .ofv-markdown-body table {
   border-spacing: 0;
   border-collapse: collapse;
-  width: 100%;
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow: auto;
 }
 
 .ofv-markdown-body table th,

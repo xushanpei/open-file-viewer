@@ -260,6 +260,37 @@ describe("model3dPlugin", () => {
     viewer.destroy();
   });
 
+  it("routes USD and VRML formats to the 3D placeholder renderer", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const objectUrl = "blob:ofv-usdz";
+    vi.stubGlobal("URL", {
+      ...URL,
+      createObjectURL: vi.fn(() => objectUrl),
+      revokeObjectURL: vi.fn()
+    });
+    vi.stubGlobal(
+      "requestAnimationFrame",
+      vi.fn(() => 1)
+    );
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
+
+    const viewer = createViewer({
+      container,
+      file: new Blob(["usd"], { type: "model/vnd.usdz+zip" }),
+      fileName: "scene.usdz",
+      plugins: [model3dPlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-model-stage")));
+
+    expect(container.querySelector(".ofv-model-message")?.textContent).toContain(".usdz");
+    expect(container.querySelector(".ofv-model-measure")?.textContent).toContain("模型测量");
+
+    viewer.destroy();
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith(objectUrl);
+  });
+
   it("falls back to a download panel when WebGL is unavailable", async () => {
     const container = document.createElement("div");
     document.body.append(container);

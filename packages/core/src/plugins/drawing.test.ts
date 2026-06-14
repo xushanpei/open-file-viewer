@@ -34,6 +34,24 @@ describe("drawingPlugin", () => {
     expect(svg?.querySelector("text")?.textContent).toBe("Hello");
   });
 
+  it("uses alternate Excalidraw MIME type to render extensionless blobs", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const data = {
+      elements: [{ type: "rectangle", x: 10, y: 20, width: 120, height: 60, strokeColor: "#111111" }]
+    };
+
+    createViewer({
+      container,
+      file: new Blob([JSON.stringify(data)], { type: "application/x-excalidraw+json" }),
+      plugins: [drawingPlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-svg-stage")));
+
+    expect(container.querySelector(".ofv-svg-stage rect")).not.toBeNull();
+  });
+
   it("preserves common Excalidraw styles and freehand paths", async () => {
     const container = document.createElement("div");
     document.body.append(container);

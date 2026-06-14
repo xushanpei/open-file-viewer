@@ -1,6 +1,7 @@
 import {
   audioPlugin,
   archivePlugin,
+  assetPlugin,
   cadPlugin,
   createViewer,
   drawingPlugin,
@@ -69,6 +70,7 @@ function render() {
       cadPlugin(),
       model3dPlugin(),
       gisPlugin(),
+      assetPlugin(),
       textPlugin()
     ],
     onError(error) {

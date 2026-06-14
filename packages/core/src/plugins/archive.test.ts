@@ -55,6 +55,48 @@ describe("archivePlugin", () => {
     expect(container.querySelector(".custom-preview")?.textContent).toBe("readme.custom:10:true");
   });
 
+  it("uses shared MIME inference for archive entry previews", async () => {
+    const zip = new JSZip();
+    zip.file("assets/photo.heic", "heic");
+    zip.file("cad/plan.dwg", "AC1027\0\0DWGDATA");
+    const buffer = await zip.generateAsync({ type: "arraybuffer" });
+
+    const render = vi.fn((ctx) => {
+      const result = document.createElement("div");
+      result.className = "metadata-preview";
+      result.textContent = `${ctx.file.name}:${ctx.file.extension}:${ctx.file.mimeType}:${ctx.file.blob instanceof Blob}`;
+      ctx.viewport.append(result);
+      return { destroy: vi.fn() };
+    });
+
+    const metadataPlugin: PreviewPlugin = {
+      name: "metadata",
+      match: (file) => file.extension === "heic" || file.extension === "dwg",
+      render
+    };
+
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    createViewer({
+      container,
+      file: buffer,
+      fileName: "bundle.zip",
+      plugins: [archivePlugin(), metadataPlugin]
+    });
+
+    await waitFor(() => container.querySelectorAll(".ofv-archive-item").length === 2);
+    const items = Array.from(container.querySelectorAll<HTMLButtonElement>(".ofv-archive-item"));
+
+    items[0].click();
+    await waitFor(() => render.mock.calls.length === 1);
+    expect(container.querySelector(".metadata-preview")?.textContent).toBe("photo.heic:heic:image/heic:true");
+
+    items[1].click();
+    await waitFor(() => render.mock.calls.length === 2);
+    expect(container.querySelector(".metadata-preview")?.textContent).toBe("plan.dwg:dwg:application/acad:true");
+  });
+
   it("uses MIME type to parse extensionless zip blobs", async () => {
     const zip = new JSZip();
     zip.file("readme.txt", "hello");

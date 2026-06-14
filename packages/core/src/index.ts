@@ -14,6 +14,7 @@ export { drawingPlugin } from "./plugins/drawing";
 export { cadPlugin } from "./plugins/cad";
 export { model3dPlugin } from "./plugins/model3d";
 export { gisPlugin } from "./plugins/gis";
+export { assetPlugin } from "./plugins/asset";
 export { fallbackPlugin } from "./plugins/fallback";
 export type {
   FileViewer,

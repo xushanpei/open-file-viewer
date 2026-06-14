@@ -1,6 +1,7 @@
 import { createApp, h, ref } from "vue";
 import {
   archivePlugin,
+  assetPlugin,
   audioPlugin,
   cadPlugin,
   drawingPlugin,
@@ -46,6 +47,7 @@ const App = {
       cadPlugin(),
       model3dPlugin(),
       gisPlugin(),
+      assetPlugin(),
       textPlugin()
     ];
 

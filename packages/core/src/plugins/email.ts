@@ -80,7 +80,7 @@ export function emailPlugin(): PreviewPlugin {
                 const fullAtt = reader.getAttachment(att);
                 attachments.push({
                   name: fullAtt.fileName || "未命名附件",
-                  mimeType: getMimeType(fullAtt.fileName),
+                  mimeType: getAttachmentMimeType(fullAtt, att),
                   content: fullAtt.content,
                   contentId: att.pidContentId
                 });
@@ -312,6 +312,38 @@ function getAttachmentObjectUrl(
   cache.set(attachment, url);
   urlsToRevoke.push(url);
   return url;
+}
+
+function getAttachmentMimeType(fullAttachment: unknown, attachmentMeta?: unknown): string {
+  const candidates = [fullAttachment, attachmentMeta];
+  for (const candidate of candidates) {
+    if (!candidate || typeof candidate !== "object") {
+      continue;
+    }
+    const record = candidate as Record<string, unknown>;
+    const explicitMime =
+      normalizeMimeValue(record.attachMimeTag) ||
+      normalizeMimeValue(record.mimeType) ||
+      normalizeMimeValue(record.contentType) ||
+      normalizeMimeValue(record.mime) ||
+      normalizeMimeValue(record["content-type"]);
+    if (explicitMime) {
+      return explicitMime;
+    }
+  }
+
+  const fileName =
+    (fullAttachment && typeof fullAttachment === "object" ? (fullAttachment as { fileName?: unknown }).fileName : undefined) ||
+    (attachmentMeta && typeof attachmentMeta === "object" ? (attachmentMeta as { fileName?: unknown }).fileName : undefined);
+  return getMimeType(typeof fileName === "string" ? fileName : "");
+}
+
+function normalizeMimeValue(value: unknown): string {
+  if (typeof value !== "string") {
+    return "";
+  }
+  const mimeType = value.split(";")[0]?.trim().toLowerCase() || "";
+  return mimeType.includes("/") ? mimeType : "";
 }
 
 function replaceCidResourceUrls(html: string, contentId: string, blobUrl: string): string {

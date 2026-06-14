@@ -240,6 +240,37 @@ describe("media plugins", () => {
     expect(mpegtsDestroy).toHaveBeenCalledTimes(1);
   });
 
+  it("routes .m2ts files through mpegts.js even when MIME is generic", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const objectUrl = "blob:ofv-m2ts";
+    vi.stubGlobal("URL", {
+      ...URL,
+      createObjectURL: vi.fn(() => objectUrl),
+      revokeObjectURL: vi.fn()
+    });
+    mpegtsCreatePlayer.mockReturnValue({
+      attachMediaElement: mpegtsAttachMedia,
+      load: mpegtsLoad,
+      unload: mpegtsUnload,
+      destroy: mpegtsDestroy,
+      on: mpegtsOn
+    });
+
+    const viewer = createViewer({
+      container,
+      file: new Blob(["m2ts"], { type: "application/octet-stream" }),
+      fileName: "camera.m2ts",
+      plugins: [videoPlugin()]
+    });
+
+    await waitFor(() => mpegtsCreatePlayer.mock.calls.length > 0);
+
+    expect(mpegtsCreatePlayer).toHaveBeenCalledWith({ type: "mpegts", url: objectUrl });
+
+    viewer.destroy();
+  });
+
   it("shows a download fallback for DASH manifests without a built-in DASH player", async () => {
     const container = document.createElement("div");
     document.body.append(container);

@@ -40,15 +40,45 @@ describe("imagePlugin", () => {
 
     expect(zoomIn?.disabled).toBe(false);
     expect(rotate?.disabled).toBe(false);
+    expect(container.querySelector(".ofv-image-controls")).toBeNull();
     zoomIn?.click();
+    rotate?.click();
+    rotate?.click();
+    rotate?.click();
+    rotate?.click();
     rotate?.click();
 
     const image = container.querySelector<HTMLImageElement>(".ofv-image-content");
     expect(image?.style.transform).toContain("scale(1.25)");
-    expect(image?.style.transform).toContain("rotate(90deg)");
+    expect(image?.style.transform).toContain("rotate(450deg)");
 
     viewer.destroy();
     expect(URL.revokeObjectURL).toHaveBeenCalledWith(objectUrl);
+  });
+
+  it("renders inline image controls only when the shared toolbar is disabled", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    vi.stubGlobal("URL", {
+      ...URL,
+      createObjectURL: vi.fn(() => "blob:inline-controls-image"),
+      revokeObjectURL: vi.fn()
+    });
+
+    const viewer = createViewer({
+      container,
+      file: new Blob(["<svg></svg>"], { type: "image/svg+xml" }),
+      fileName: "image.svg",
+      plugins: [imagePlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-image-content")));
+
+    expect(container.querySelector(".ofv-toolbar")).toBeNull();
+    expect(container.querySelector(".ofv-image-controls")).not.toBeNull();
+
+    viewer.destroy();
   });
 
   it("converts HEIC images to a browser-displayable object URL", async () => {
@@ -67,6 +97,68 @@ describe("imagePlugin", () => {
       container,
       file: new Blob(["heic"], { type: "image/heic" }),
       fileName: "photo.heic",
+      plugins: [imagePlugin()]
+    });
+
+    await waitFor(() => container.querySelector<HTMLImageElement>(".ofv-image-content")?.src === "blob:converted-heic");
+
+    expect(heic2anyMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        blob: expect.any(Blob),
+        toType: "image/jpeg"
+      })
+    );
+
+    viewer.destroy();
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:converted-heic");
+  });
+
+  it("converts extensionless HEIC blobs based on their MIME type", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    const convertedBlob = new Blob(["jpeg"], { type: "image/jpeg" });
+    heic2anyMock.mockResolvedValue(convertedBlob);
+    vi.stubGlobal("URL", {
+      ...URL,
+      createObjectURL: vi.fn((blob: Blob) => (blob === convertedBlob ? "blob:converted-heic" : "blob:raw-heic")),
+      revokeObjectURL: vi.fn()
+    });
+
+    const viewer = createViewer({
+      container,
+      file: new Blob(["heic"], { type: "image/heic" }),
+      plugins: [imagePlugin()]
+    });
+
+    await waitFor(() => container.querySelector<HTMLImageElement>(".ofv-image-content")?.src === "blob:converted-heic");
+
+    expect(heic2anyMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        blob: expect.any(Blob),
+        toType: "image/jpeg"
+      })
+    );
+
+    viewer.destroy();
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:converted-heic");
+  });
+
+  it.each(["image/heic-sequence", "image/heif-sequence"])("converts extensionless %s blobs", async (mimeType) => {
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    const convertedBlob = new Blob(["jpeg"], { type: "image/jpeg" });
+    heic2anyMock.mockResolvedValue(convertedBlob);
+    vi.stubGlobal("URL", {
+      ...URL,
+      createObjectURL: vi.fn((blob: Blob) => (blob === convertedBlob ? "blob:converted-heic" : "blob:raw-heic")),
+      revokeObjectURL: vi.fn()
+    });
+
+    const viewer = createViewer({
+      container,
+      file: new Blob(["heic"], { type: mimeType }),
       plugins: [imagePlugin()]
     });
 

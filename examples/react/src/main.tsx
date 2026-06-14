@@ -1,5 +1,6 @@
 import {
   archivePlugin,
+  assetPlugin,
   audioPlugin,
   cadPlugin,
   drawingPlugin,
@@ -46,6 +47,7 @@ function App() {
       cadPlugin(),
       model3dPlugin(),
       gisPlugin(),
+      assetPlugin(),
       textPlugin()
     ],
     []

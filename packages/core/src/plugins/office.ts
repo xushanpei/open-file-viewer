@@ -19,6 +19,8 @@ const officeMimeTypes = new Set([
   "application/vnd.openxmlformats-officedocument.wordprocessingml.template",
   "application/vnd.ms-word.template.macroenabled.12",
   "application/vnd.oasis.opendocument.text",
+  "application/vnd.oasis.opendocument.text-flat-xml",
+  "application/vnd.ms-works",
   "application/vnd.ms-excel",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.template",
@@ -26,6 +28,8 @@ const officeMimeTypes = new Set([
   "application/vnd.ms-excel.sheet.binary.macroenabled.12",
   "application/vnd.ms-excel.template.macroenabled.12",
   "application/vnd.oasis.opendocument.spreadsheet",
+  "application/vnd.oasis.opendocument.spreadsheet-flat-xml",
+  "application/vnd.apple.numbers",
   "application/vnd.ms-powerpoint",
   "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   "application/vnd.ms-powerpoint.presentation.macroenabled.12",
@@ -33,7 +37,9 @@ const officeMimeTypes = new Set([
   "application/vnd.ms-powerpoint.slideshow.macroenabled.12",
   "application/vnd.openxmlformats-officedocument.presentationml.template",
   "application/vnd.ms-powerpoint.template.macroenabled.12",
-  "application/vnd.oasis.opendocument.presentation"
+  "application/vnd.oasis.opendocument.presentation",
+  "application/vnd.oasis.opendocument.presentation-flat-xml",
+  "application/vnd.apple.keynote"
 ]);
 const officeMimeFormatMap: Record<string, string> = {
   "application/msword": "doc",
@@ -43,6 +49,8 @@ const officeMimeFormatMap: Record<string, string> = {
   "application/vnd.openxmlformats-officedocument.wordprocessingml.template": "dotx",
   "application/vnd.ms-word.template.macroenabled.12": "dotm",
   "application/vnd.oasis.opendocument.text": "odt",
+  "application/vnd.oasis.opendocument.text-flat-xml": "fodt",
+  "application/vnd.ms-works": "wps",
   "application/vnd.ms-excel": "xls",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.template": "xltx",
@@ -50,6 +58,8 @@ const officeMimeFormatMap: Record<string, string> = {
   "application/vnd.ms-excel.sheet.binary.macroenabled.12": "xlsb",
   "application/vnd.ms-excel.template.macroenabled.12": "xltm",
   "application/vnd.oasis.opendocument.spreadsheet": "ods",
+  "application/vnd.oasis.opendocument.spreadsheet-flat-xml": "fods",
+  "application/vnd.apple.numbers": "numbers",
   "application/vnd.ms-powerpoint": "ppt",
   "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
   "application/vnd.ms-powerpoint.presentation.macroenabled.12": "pptm",
@@ -57,7 +67,9 @@ const officeMimeFormatMap: Record<string, string> = {
   "application/vnd.ms-powerpoint.slideshow.macroenabled.12": "ppsm",
   "application/vnd.openxmlformats-officedocument.presentationml.template": "potx",
   "application/vnd.ms-powerpoint.template.macroenabled.12": "potm",
-  "application/vnd.oasis.opendocument.presentation": "odp"
+  "application/vnd.oasis.opendocument.presentation": "odp",
+  "application/vnd.oasis.opendocument.presentation-flat-xml": "fodp",
+  "application/vnd.apple.keynote": "key"
 };
 
 type PresentationSlideInsight = {
@@ -178,11 +190,6 @@ async function renderDocx(panel: HTMLElement, arrayBuffer: ArrayBuffer): Promise
     console.warn("DOCX layout preview failed, fell back to Mammoth:", error);
   }
 
-  try {
-    await renderDocxSupplements(panel, arrayBuffer);
-  } catch (error) {
-    console.warn("DOCX supplemental content extraction failed:", error);
-  }
 }
 
 async function renderDocxTextFallback(container: HTMLElement, arrayBuffer: ArrayBuffer): Promise<void> {
@@ -244,38 +251,6 @@ async function renderDocxWithMammoth(container: HTMLElement, arrayBuffer: ArrayB
   }
 }
 
-async function renderDocxSupplements(panel: HTMLElement, arrayBuffer: ArrayBuffer): Promise<void> {
-  const zip = await JSZip.loadAsync(arrayBuffer);
-  await Promise.all([
-    renderDocxSupplement(panel, zip, /^word\/header\d*\.xml$/, "页眉"),
-    renderDocxSupplement(panel, zip, /^word\/footer\d*\.xml$/, "页脚"),
-    renderDocxSupplement(panel, zip, /^word\/comments\d*\.xml$/, "批注")
-  ]);
-}
-
-async function renderDocxSupplement(
-  panel: HTMLElement,
-  zip: JSZip,
-  pattern: RegExp,
-  title: string
-): Promise<void> {
-  const entries = Object.values(zip.files).filter((entry) => pattern.test(entry.name));
-  const fragments: string[] = [];
-  for (const entry of entries) {
-    const xml = await entry.async("text");
-    fragments.push(...extractOpenXmlText(xml));
-  }
-  if (fragments.length === 0) {
-    return;
-  }
-  const section = createSection(`Word ${title}`);
-  const content = document.createElement("div");
-  content.className = "ofv-document-extra";
-  content.textContent = fragments.join("\n");
-  section.append(content);
-  panel.append(section);
-}
-
 async function renderOdt(panel: HTMLElement, arrayBuffer: ArrayBuffer): Promise<void> {
   const zip = await JSZip.loadAsync(arrayBuffer);
   const content = zip.file("content.xml");
@@ -321,7 +296,13 @@ async function renderSheet(
   extension: string
 ): Promise<void> {
   const xlsx = await import("xlsx");
-  const workbook = xlsx.read(arrayBuffer, { type: "array" }) as WorkBook;
+  let workbook: WorkBook;
+  try {
+    workbook = xlsx.read(arrayBuffer, { type: "array" }) as WorkBook;
+  } catch (error) {
+    renderSheetFallback(panel, extension, normalizeOfficeError(error));
+    return;
+  }
   const chartPreviews = await readWorkbookCharts(arrayBuffer).catch(() => []);
   const tabs = document.createElement("div");
   tabs.className = "ofv-tabs";
@@ -422,6 +403,18 @@ async function renderSheet(
   if (chartPreviews.length > 0) {
     panel.append(renderChartPreviewSection(chartPreviews));
   }
+}
+
+function renderSheetFallback(panel: HTMLElement, extension: string, detail: string): void {
+  const section = createSection("表格解析失败");
+  const title = document.createElement("p");
+  title.textContent = `.${extension || "sheet"} 文件无法解析为可预览表格。`;
+  const meta = document.createElement("p");
+  meta.textContent = detail;
+  const support = document.createElement("p");
+  support.textContent = "请确认文件未加密、未损坏，或先转换为 XLSX/CSV/ODS 后再预览。";
+  section.append(title, meta, support);
+  panel.append(section);
 }
 
 type ChartPreview = {
@@ -1345,9 +1338,15 @@ function inspectOpenDocumentPresentation(title: string, xml: string, totalImages
 }
 
 async function renderPresentationInsight(panel: HTMLElement, insight: PresentationInsight): Promise<void> {
-  const section = createSection("演示文稿结构");
   const summary = document.createElement("div");
   summary.className = "ofv-presentation-summary";
+  summary.hidden = true;
+  summary.setAttribute("aria-hidden", "true");
+  summary.dataset.slideCount = String(insight.slideCount);
+  summary.dataset.imageCount = String(insight.imageCount);
+  summary.dataset.notesCount = String(insight.notesCount);
+  summary.dataset.transitionCount = String(insight.transitionCount);
+  summary.dataset.animationCount = String(insight.animationCount);
   const stats = [
     `${insight.slideCount} 页`,
     `${insight.layouts.length || 0} 种布局`,
@@ -1361,36 +1360,7 @@ async function renderPresentationInsight(panel: HTMLElement, insight: Presentati
   if (insight.layouts.length > 0) {
     summary.append(createPresentationMetric("布局", insight.layouts.join("、")));
   }
-
-  const list = document.createElement("ol");
-  list.className = "ofv-presentation-slides";
-  for (const [index, slide] of insight.slides.entries()) {
-    const item = document.createElement("li");
-    const title = document.createElement("strong");
-    title.textContent = `${index + 1}. ${slide.title}`;
-    const meta = document.createElement("span");
-    meta.textContent = [
-      slide.layout ? `布局 ${slide.layout}` : "未标注布局",
-      `${slide.textCount} 段文本`,
-      `${slide.imageCount} 张图片`,
-      slide.notesCount > 0 ? `${slide.notesCount} 条备注` : "",
-      slide.hasTransition ? "含切换" : "",
-      slide.animationCount > 0 ? `${slide.animationCount} 个动画` : ""
-    ]
-      .filter(Boolean)
-      .join(" · ");
-    item.append(title, meta);
-    if (slide.sampleTexts.length > 1) {
-      const sample = document.createElement("p");
-      sample.textContent = slide.sampleTexts.slice(1).join(" / ");
-      item.append(sample);
-    }
-    list.append(item);
-  }
-
-  summary.append(list);
-  section.append(summary);
-  panel.append(section);
+  panel.append(summary);
 }
 
 function createPresentationMetric(label: string, value: string): HTMLElement {
@@ -1558,6 +1528,11 @@ function renderUnsupportedOffice(panel: HTMLElement, extension: string): void {
 
   section.append(format, support);
   panel.append(section);
+}
+
+function normalizeOfficeError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error || "");
+  return message ? `解析器返回：${message}` : "解析器未返回具体错误信息。";
 }
 
 function extractLegacyOfficeText(arrayBuffer: ArrayBuffer): string[] {

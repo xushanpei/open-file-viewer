@@ -3,6 +3,15 @@
   "version": "0.1.0",
   "description": "React adapter for Open File Viewer.",
   "type": "module",
+  "homepage": "https://xushanpei.github.io/open-file-viewer/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xushanpei/open-file-viewer.git",
+    "directory": "packages/react"
+  },
+  "bugs": {
+    "url": "https://github.com/xushanpei/open-file-viewer/issues"
+  },
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",

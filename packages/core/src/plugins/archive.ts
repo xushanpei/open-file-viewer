@@ -1,6 +1,7 @@
 import JSZip from "jszip";
 import pako from "pako";
 import type { PreviewPlugin, PreviewFile } from "../types";
+import { normalizeFile } from "../detect";
 import { fallbackPlugin } from "./fallback";
 import { createObjectUrl, revokeObjectUrl } from "../dom";
 import { appendMeta, createPanel, createSection, readArrayBuffer, resolveFormat } from "./utils";
@@ -271,7 +272,6 @@ export function archivePlugin(): PreviewPlugin {
             }
             const subName = entry.name.split("/").pop() || entry.name;
             const subExt = subName.split(".").pop()?.toLowerCase() || "";
-            const subMime = getMimeType(subName);
 
             // Shapefile components linkage mechanism:
             // Combine adjacent .dbf, .shx, and .prj files into a single ZIP buffer in memory
@@ -310,15 +310,7 @@ export function archivePlugin(): PreviewPlugin {
             subViewport.style.cssText = "flex: 1; width: 100%; height: 100%; position: relative; overflow: auto;";
             subContainer.append(subViewport);
 
-            const blob = new Blob([buffer], { type: subMime });
-            const subFile: PreviewFile = {
-              source: buffer,
-              name: subName,
-              extension: subExt,
-              mimeType: subMime,
-              size: buffer.byteLength,
-              blob
-            };
+            const subFile: PreviewFile = await normalizeFile(buffer, subName);
 
             const plugins = [...(ctx.options.plugins || []), fallbackPlugin()];
             let matchedPlugin = await findSubPreviewPlugin(plugins, subFile);
@@ -526,33 +518,5 @@ function getIcon(name: string, dir: boolean): string {
       return "📄";
     default:
       return "📄";
-  }
-}
-
-function getMimeType(name: string): string {
-  const ext = name.split(".").pop()?.toLowerCase();
-  switch (ext) {
-    case "png": return "image/png";
-    case "jpg":
-    case "jpeg": return "image/jpeg";
-    case "gif": return "image/gif";
-    case "svg": return "image/svg+xml";
-    case "webp": return "image/webp";
-    case "pdf": return "application/pdf";
-    case "docx": return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-    case "xlsx": return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-    case "pptx": return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
-    case "txt": return "text/plain";
-    case "md": return "text/markdown";
-    case "html": return "text/html";
-    case "js": return "application/javascript";
-    case "ts": return "application/typescript";
-    case "json": return "application/json";
-    case "css": return "text/css";
-    case "mp4": return "video/mp4";
-    case "webm": return "video/webm";
-    case "mp3": return "audio/mpeg";
-    case "wav": return "audio/wav";
-    default: return "application/octet-stream";
   }
 }

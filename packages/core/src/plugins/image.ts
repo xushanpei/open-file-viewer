@@ -5,29 +5,40 @@ import type { PreviewPlugin, PreviewSize } from "../types";
 const imageExtensions = new Set([
   "jpg",
   "jpeg",
+  "jfif",
+  "pjpe",
+  "pjpeg",
   "png",
   "gif",
   "webp",
   "avif",
+  "jxl",
   "svg",
   "bmp",
   "ico",
+  "cur",
   "tif",
   "tiff",
   "apng",
   "heic",
   "heif"
 ]);
+const nonRasterImageExtensions = new Set(["dxf"]);
+const nonRasterImageMimeTypes = new Set(["image/vnd.dxf", "image/vnd.adobe.photoshop"]);
+const heicMimeTypes = new Set(["image/heic", "image/heif", "image/heic-sequence", "image/heif-sequence"]);
 
 export function imagePlugin(): PreviewPlugin {
   return {
     name: "image",
     match(file) {
+      if (nonRasterImageExtensions.has(file.extension) || nonRasterImageMimeTypes.has(file.mimeType)) {
+        return false;
+      }
       return file.mimeType.startsWith("image/") || imageExtensions.has(file.extension);
     },
     async render(ctx) {
       const ext = ctx.file.extension.toLowerCase();
-      const isHeic = ext === "heic" || ext === "heif";
+      const isHeic = ext === "heic" || ext === "heif" || heicMimeTypes.has(ctx.file.mimeType.toLowerCase());
 
       let url = "";
       let convertedBlob: Blob | null = null;
@@ -74,6 +85,7 @@ export function imagePlugin(): PreviewPlugin {
       const wrapper = document.createElement("div");
       wrapper.className = "ofv-image-viewer";
 
+      const showInlineControls = !ctx.options.toolbar;
       const controls = document.createElement("div");
       controls.className = "ofv-image-controls";
 
@@ -133,16 +145,20 @@ export function imagePlugin(): PreviewPlugin {
         return () => button.removeEventListener("click", action);
       };
 
-      const disposers = [
-        addButton("-", "Zoom out", () => setScale(scale - 0.25)),
-        addButton("+", "Zoom in", () => setScale(scale + 0.25)),
-        addButton("Rotate", "Rotate image", () => {
-          rotation = (rotation + 90) % 360;
-          updateTransform();
-        }),
-        addButton("Reset", "Reset image view", reset)
-      ];
-      controls.append(zoomLabel);
+      const disposers = showInlineControls
+        ? [
+            addButton("-", "Zoom out", () => setScale(scale - 0.25)),
+            addButton("+", "Zoom in", () => setScale(scale + 0.25)),
+            addButton("Rotate", "Rotate image", () => {
+              rotation += 90;
+              updateTransform();
+            }),
+            addButton("Reset", "Reset image view", reset)
+          ]
+        : [];
+      if (showInlineControls) {
+        controls.append(zoomLabel);
+      }
 
       const onPointerDown = (event: PointerEvent) => {
         if (event.button !== 0) {
@@ -190,7 +206,7 @@ export function imagePlugin(): PreviewPlugin {
       image.addEventListener("error", showImageFallback);
 
       stage.append(image);
-      wrapper.append(controls, stage);
+      wrapper.append(...(showInlineControls ? [controls, stage] : [stage]));
       ctx.viewport.append(wrapper);
       updateTransform();
 
@@ -218,12 +234,12 @@ export function imagePlugin(): PreviewPlugin {
             return true;
           }
           if (command === "rotate-right") {
-            rotation = (rotation + 90) % 360;
+            rotation += 90;
             updateTransform();
             return true;
           }
           if (command === "rotate-left") {
-            rotation = (rotation - 90) % 360;
+            rotation -= 90;
             updateTransform();
             return true;
           }

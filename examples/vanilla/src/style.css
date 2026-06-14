@@ -1,3 +1,9 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 body {
   margin: 0;
   background: #e5e7eb;
@@ -10,6 +16,8 @@ body {
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr);
   gap: 20px;
+  width: 100%;
+  min-width: 0;
   min-height: 100vh;
   padding: 20px;
 }
@@ -18,6 +26,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  min-width: 0;
 }
 
 .demo-panel h1 {
@@ -50,6 +59,7 @@ body {
 
 #viewer {
   width: 100%;
+  min-width: 0;
   height: 620px;
 }
 

@@ -4,6 +4,9 @@ import type { PreviewPlugin } from "../types";
 const audioExtensions = new Set([
   "mp3",
   "wav",
+  "aif",
+  "aiff",
+  "aifc",
   "ogg",
   "oga",
   "aac",
@@ -12,6 +15,11 @@ const audioExtensions = new Set([
   "opus",
   "weba",
   "amr",
+  "mid",
+  "midi",
+  "caf",
+  "au",
+  "snd",
   "wma"
 ]);
 

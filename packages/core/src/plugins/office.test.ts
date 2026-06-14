@@ -102,6 +102,28 @@ describe("officePlugin", () => {
     expect(container.querySelector(".ofv-formula-list")?.textContent).toContain("B4: =SUM(B2:B3)");
   });
 
+  it("keeps invalid workbook parsing failures local to the Office panel", async () => {
+    const container = document.createElement("div");
+    const onError = vi.fn();
+    document.body.append(container);
+
+    createViewer({
+      container,
+      file: new Blob([Uint8Array.from([0x50, 0x4b, 0x03, 0x04, 0x00])], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      }),
+      fileName: "broken.xlsx",
+      plugins: [officePlugin()],
+      onError
+    });
+
+    await waitFor(() => container.textContent?.includes("表格解析失败") === true);
+
+    expect(container.querySelector(".ofv-office")?.textContent).toContain(".xlsx 文件无法解析");
+    expect(container.querySelector(".ofv-status")?.textContent).toBe("");
+    expect(onError).not.toHaveBeenCalled();
+  });
+
   it("uses stable sheet table ids for sheet names with special characters", async () => {
     const xlsx = await import("xlsx");
     const workbook = xlsx.utils.book_new();
@@ -242,7 +264,7 @@ describe("officePlugin", () => {
     expect(container.querySelector(".ofv-docx-document")?.textContent).toContain("DOCX layout page");
   });
 
-  it("keeps the DOCX layout preview when supplemental extraction fails", async () => {
+  it("keeps the DOCX layout preview without rendering supplemental footer code", async () => {
     const container = document.createElement("div");
     const onError = vi.fn();
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
@@ -250,9 +272,7 @@ describe("officePlugin", () => {
 
     createViewer({
       container,
-      file: new Blob(["not a zip"], {
-        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-      }),
+      file: await createMinimalDocx("Body paragraph", "Footer field code"),
       fileName: "letter.docx",
       plugins: [officePlugin()],
       onError
@@ -261,6 +281,8 @@ describe("officePlugin", () => {
     await waitFor(() => Boolean(container.querySelector(".ofv-docx-document")));
 
     expect(container.querySelector(".ofv-docx-document")?.textContent).toContain("DOCX layout page");
+    expect(container.querySelector(".ofv-document-extra")).toBeNull();
+    expect(container.textContent).not.toContain("Footer field code");
     expect(onError).not.toHaveBeenCalled();
   });
 
@@ -358,15 +380,14 @@ describe("officePlugin", () => {
     await waitFor(() => Boolean(container.querySelector(".ofv-presentation-summary")));
 
     expect(openPptx).toHaveBeenCalledTimes(1);
-    expect(container.querySelector(".ofv-presentation-summary")?.textContent).toContain("PPTX 演示文稿结构");
-    expect(container.querySelector(".ofv-presentation-summary")?.textContent).toContain("1 页");
-    expect(container.querySelector(".ofv-presentation-summary")?.textContent).toContain("Title Slide");
-    expect(container.querySelector(".ofv-presentation-summary")?.textContent).toContain("1 张图片");
-    expect(container.querySelector(".ofv-presentation-summary")?.textContent).toContain("1 条备注");
-    expect(container.querySelector(".ofv-presentation-summary")?.textContent).toContain("1 页切换");
-    expect(container.querySelector(".ofv-presentation-summary")?.textContent).toContain("1 个动画标记");
-    expect(container.querySelector(".ofv-presentation-slides li")?.textContent).toContain("Quarter Plan");
-    expect(container.querySelector(".ofv-presentation-slides li")?.textContent).toContain("含切换");
+    const summary = container.querySelector<HTMLElement>(".ofv-presentation-summary");
+    expect(summary?.hidden).toBe(true);
+    expect(summary?.dataset.slideCount).toBe("1");
+    expect(summary?.dataset.imageCount).toBe("1");
+    expect(summary?.dataset.notesCount).toBe("1");
+    expect(summary?.dataset.transitionCount).toBe("1");
+    expect(summary?.dataset.animationCount).toBe("1");
+    expect(container.querySelector(".ofv-presentation-slides")).toBeNull();
     expect(container.querySelector(".ofv-pptx-viewer")?.textContent).toContain("PPTX rendered");
   });
 
@@ -383,12 +404,12 @@ describe("officePlugin", () => {
 
     await waitFor(() => Boolean(container.querySelector(".ofv-presentation-summary")));
 
-    expect(container.querySelector(".ofv-presentation-summary")?.textContent).toContain("FODP 演示文稿");
-    expect(container.querySelector(".ofv-presentation-summary")?.textContent).toContain("2 页");
-    expect(container.querySelector(".ofv-presentation-summary")?.textContent).toContain("title");
-    expect(container.querySelector(".ofv-presentation-summary")?.textContent).toContain("1 页切换");
-    expect(container.querySelector(".ofv-presentation-summary")?.textContent).toContain("1 个动画标记");
-    expect(container.querySelectorAll(".ofv-presentation-slides li")).toHaveLength(2);
+    const summary = container.querySelector<HTMLElement>(".ofv-presentation-summary");
+    expect(summary?.hidden).toBe(true);
+    expect(summary?.dataset.slideCount).toBe("2");
+    expect(summary?.dataset.transitionCount).toBe("1");
+    expect(summary?.dataset.animationCount).toBe("1");
+    expect(container.querySelector(".ofv-presentation-slides")).toBeNull();
     expect(container.querySelector(".ofv-slide")?.textContent).toContain("Overview");
   });
 
@@ -476,7 +497,7 @@ describe("officePlugin", () => {
   });
 });
 
-async function createMinimalDocx(text: string): Promise<Blob> {
+async function createMinimalDocx(text: string, footerText?: string): Promise<Blob> {
   const zip = new JSZip();
   zip.file(
     "word/document.xml",
@@ -485,6 +506,14 @@ async function createMinimalDocx(text: string): Promise<Blob> {
         <w:body><w:p><w:r><w:t>${text}</w:t></w:r></w:p></w:body>
       </w:document>`
   );
+  if (footerText) {
+    zip.file(
+      "word/footer1.xml",
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+          <w:p><w:r><w:t>${footerText}</w:t></w:r></w:p></w:ftr>`
+    );
+  }
   return zip.generateAsync({
     type: "blob",
     mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"

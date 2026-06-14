@@ -6,24 +6,57 @@ interface LayeredValue<T> {
   value: T;
 }
 
-const cadExtensions = new Set(["dxf", "dwg", "dwf", "step", "stp", "iges", "igs"]);
+const cadExtensions = new Set([
+  "dxf",
+  "dwg",
+  "dwf",
+  "step",
+  "stp",
+  "iges",
+  "igs",
+  "ifc",
+  "sat",
+  "sab",
+  "x_t",
+  "x_b",
+  "3dm",
+  "skp",
+  "sldprt",
+  "sldasm"
+]);
 const cadMimeTypes = new Set([
+  "application/acad",
   "application/dxf",
   "application/x-dxf",
   "image/vnd.dxf",
   "model/vnd.dwf",
   "model/step",
   "application/step",
-  "application/iges"
+  "application/iges",
+  "application/x-step",
+  "application/sat",
+  "application/sab",
+  "application/x-parasolid",
+  "model/vnd.3dm",
+  "application/vnd.sketchup.skp",
+  "application/sldworks"
 ]);
 const cadMimeFormatMap: Record<string, string> = {
+  "application/acad": "dwg",
   "application/dxf": "dxf",
   "application/x-dxf": "dxf",
   "image/vnd.dxf": "dxf",
   "model/vnd.dwf": "dwf",
   "model/step": "step",
   "application/step": "step",
-  "application/iges": "iges"
+  "application/iges": "iges",
+  "application/x-step": "ifc",
+  "application/sat": "sat",
+  "application/sab": "sab",
+  "application/x-parasolid": "x_t",
+  "model/vnd.3dm": "3dm",
+  "application/vnd.sketchup.skp": "skp",
+  "application/sldworks": "sldprt"
 };
 
 export function cadPlugin(): PreviewPlugin {
