@@ -105,6 +105,13 @@ describe("core responsive styles", () => {
     expect(rule(".ofv-email-body-iframe")).toContain("max-width: 100%");
     expect(rule(".ofv-cad-layers")).toContain("flex-wrap: wrap");
     expect(rule(".ofv-cad-layers")).toContain("min-width: 0");
+    expect(rule(".ofv-gis-viewer")).toContain("min-height: 320px");
+    expect(rule(".ofv-map-stage")).toContain("height: 100%");
+    expect(rule(".ofv-map-stage")).toContain("min-height: 280px");
+    expect(rule(".ofv-map-stage .leaflet-container,\n.ofv-map-stage.leaflet-container")).toContain("height: 100%");
+    expect(rule(".ofv-map-stage .leaflet-pane,\n.ofv-map-stage .leaflet-tile,\n.ofv-map-stage .leaflet-marker-icon,\n.ofv-map-stage .leaflet-marker-shadow,\n.ofv-map-stage .leaflet-tile-container,\n.ofv-map-stage .leaflet-pane > svg,\n.ofv-map-stage .leaflet-pane > canvas,\n.ofv-map-stage.leaflet-container .leaflet-pane,\n.ofv-map-stage.leaflet-container .leaflet-tile,\n.ofv-map-stage.leaflet-container .leaflet-marker-icon,\n.ofv-map-stage.leaflet-container .leaflet-marker-shadow,\n.ofv-map-stage.leaflet-container .leaflet-tile-container,\n.ofv-map-stage.leaflet-container .leaflet-pane > svg,\n.ofv-map-stage.leaflet-container .leaflet-pane > canvas")).toContain("position: absolute");
+    expect(rule(".ofv-map-stage .leaflet-overlay-pane svg,\n.ofv-map-stage.leaflet-container .leaflet-overlay-pane svg")).toContain("pointer-events: none");
+    expect(rule(".ofv-map-stage .leaflet-interactive,\n.ofv-map-stage.leaflet-container .leaflet-interactive")).toContain("pointer-events: auto");
   });
 });
 

@@ -24,6 +24,8 @@ describe("cadPlugin", () => {
 
     const svg = container.querySelector<SVGSVGElement>(".ofv-svg-stage");
     const initialViewBox = svg?.getAttribute("viewBox");
+    const zoomReset = container.querySelector<HTMLButtonElement>('button[aria-label="Reset zoom"]');
+    expect(zoomReset?.textContent).toBe("100%");
     container.querySelector<HTMLButtonElement>('button[aria-label="Zoom in"]')?.click();
 
     expect(svg?.querySelectorAll("line")).toHaveLength(1);
@@ -32,6 +34,7 @@ describe("cadPlugin", () => {
     expect(svg?.querySelectorAll("polyline")).toHaveLength(1);
     expect(svg?.querySelector("text")?.textContent).toBe("HELLO");
     expect(svg?.getAttribute("viewBox")).not.toBe(initialViewBox);
+    expect(zoomReset?.textContent).toBe("122%");
     expect(container.textContent).toContain("ARC 1");
     expect(container.textContent).toContain("POLYLINE 1");
   });

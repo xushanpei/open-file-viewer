@@ -117,6 +117,7 @@ export function imagePlugin(): PreviewPlugin {
       const updateTransform = () => {
         image.style.transform = `translate(${offsetX}px, ${offsetY}px) scale(${scale}) rotate(${rotation}deg)`;
         zoomLabel.textContent = `${Math.round(scale * 100)}%`;
+        ctx.toolbar?.setZoom(scale);
       };
 
       const showImageFallback = () => {
@@ -252,6 +253,7 @@ export function imagePlugin(): PreviewPlugin {
           image.style.maxHeight = `${Math.max(0, size.height - controls.offsetHeight)}px`;
         },
         destroy() {
+          ctx.toolbar?.setZoom(undefined);
           for (const dispose of disposers) {
             dispose();
           }

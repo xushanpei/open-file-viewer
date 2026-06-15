@@ -8,6 +8,11 @@ const removeMap = vi.hoisted(() => vi.fn());
 const fitBounds = vi.hoisted(() => vi.fn());
 const addTileLayer = vi.hoisted(() => vi.fn());
 const addGeoJsonLayer = vi.hoisted(() => vi.fn());
+const bindTooltip = vi.hoisted(() => vi.fn());
+const bindPopup = vi.hoisted(() => vi.fn());
+const layerOn = vi.hoisted(() => vi.fn());
+const pointToLayer = vi.hoisted(() => vi.fn());
+const geoJsonStyle = vi.hoisted(() => vi.fn());
 
 vi.mock("leaflet", () => ({
   default: {
@@ -20,8 +25,24 @@ vi.mock("leaflet", () => ({
       remove: removeMap
     })),
     tileLayer: vi.fn(() => ({ addTo: addTileLayer })),
-    circleMarker: vi.fn(() => ({})),
-    geoJSON: vi.fn(() => {
+    circleMarker: vi.fn((_latlng, options) => {
+      pointToLayer(options);
+      return {
+        bindPopup,
+        bindTooltip,
+        on: layerOn
+      };
+    }),
+    geoJSON: vi.fn((geojson, options) => {
+      geoJsonStyle(options.style?.());
+      for (const feature of geojson.features || []) {
+        options.pointToLayer?.(feature, [feature.geometry?.coordinates?.[1], feature.geometry?.coordinates?.[0]]);
+        options.onEachFeature?.(feature, {
+          bindPopup,
+          bindTooltip,
+          on: layerOn
+        });
+      }
       const layer = {
         addTo: vi.fn((map: unknown) => {
           addGeoJsonLayer(map);
@@ -29,7 +50,8 @@ vi.mock("leaflet", () => ({
         }),
         getBounds: vi.fn(() => ({
           isValid: () => true
-        }))
+        })),
+        resetStyle: vi.fn()
       };
       return layer;
     })
@@ -100,6 +122,10 @@ describe("gisPlugin", () => {
     expect(container.querySelector(".ofv-gis-summary")?.textContent).toContain("属性字段3");
     expect(container.querySelector(".ofv-gis-summary")?.textContent).toContain("name, kind, area");
     expect(container.querySelector(".ofv-gis-summary")?.textContent).toContain("119, 29, 121, 31");
+    expect(container.querySelector(".ofv-map-legend")?.textContent).toContain("3 个要素");
+    expect(geoJsonStyle).toHaveBeenCalledWith(expect.objectContaining({ className: "ofv-map-feature", weight: 2 }));
+    expect(pointToLayer).toHaveBeenCalledWith(expect.objectContaining({ className: "ofv-map-feature ofv-map-point" }));
+    expect(bindTooltip).toHaveBeenCalledWith("Point", expect.objectContaining({ className: "ofv-map-tooltip" }));
     expect(document.getElementById("ofv-leaflet-css")).not.toBeNull();
     expect(addTileLayer).toHaveBeenCalledTimes(1);
     expect(addGeoJsonLayer).toHaveBeenCalledTimes(1);
@@ -130,6 +156,8 @@ describe("gisPlugin", () => {
 
     expect(addTileLayer).toHaveBeenCalled();
     expect(addGeoJsonLayer).toHaveBeenCalled();
+    expect(container.querySelector(".ofv-map-empty")?.textContent).toContain("暂无可展示的地图要素");
+    await waitFor(() => invalidateSize.mock.calls.length > 0);
   });
 
   it("matches GIS MIME types beyond GeoJSON", async () => {

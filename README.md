@@ -255,6 +255,151 @@ createViewer(options: PreviewOptions): FileViewer;
 | `onError` | `(error, file) => void` | - | 错误回调 |
 | `onUnsupported` | `(file) => void` | - | 不支持格式回调 |
 
+## 工具栏自定义
+
+`toolbar: true` 会启用默认工具栏。需要业务化时可以逐步扩展，不必重写整套预览器。
+
+### 自定义文案、顺序和图标
+
+```ts
+createViewer({
+  container: "#viewer",
+  file,
+  toolbar: {
+    zoom: true,
+    rotate: true,
+    download: true,
+    fullscreen: true,
+    search: true,
+    labels: {
+      download: "下载",
+      fullscreen: "全屏",
+      search: "搜索",
+      "zoom-in": "放大",
+      "zoom-out": "缩小",
+      "zoom-reset": "原始比例",
+      "rotate-right": "旋转"
+    },
+    titles: {
+      download: "下载当前文件"
+    },
+    icons: {
+      download: '<svg viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg>'
+    },
+    order: ["search", "zoom-out", "zoom-in", "zoom-reset", "rotate-right", "download", "fullscreen"]
+  },
+  plugins
+});
+```
+
+### 增加业务按钮
+
+```ts
+createViewer({
+  container: "#viewer",
+  file,
+  toolbar: {
+    order: ["download", "favorite", "approve", "share", "fullscreen"],
+    actions: [
+      {
+        id: "favorite",
+        label: "收藏",
+        onClick(ctx) {
+          favoriteFile(ctx.file);
+        }
+      },
+      {
+        id: "approve",
+        label: "审批",
+        onClick(ctx) {
+          openApprovalDialog(ctx.file);
+        }
+      },
+      {
+        id: "share",
+        label: "分享",
+        disabled(ctx) {
+          return !ctx.file;
+        },
+        onClick(ctx) {
+          shareFile(ctx.file);
+        }
+      }
+    ]
+  },
+  plugins
+});
+```
+
+### 完全替换工具栏
+
+```ts
+createViewer({
+  container: "#viewer",
+  files,
+  toolbar: {
+    render(ctx) {
+      const bar = document.createElement("div");
+      bar.className = "business-toolbar";
+
+      const name = document.createElement("strong");
+      name.textContent = ctx.file?.name || "";
+
+      const next = document.createElement("button");
+      next.type = "button";
+      next.textContent = "下一份";
+      next.disabled = !ctx.canNext;
+      next.onclick = () => void ctx.next();
+
+      const download = document.createElement("button");
+      download.type = "button";
+      download.textContent = "下载";
+      download.onclick = ctx.download;
+
+      bar.append(name, next, download);
+      return bar;
+    }
+  },
+  plugins
+});
+```
+
+`render(ctx)` 的上下文包含 `file`、`index`、`length`、`previous()`、`next()`、`command()`、`download()`、`fullscreen()`、`print()`、`search()` 和 `clearSearch()`。
+
+### React 自定义工具栏
+
+```tsx
+<FileViewer
+  files={files}
+  plugins={plugins}
+  renderToolbar={(ctx) => (
+    <>
+      <button disabled={!ctx.canPrevious} onClick={() => void ctx.previous()}>上一份</button>
+      <span>{ctx.index + 1} / {ctx.length}</span>
+      <button disabled={!ctx.canNext} onClick={() => void ctx.next()}>下一份</button>
+      <button onClick={ctx.download}>下载</button>
+      <button onClick={() => openApprovalDialog(ctx.file)}>审批</button>
+    </>
+  )}
+/>
+```
+
+### Vue 自定义工具栏
+
+```vue
+<OpenFileViewer :files="files" :plugins="plugins">
+  <template #toolbar="ctx">
+    <button :disabled="!ctx.canPrevious" @click="ctx.previous()">上一份</button>
+    <span>{{ ctx.index + 1 }} / {{ ctx.length }}</span>
+    <button :disabled="!ctx.canNext" @click="ctx.next()">下一份</button>
+    <button @click="ctx.download()">下载</button>
+    <button @click="openApprovalDialog(ctx.file)">审批</button>
+  </template>
+</OpenFileViewer>
+```
+
+样式层面仍然可以覆盖 `.ofv-toolbar`、`.ofv-toolbar button`、`.ofv-toolbar-search` 等 class。自定义图标按钮会额外生成 `.ofv-toolbar-icon` 和 `.ofv-toolbar-label`，方便控制对齐、间距和省略。
+
 ### FileViewer
 
 | 方法 | 说明 |

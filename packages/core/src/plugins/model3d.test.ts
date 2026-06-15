@@ -31,14 +31,26 @@ vi.mock("three", () => {
     clone() {
       return new Vector3().copy(this);
     }
-    sub() {
+    sub(value: Vector3) {
+      this.x -= value.x;
+      this.y -= value.y;
+      this.z -= value.z;
       return this;
     }
-    multiplyScalar() {
+    multiplyScalar(value: number) {
+      this.x *= value;
+      this.y *= value;
+      this.z *= value;
       return this;
     }
-    add() {
+    add(value: Vector3) {
+      this.x += value.x;
+      this.y += value.y;
+      this.z += value.z;
       return this;
+    }
+    distanceTo(value: Vector3) {
+      return Math.hypot(this.x - value.x, this.y - value.y, this.z - value.z);
     }
   }
 
@@ -145,15 +157,32 @@ vi.mock("three", () => {
 vi.mock("three/examples/jsm/controls/OrbitControls.js", () => ({
   OrbitControls: class {
     enableDamping = false;
-    target = {
-      copy: vi.fn(),
-      clone: vi.fn(() => ({ copy: vi.fn() }))
-    };
+    target = createOrbitVector();
     update = controlsUpdate;
     dispose = controlsDispose;
     constructor() {}
   }
 }));
+
+function createOrbitVector(x = 0, y = 0, z = 0) {
+  return {
+    x,
+    y,
+    z,
+    copy(value: { x: number; y: number; z: number }) {
+      this.x = value.x;
+      this.y = value.y;
+      this.z = value.z;
+      return this;
+    },
+    clone() {
+      return createOrbitVector(this.x, this.y, this.z);
+    },
+    distanceTo(value: { x: number; y: number; z: number }) {
+      return Math.hypot(this.x - value.x, this.y - value.y, this.z - value.z);
+    }
+  };
+}
 
 vi.mock("three/examples/jsm/loaders/GLTFLoader.js", () => ({
   GLTFLoader: class {
@@ -299,8 +328,13 @@ describe("model3dPlugin", () => {
     expect(container.querySelector(".ofv-model-materials")?.textContent).toContain("材质1");
     expect(container.querySelector(".ofv-model-materials")?.textContent).toContain("贴图2");
     expect(container.querySelector(".ofv-model-materials")?.textContent).toContain("map, normalMap");
-    expect(container.querySelector<HTMLButtonElement>('button[aria-label="Zoom in"]')?.disabled).toBe(false);
+    const zoomIn = container.querySelector<HTMLButtonElement>('button[aria-label="Zoom in"]');
+    const zoomReset = container.querySelector<HTMLButtonElement>('button[aria-label="Reset zoom"]');
+    expect(zoomIn?.disabled).toBe(false);
+    expect(zoomReset?.textContent).toBe("100%");
 
+    zoomIn?.click();
+    await waitFor(() => zoomReset?.textContent === "122%");
     container.querySelector<HTMLButtonElement>('button[aria-label="Rotate right"]')?.click();
     expect(rotateY).toHaveBeenCalled();
     expect(rendererSetSize).toHaveBeenCalled();

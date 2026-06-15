@@ -1,4 +1,4 @@
-import type { PreviewPlugin } from "../types";
+import type { PreviewContext, PreviewPlugin } from "../types";
 import { createPanel, createSection, readArrayBuffer, readTextFile, resolveFormat } from "./utils";
 
 interface LayeredValue<T> {
@@ -94,7 +94,7 @@ export function cadPlugin(): PreviewPlugin {
       }
 
       const dxf = await readTextFile(ctx.file);
-      const viewer = renderDxf(panel, dxf);
+      const viewer = renderDxf(panel, dxf, ctx);
       return {
         canCommand(command) {
           return viewer.canCommand(command);
@@ -657,10 +657,12 @@ function hexPreview(bytes: Uint8Array): string {
 
 function renderDxf(
   panel: HTMLElement,
-  dxf: string
+  dxf: string,
+  ctx: Pick<PreviewContext, "toolbar">
 ): {
   canCommand: (command: string) => boolean;
   command: (command: string) => boolean;
+  destroy: () => void;
 } {
   const pairs = dxf.split(/\r?\n/).map((line) => line.trim());
   const lines: Array<LayeredValue<[number, number, number, number]>> = [];
@@ -851,6 +853,10 @@ function renderDxf(
     `已提取 LINE ${lines.length} 个、CIRCLE ${circles.length} 个、ARC ${arcs.length} 个、POLYLINE ${polylines.length} 个、POINT ${points.length} 个、TEXT ${texts.length} 个。`
   section.append(note, svg);
   panel.append(section);
+  const updateToolbarZoom = () => {
+    ctx.toolbar?.setZoom(initialViewBox.width / currentViewBox.width);
+  };
+  updateToolbarZoom();
 
   return {
     canCommand(command) {
@@ -866,14 +872,19 @@ function renderDxf(
         currentViewBox.x = centerX - currentViewBox.width / 2;
         currentViewBox.y = centerY - currentViewBox.height / 2;
         applyViewBox();
+        updateToolbarZoom();
         return true;
       }
       if (command === "zoom-reset") {
         currentViewBox = { ...initialViewBox };
         applyViewBox();
+        updateToolbarZoom();
         return true;
       }
       return false;
+    },
+    destroy() {
+      ctx.toolbar?.setZoom(undefined);
     }
   };
 }

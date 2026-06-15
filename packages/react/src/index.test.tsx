@@ -69,6 +69,29 @@ describe("FileViewer React adapter", () => {
     expect(destroy).toHaveBeenCalledTimes(1);
     expect(root.classList.contains("viewer-shell")).toBe(false);
   });
+
+  it("renders a custom toolbar with the render prop", async () => {
+    const { unmount } = render(
+      <FileViewer
+        files={[
+          { file: new Blob(["one"], { type: "text/plain" }), fileName: "one.txt" },
+          { file: new Blob(["two"], { type: "text/plain" }), fileName: "two.txt" }
+        ]}
+        plugins={[createPlugin("custom", vi.fn())]}
+        renderToolbar={(ctx) => (
+          <button type="button" onClick={() => void ctx.next()} disabled={!ctx.canNext}>
+            {ctx.index + 1}/{ctx.length} {ctx.file?.name}
+          </button>
+        )}
+      />
+    );
+
+    const button = await screen.findByRole("button", { name: "1/2 one.txt" });
+    button.click();
+    expect((await screen.findByRole("button", { name: "2/2 two.txt" }) as HTMLButtonElement).disabled).toBe(true);
+
+    unmount();
+  });
 });
 
 function createPlugin(name: string, destroy: () => void): PreviewPlugin {

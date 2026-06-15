@@ -37,11 +37,14 @@ describe("imagePlugin", () => {
 
     const zoomIn = container.querySelector<HTMLButtonElement>('button[aria-label="Zoom in"]');
     const rotate = container.querySelector<HTMLButtonElement>('button[aria-label="Rotate right"]');
+    const zoomReset = container.querySelector<HTMLButtonElement>('button[aria-label="Reset zoom"]');
 
     expect(zoomIn?.disabled).toBe(false);
     expect(rotate?.disabled).toBe(false);
+    expect(zoomReset?.textContent).toBe("100%");
     expect(container.querySelector(".ofv-image-controls")).toBeNull();
     zoomIn?.click();
+    await waitFor(() => zoomReset?.textContent === "125%");
     rotate?.click();
     rotate?.click();
     rotate?.click();

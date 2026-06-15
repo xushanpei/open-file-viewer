@@ -137,6 +137,12 @@ export function model3dPlugin(): PreviewPlugin {
         renderer.setSize(width, height, false);
       };
       resize(ctx.size);
+      const updateToolbarZoom = () => {
+        const currentDistance = vectorDistance(camera.position, controls.target);
+        const initialDistance = vectorDistance(initialFrame.cameraPosition, initialFrame.target);
+        ctx.toolbar?.setZoom(initialDistance > 0 ? initialDistance / currentDistance : undefined);
+      };
+      updateToolbarZoom();
 
       return {
         canCommand(command) {
@@ -154,6 +160,7 @@ export function model3dPlugin(): PreviewPlugin {
             camera.position.sub(controls.target).multiplyScalar(factor).add(controls.target);
             camera.updateProjectionMatrix();
             controls.update();
+            updateToolbarZoom();
             return true;
           }
           if (command === "zoom-reset") {
@@ -163,6 +170,7 @@ export function model3dPlugin(): PreviewPlugin {
             camera.far = initialFrame.far;
             camera.updateProjectionMatrix();
             controls.update();
+            updateToolbarZoom();
             return true;
           }
           if (command === "rotate-right" || command === "rotate-left") {
@@ -173,6 +181,7 @@ export function model3dPlugin(): PreviewPlugin {
         },
         resize,
         destroy() {
+          ctx.toolbar?.setZoom(undefined);
           window.cancelAnimationFrame(animationFrame);
           controls.dispose();
           renderer.dispose();
@@ -183,6 +192,16 @@ export function model3dPlugin(): PreviewPlugin {
       };
     }
   };
+}
+
+function vectorDistance(
+  a: { x: number; y: number; z: number; distanceTo?: (value: { x: number; y: number; z: number }) => number },
+  b: { x: number; y: number; z: number }
+): number {
+  if (typeof a.distanceTo === "function") {
+    return a.distanceTo(b);
+  }
+  return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 }
 
 function renderModelFallback(

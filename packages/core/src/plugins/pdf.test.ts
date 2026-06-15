@@ -14,9 +14,11 @@ describe("pdfPlugin", () => {
 
   it("renders pages without IntersectionObserver support", async () => {
     vi.stubGlobal("IntersectionObserver", undefined);
+    vi.stubGlobal("devicePixelRatio", 2);
 
     const container = createSizedContainer();
     const pdfjs = createPdfJsMock();
+    const page = pdfjs.__page;
     const viewer = createViewer({
       container,
       file: new Blob(["pdf"], { type: "application/pdf" }),
@@ -26,6 +28,16 @@ describe("pdfPlugin", () => {
 
     await waitFor(() => container.querySelectorAll("canvas.ofv-pdf-page").length === 2);
 
+    const canvas = container.querySelector<HTMLCanvasElement>("canvas.ofv-pdf-page");
+    expect(canvas?.style.width).toBe("40px");
+    expect(canvas?.style.height).toBe("60px");
+    expect(canvas?.width).toBe(Number.parseInt(canvas?.style.width || "0", 10) * 2);
+    expect(canvas?.height).toBe(Number.parseInt(canvas?.style.height || "0", 10) * 2);
+    expect(page.render).toHaveBeenCalledWith(
+      expect.objectContaining({
+        transform: [2, 0, 0, 2, 0, 0]
+      })
+    );
     expect(container.querySelector(".ofv-pdf-skeleton")).toBeNull();
 
     viewer.destroy();
@@ -58,21 +70,67 @@ describe("pdfPlugin", () => {
     expect(summary?.textContent).toContain("缩放100%");
     const firstWrapper = container.querySelector<HTMLElement>(".ofv-pdf-page-wrapper");
     const zoomIn = container.querySelector<HTMLButtonElement>('button[aria-label="Zoom in"]');
+    const zoomReset = container.querySelector<HTMLButtonElement>('button[aria-label="Reset zoom"]');
     const rotate = container.querySelector<HTMLButtonElement>('button[aria-label="Rotate right"]');
 
     expect(zoomIn?.disabled).toBe(false);
     expect(rotate?.disabled).toBe(true);
+    expect(zoomReset?.textContent).toBe("100%");
 
     zoomIn?.click();
 
     await waitFor(() => container.querySelector<HTMLElement>(".ofv-pdf-page-wrapper") !== firstWrapper);
 
     expect(container.querySelector(".ofv-pdf-summary")?.textContent).toContain("缩放115%");
+    expect(zoomReset?.textContent).toBe("115%");
     expect(container.querySelectorAll(".ofv-pdf-page-wrapper")).toHaveLength(2);
     expect(pdfjs.GlobalWorkerOptions.workerSrc).toContain("pdf.worker.mjs");
+    expect(pdfjs.getDocument).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cMapPacked: true,
+        cMapUrl: "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.0-test/cmaps/",
+        standardFontDataUrl: "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.0-test/standard_fonts/",
+        useSystemFonts: true,
+        url: objectUrl
+      })
+    );
 
     viewer.destroy();
     expect(URL.revokeObjectURL).toHaveBeenCalledWith(objectUrl);
+  });
+
+  it("allows overriding PDF CMap and standard font resources", async () => {
+    vi.stubGlobal("IntersectionObserver", undefined);
+    const container = createSizedContainer();
+    const pdfjs = createPdfJsMock();
+
+    const viewer = createViewer({
+      container,
+      file: new Blob(["pdf"], { type: "application/pdf" }),
+      fileName: "cjk.pdf",
+      plugins: [
+        pdfPlugin({
+          pdfjs,
+          cMapUrl: "/assets/pdf-cmaps/",
+          cMapPacked: false,
+          standardFontDataUrl: "/assets/pdf-fonts/",
+          useSystemFonts: false
+        })
+      ]
+    });
+
+    await waitFor(() => container.querySelectorAll("canvas.ofv-pdf-page").length === 2);
+
+    expect(pdfjs.getDocument).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cMapPacked: false,
+        cMapUrl: "/assets/pdf-cmaps/",
+        standardFontDataUrl: "/assets/pdf-fonts/",
+        useSystemFonts: false
+      })
+    );
+
+    viewer.destroy();
   });
 
   it("shows a local fallback when the PDF document cannot be loaded", async () => {
@@ -153,6 +211,7 @@ function createPdfJsMock(): any {
   const page = createPdfPageMock();
 
   return {
+    __page: page,
     version: "4.0.0-test",
     GlobalWorkerOptions: { workerSrc: "" },
     getDocument: vi.fn(() => ({
@@ -174,12 +233,12 @@ function createPdfPageMock(): any {
         transform: [scale, 0, 0, scale, 0, 0]
       };
     },
-    render() {
+    render: vi.fn(() => {
       return {
         promise: Promise.resolve(),
         cancel: vi.fn()
       };
-    },
+    }),
     getTextContent() {
       return Promise.resolve({ items: [] });
     }

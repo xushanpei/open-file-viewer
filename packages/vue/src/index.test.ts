@@ -86,6 +86,35 @@ describe("OpenFileViewer Vue adapter", () => {
 
     expect(view.emitted().unsupported).toHaveLength(1);
   });
+
+  it("renders a custom toolbar through the toolbar slot", async () => {
+    const view = render(OpenFileViewer, {
+      props: {
+        files: [
+          { file: new Blob(["one"], { type: "text/plain" }), fileName: "one.txt" },
+          { file: new Blob(["two"], { type: "text/plain" }), fileName: "two.txt" }
+        ],
+        plugins: [createPlugin("slot", vi.fn())]
+      },
+      slots: {
+        toolbar: `<template #default="ctx">
+          <button type="button" :disabled="!ctx.canNext" @click="ctx.next()">
+            {{ ctx.index + 1 }}/{{ ctx.length }} {{ ctx.file?.name }}
+          </button>
+        </template>`
+      }
+    });
+
+    const button = (await screen.findByRole("button", { name: "1/2 one.txt" })) as HTMLButtonElement;
+    button.click();
+
+    await waitFor(() => {
+      const nextButton = screen.getByRole("button", { name: "2/2 two.txt" }) as HTMLButtonElement;
+      expect(nextButton.disabled).toBe(true);
+    });
+
+    view.unmount();
+  });
 });
 
 function createPlugin(name: string, destroy: () => void): PreviewPlugin {

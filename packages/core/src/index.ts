@@ -30,5 +30,9 @@ export type {
   PreviewSize,
   PreviewSource,
   PreviewTheme,
-  PreviewToolbarOptions
+  PreviewToolbarActionId,
+  PreviewToolbarBuiltInAction,
+  PreviewToolbarCustomAction,
+  PreviewToolbarOptions,
+  PreviewToolbarRenderContext
 } from "./types";

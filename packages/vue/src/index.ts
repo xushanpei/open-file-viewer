@@ -1,6 +1,23 @@
 import { createViewer } from "@open-file-viewer/core";
-import type { FileViewer, PreviewOptions, PreviewPlugin, PreviewSource, PreviewTheme } from "@open-file-viewer/core";
-import { defineComponent, h, onBeforeUnmount, onMounted, ref, watch, type PropType } from "vue";
+import type {
+  FileViewer,
+  PreviewOptions,
+  PreviewPlugin,
+  PreviewSource,
+  PreviewTheme,
+  PreviewToolbarRenderContext
+} from "@open-file-viewer/core";
+import {
+  defineComponent,
+  h,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  render,
+  watch,
+  type PropType,
+  type Slots
+} from "vue";
 
 export const OpenFileViewer = defineComponent({
   name: "OpenFileViewer",
@@ -54,13 +71,20 @@ export const OpenFileViewer = defineComponent({
     error: (_error: Error, _file?: unknown) => true,
     unsupported: (_file: unknown) => true
   },
-  setup(props, { emit }) {
+  setup(props, { emit, slots }) {
     const containerRef = ref<HTMLElement | null>(null);
     let viewer: FileViewer | null = null;
+    let toolbarMount: HTMLElement | null = null;
+
+    const renderToolbarSlot = createToolbarSlotRenderer(slots, () => toolbarMount);
 
     const mount = () => {
       if (!containerRef.value) {
         return;
+      }
+      if (toolbarMount) {
+        render(null, toolbarMount);
+        toolbarMount = null;
       }
       viewer?.destroy();
       viewer = createViewer({
@@ -73,7 +97,17 @@ export const OpenFileViewer = defineComponent({
         height: props.height,
         fit: props.fit,
         plugins: props.plugins,
-        toolbar: props.toolbar,
+        toolbar: slots.toolbar
+          ? {
+              ...(typeof props.toolbar === "object" ? props.toolbar : {}),
+              render(ctx) {
+                toolbarMount = document.createElement("div");
+                toolbarMount.className = "ofv-vue-toolbar";
+                renderToolbarSlot(ctx);
+                return toolbarMount;
+              }
+            }
+          : props.toolbar,
         theme: props.theme,
         fallback: props.fallback,
         renderFallback: props.renderFallback,
@@ -125,6 +159,10 @@ export const OpenFileViewer = defineComponent({
     onMounted(mount);
 
     onBeforeUnmount(() => {
+      if (toolbarMount) {
+        render(null, toolbarMount);
+        toolbarMount = null;
+      }
       viewer?.destroy();
       viewer = null;
     });
@@ -133,4 +171,17 @@ export const OpenFileViewer = defineComponent({
   }
 });
 
-export type { FileViewer, PreviewOptions, PreviewPlugin, PreviewSource, PreviewTheme };
+function createToolbarSlotRenderer(
+  slots: Slots,
+  getMount: () => HTMLElement | null
+): (ctx: PreviewToolbarRenderContext) => void {
+  return (ctx) => {
+    const mount = getMount();
+    if (!mount) {
+      return;
+    }
+    render(h("div", { class: "ofv-vue-toolbar-content" }, slots.toolbar?.(ctx)), mount);
+  };
+}
+
+export type { FileViewer, PreviewOptions, PreviewPlugin, PreviewSource, PreviewTheme, PreviewToolbarRenderContext };

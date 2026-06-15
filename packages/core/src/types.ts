@@ -10,6 +10,19 @@ export type PreviewFit =
 
 export type PreviewFallback = "inline" | "download" | "custom";
 export type PreviewTheme = "light" | "dark" | "auto";
+export type PreviewToolbarBuiltInAction =
+  | "previous"
+  | "next"
+  | "queue"
+  | "zoom-out"
+  | "zoom-in"
+  | "zoom-reset"
+  | "rotate-right"
+  | "download"
+  | "fullscreen"
+  | "print"
+  | "search";
+export type PreviewToolbarActionId = PreviewToolbarBuiltInAction | (string & {});
 
 export interface PreviewFile {
   source: PreviewSource;
@@ -39,6 +52,45 @@ export interface PreviewToolbarOptions {
   fullscreen?: boolean;
   print?: boolean;
   search?: boolean;
+  order?: PreviewToolbarActionId[];
+  labels?: Partial<Record<PreviewToolbarBuiltInAction, string>>;
+  titles?: Partial<Record<PreviewToolbarBuiltInAction, string>>;
+  icons?: Partial<Record<PreviewToolbarBuiltInAction, string | HTMLElement | SVGElement>>;
+  actions?: PreviewToolbarCustomAction[];
+  render?: (ctx: PreviewToolbarRenderContext) => HTMLElement | void;
+}
+
+export interface PreviewToolbarCustomAction {
+  id: string;
+  label: string;
+  title?: string;
+  icon?: string | HTMLElement | SVGElement;
+  order?: number;
+  disabled?: boolean | ((ctx: PreviewToolbarRenderContext) => boolean);
+  hidden?: boolean | ((ctx: PreviewToolbarRenderContext) => boolean);
+  className?: string;
+  onClick: (ctx: PreviewToolbarRenderContext) => void | Promise<void>;
+}
+
+export interface PreviewToolbarRenderContext {
+  file?: PreviewFile;
+  index: number;
+  length: number;
+  viewport: HTMLElement;
+  canPrevious: boolean;
+  canNext: boolean;
+  zoom?: number;
+  zoomLabel?: string;
+  previous: () => Promise<void>;
+  next: () => Promise<void>;
+  command: (command: PreviewCommand) => void | boolean | undefined;
+  canCommand: (command: PreviewCommand) => boolean;
+  setZoom: (zoom?: number) => void;
+  download: () => void;
+  fullscreen: () => void;
+  print: () => void;
+  search: (query: string) => number;
+  clearSearch: () => void;
 }
 
 export interface PreviewOptions {
@@ -68,6 +120,7 @@ export interface PreviewContext {
   file: PreviewFile;
   size: PreviewSize;
   options: Required<Pick<PreviewOptions, "fit" | "fallback">> & PreviewOptions;
+  toolbar?: PreviewToolbarRenderContext;
   setLoading: (loading: boolean) => void;
   setError: (error: Error | string) => void;
 }

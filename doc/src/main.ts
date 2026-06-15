@@ -103,6 +103,8 @@ const translations: Record<Language, Record<string, string>> = {
     "api.eyebrow": "API Reference",
     "api.title": "A small API surface with room to extend.",
     "api.desc": "核心 API 保持克制：容器、文件、插件、尺寸、主题和事件回调。复杂格式能力由插件扩展。",
+    "toolbar.title": "工具栏自定义",
+    "toolbar.desc": "支持自定义文案、顺序、图标、审批/收藏/分享等业务按钮，也可以完全替换工具栏。",
     "cta.title": "Ship file previews without building every renderer from scratch.",
     "cta.desc": "从一个稳定容器开始，让文件预览能力持续进化。",
     "cta.action": "Try the playground",
@@ -158,6 +160,8 @@ const translations: Record<Language, Record<string, string>> = {
     "api.eyebrow": "API Reference",
     "api.title": "A small API surface with room to extend.",
     "api.desc": "The API stays focused: container, file, plugins, size, theme and lifecycle callbacks. Complex formats are extended through plugins.",
+    "toolbar.title": "Toolbar Customization",
+    "toolbar.desc": "Change labels, order, icons, approval/favorite/share actions or replace the toolbar completely.",
     "cta.title": "Ship file previews without building every renderer from scratch.",
     "cta.desc": "Start from a stable container and keep evolving preview capability.",
     "cta.action": "Try the playground",
@@ -171,7 +175,9 @@ const apiOptions: ApiRow[] = [
   { name: "files", type: "(PreviewSource | PreviewItem)[]", description: { zh: "多文件预览队列，可配合工具栏切换。", en: "Multi-file queue, usable with toolbar navigation." } },
   { name: "plugins", type: "PreviewPlugin[]", description: { zh: "内置插件或自定义插件列表。", en: "Built-in or custom plugin list." } },
   { name: "fit", type: "PreviewFit", description: { zh: "内容适配策略：contain、cover、width、height、actual、scale-down。", en: "Content fit mode: contain, cover, width, height, actual or scale-down." } },
-  { name: "toolbar", type: "boolean | PreviewToolbarOptions", description: { zh: "下载、全屏、打印、搜索、缩放、旋转等工具栏能力。", en: "Toolbar controls for download, fullscreen, print, search, zoom and rotate." } },
+  { name: "toolbar", type: "boolean | PreviewToolbarOptions", description: { zh: "工具栏配置。支持开关、文案、顺序、图标、业务按钮和完全自定义渲染。", en: "Toolbar configuration with toggles, labels, order, icons, custom actions and full rendering." } },
+  { name: "renderToolbar", type: "React prop", description: { zh: "React 适配器的自定义工具栏 render prop。", en: "Custom toolbar render prop for the React adapter." } },
+  { name: "#toolbar", type: "Vue slot", description: { zh: "Vue 适配器的自定义工具栏插槽。", en: "Custom toolbar slot for the Vue adapter." } },
   { name: "theme", type: "light | dark | auto", description: { zh: "预览器主题。", en: "Viewer theme." } },
   { name: "onLoad / onError", type: "callback", description: { zh: "加载完成和错误回调。", en: "Lifecycle callbacks for load and error states." } }
 ];
@@ -264,6 +270,31 @@ export function customPlugin(): PreviewPlugin {
     }
   };
 }`;
+
+const toolbarCode = `createViewer({
+  container: "#viewer",
+  file,
+  toolbar: {
+    labels: {
+      download: "下载",
+      fullscreen: "全屏",
+      search: "搜索"
+    },
+    icons: {
+      download: '<svg viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg>'
+    },
+    order: ["search", "download", "favorite", "approve", "share", "fullscreen"],
+    actions: [
+      { id: "favorite", label: "收藏", onClick: (ctx) => favoriteFile(ctx.file) },
+      { id: "approve", label: "审批", onClick: (ctx) => openApprovalDialog(ctx.file) },
+      { id: "share", label: "分享", onClick: (ctx) => shareFile(ctx.file) }
+    ]
+  },
+  plugins
+});
+
+// React: <FileViewer renderToolbar={(ctx) => <button onClick={ctx.download}>下载</button>} />
+// Vue: <template #toolbar="ctx"><button @click="ctx.download()">下载</button></template>`;
 
 const demoFiles: DemoFile[] = [
   {
@@ -528,21 +559,30 @@ function createDocxSample(): File {
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
   <w:body>
     <w:p>
-      <w:pPr><w:jc w:val="center"/></w:pPr>
+      <w:pPr><w:jc w:val="center"/><w:spacing w:after="240"/></w:pPr>
       <w:r><w:rPr><w:b/><w:sz w:val="36"/></w:rPr><w:t>Open File Viewer Office Preview Report</w:t></w:r>
     </w:p>
     <w:p>
+      <w:pPr><w:spacing w:after="360"/></w:pPr>
       <w:r><w:rPr><w:color w:val="64748B"/><w:sz w:val="22"/></w:rPr><w:t>Generated built-in DOCX sample for layout, wrapping, and table preview checks.</w:t></w:r>
     </w:p>
-    <w:p><w:r><w:rPr><w:b/><w:sz w:val="28"/></w:rPr><w:t>Executive summary</w:t></w:r></w:p>
-    <w:p><w:r><w:t>Open File Viewer renders Office documents inside the same responsive preview shell used by images, PDFs, text, spreadsheets, and presentations. This document includes headings, paragraphs, long business copy, checklist rows, and a simple table so the playground feels closer to a real attachment.</w:t></w:r></w:p>
-    <w:p><w:r><w:t>Key checks: toolbar spacing, document width constraints, long-line wrapping, local scroll regions, and readable typography across desktop and mobile containers.</w:t></w:r></w:p>
-    <w:p><w:r><w:rPr><w:b/><w:sz w:val="26"/></w:rPr><w:t>Preview checklist</w:t></w:r></w:p>
-    <w:p><w:r><w:t>1. Confirm the page stays inside the viewer container without horizontal overflow.</w:t></w:r></w:p>
-    <w:p><w:r><w:t>2. Confirm long product names and operational notes wrap cleanly on narrow screens.</w:t></w:r></w:p>
-    <w:p><w:r><w:t>3. Confirm tables keep their content readable and do not push the whole application wider.</w:t></w:r></w:p>
+    <w:p><w:pPr><w:spacing w:before="120" w:after="160"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val="28"/></w:rPr><w:t>Executive summary</w:t></w:r></w:p>
+    <w:p><w:pPr><w:spacing w:after="160"/></w:pPr><w:r><w:t>Open File Viewer renders Office documents inside the same responsive preview shell used by images, PDFs, text, spreadsheets, and presentations. This document includes headings, paragraphs, long business copy, checklist rows, and a simple table so the playground feels closer to a real attachment.</w:t></w:r></w:p>
+    <w:p><w:pPr><w:spacing w:after="320"/></w:pPr><w:r><w:t>Key checks: toolbar spacing, document width constraints, long-line wrapping, local scroll regions, and readable typography across desktop and mobile containers.</w:t></w:r></w:p>
+    <w:p><w:pPr><w:spacing w:before="120" w:after="160"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val="26"/></w:rPr><w:t>Preview checklist</w:t></w:r></w:p>
+    <w:p><w:pPr><w:spacing w:after="80"/></w:pPr><w:r><w:t>1. Confirm the page stays inside the viewer container without horizontal overflow.</w:t></w:r></w:p>
+    <w:p><w:pPr><w:spacing w:after="80"/></w:pPr><w:r><w:t>2. Confirm long product names and operational notes wrap cleanly on narrow screens.</w:t></w:r></w:p>
+    <w:p><w:pPr><w:spacing w:after="240"/></w:pPr><w:r><w:t>3. Confirm tables keep their content readable and do not push the whole application wider.</w:t></w:r></w:p>
     <w:tbl>
-      <w:tblPr><w:tblW w:w="9000" w:type="dxa"/></w:tblPr>
+      <w:tblPr>
+        <w:tblW w:w="9000" w:type="dxa"/>
+        <w:tblCellMar>
+          <w:top w:w="120" w:type="dxa"/>
+          <w:left w:w="120" w:type="dxa"/>
+          <w:bottom w:w="120" w:type="dxa"/>
+          <w:right w:w="120" w:type="dxa"/>
+        </w:tblCellMar>
+      </w:tblPr>
       <w:tr>
         <w:tc><w:tcPr><w:tcW w:w="2200" w:type="dxa"/></w:tcPr><w:p><w:r><w:rPr><w:b/></w:rPr><w:t>Area</w:t></w:r></w:p></w:tc>
         <w:tc><w:tcPr><w:tcW w:w="2200" w:type="dxa"/></w:tcPr><w:p><w:r><w:rPr><w:b/></w:rPr><w:t>Status</w:t></w:r></w:p></w:tc>
@@ -564,8 +604,12 @@ function createDocxSample(): File {
         <w:tc><w:p><w:r><w:t>If an Office renderer cannot preserve full layout, users still see structured document text.</w:t></w:r></w:p></w:tc>
       </w:tr>
     </w:tbl>
-    <w:p><w:r><w:rPr><w:b/><w:sz w:val="26"/></w:rPr><w:t>Implementation notes</w:t></w:r></w:p>
-    <w:p><w:r><w:t>The built-in sample is generated entirely in the browser. It does not upload files, and it keeps the demo self-contained for documentation, examples, and offline preview testing.</w:t></w:r></w:p>
+    <w:p><w:pPr><w:spacing w:before="320" w:after="160"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val="26"/></w:rPr><w:t>Implementation notes</w:t></w:r></w:p>
+    <w:p><w:pPr><w:spacing w:after="160"/></w:pPr><w:r><w:t>The built-in sample is generated entirely in the browser. It does not upload files, and it keeps the demo self-contained for documentation, examples, and offline preview testing.</w:t></w:r></w:p>
+    <w:sectPr>
+      <w:pgSz w:w="12240" w:h="15840"/>
+      <w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/>
+    </w:sectPr>
   </w:body>
 </w:document>`;
   return createZipFile(
@@ -725,45 +769,26 @@ function createPptxSample(): File {
     <p:sldId id="257" r:id="rId2"/>
     <p:sldId id="258" r:id="rId3"/>
   </p:sldIdLst>
+  <p:sldSz cx="9144000" cy="5143500" type="screen16x9"/>
+  <p:notesSz cx="6858000" cy="9144000"/>
 </p:presentation>`;
-  const slide1 = `<?xml version="1.0" encoding="UTF-8"?>
-<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
-  xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
-  <p:cSld>
-    <p:spTree>
-      <p:sp><p:txBody><a:p><a:r><a:rPr sz="3600" b="1"/><a:t>Open File Viewer</a:t></a:r></a:p></p:txBody></p:sp>
-      <p:sp><p:txBody><a:p><a:r><a:rPr sz="2400"/><a:t>Office Preview Readiness Deck</a:t></a:r></a:p></p:txBody></p:sp>
-      <p:sp><p:txBody><a:p><a:r><a:t>Built-in PowerPoint sample for slide rendering, text wrapping, and responsive container checks.</a:t></a:r></a:p></p:txBody></p:sp>
-      <p:sp><p:txBody><a:p><a:r><a:t>Includes three slides: overview, workflow, and launch checklist.</a:t></a:r></a:p></p:txBody></p:sp>
-    </p:spTree>
-  </p:cSld>
-</p:sld>`;
-  const slide2 = `<?xml version="1.0" encoding="UTF-8"?>
-<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
-  xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
-  <p:cSld>
-    <p:spTree>
-      <p:sp><p:txBody><a:p><a:r><a:rPr sz="3000" b="1"/><a:t>Preview workflow</a:t></a:r></a:p></p:txBody></p:sp>
-      <p:sp><p:txBody><a:p><a:r><a:t>1. User selects a local attachment or built-in sample from the playground.</a:t></a:r></a:p></p:txBody></p:sp>
-      <p:sp><p:txBody><a:p><a:r><a:t>2. The viewer detects file type, picks the matching plugin, and mounts it inside the same shell.</a:t></a:r></a:p></p:txBody></p:sp>
-      <p:sp><p:txBody><a:p><a:r><a:t>3. Toolbar actions, search, fullscreen, download, and responsive resize behavior remain consistent.</a:t></a:r></a:p></p:txBody></p:sp>
-      <p:sp><p:txBody><a:p><a:r><a:t>4. Unsupported details fall back to safe structured summaries instead of breaking the page.</a:t></a:r></a:p></p:txBody></p:sp>
-    </p:spTree>
-  </p:cSld>
-</p:sld>`;
-  const slide3 = `<?xml version="1.0" encoding="UTF-8"?>
-<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
-  xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
-  <p:cSld>
-    <p:spTree>
-      <p:sp><p:txBody><a:p><a:r><a:rPr sz="3000" b="1"/><a:t>Launch checklist</a:t></a:r></a:p></p:txBody></p:sp>
-      <p:sp><p:txBody><a:p><a:r><a:t>DOCX: headings, paragraphs, tables, and long copy stay readable.</a:t></a:r></a:p></p:txBody></p:sp>
-      <p:sp><p:txBody><a:p><a:r><a:t>XLSX: multiple sheets, formulas, wide rows, and long cells stay inside local scroll regions.</a:t></a:r></a:p></p:txBody></p:sp>
-      <p:sp><p:txBody><a:p><a:r><a:t>PPTX: slides render below the toolbar without exposing internal structure headers.</a:t></a:r></a:p></p:txBody></p:sp>
-      <p:sp><p:txBody><a:p><a:r><a:t>Result: the built-in sample menu now feels like a useful regression test, not a tiny placeholder.</a:t></a:r></a:p></p:txBody></p:sp>
-    </p:spTree>
-  </p:cSld>
-</p:sld>`;
+  const slide1 = createPptxSlide("Open File Viewer", [
+    "Office Preview Readiness Deck",
+    "Built-in PowerPoint sample for slide rendering, text wrapping, and responsive container checks.",
+    "Includes three slides: overview, workflow, and launch checklist."
+  ]);
+  const slide2 = createPptxSlide("Preview workflow", [
+    "1. User selects a local attachment or built-in sample from the playground.",
+    "2. The viewer detects file type, picks the matching plugin, and mounts it inside the same shell.",
+    "3. Toolbar actions, search, fullscreen, download, and responsive resize behavior remain consistent.",
+    "4. Unsupported details fall back to safe structured summaries instead of breaking the page."
+  ]);
+  const slide3 = createPptxSlide("Launch checklist", [
+    "DOCX: headings, paragraphs, tables, and long copy stay readable.",
+    "XLSX: multiple sheets, formulas, wide rows, and long cells stay inside local scroll regions.",
+    "PPTX: slides render below the toolbar without exposing internal structure headers.",
+    "Result: the built-in sample menu now feels like a useful regression test, not a tiny placeholder."
+  ]);
   return createZipFile(
     "sample-powerpoint.pptx",
     "application/vnd.openxmlformats-officedocument.presentationml.presentation",
@@ -777,6 +802,119 @@ function createPptxSample(): File {
       { path: "ppt/slides/slide3.xml", content: slide3 }
     ]
   );
+}
+
+function createPptxSlide(title: string, lines: string[]): string {
+  const titleBox = createPptxTextBox({
+    id: 2,
+    name: "Title",
+    x: 685800,
+    y: 548640,
+    cx: 7772400,
+    cy: 914400,
+    fontSize: 3600,
+    bold: true,
+    color: "0F172A",
+    lines: [title]
+  });
+  const subtitleBox = createPptxTextBox({
+    id: 3,
+    name: "Body",
+    x: 822960,
+    y: 1645920,
+    cx: 7498080,
+    cy: 2743200,
+    fontSize: 2100,
+    bold: false,
+    color: "334155",
+    lines
+  });
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+  xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <p:cSld>
+    <p:bg>
+      <p:bgPr><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill></p:bgPr>
+    </p:bg>
+    <p:spTree>
+      <p:nvGrpSpPr>
+        <p:cNvPr id="1" name=""/>
+        <p:cNvGrpSpPr/>
+        <p:nvPr/>
+      </p:nvGrpSpPr>
+      <p:grpSpPr>
+        <a:xfrm>
+          <a:off x="0" y="0"/>
+          <a:ext cx="0" cy="0"/>
+          <a:chOff x="0" y="0"/>
+          <a:chExt cx="0" cy="0"/>
+        </a:xfrm>
+      </p:grpSpPr>
+      ${titleBox}
+      ${subtitleBox}
+    </p:spTree>
+  </p:cSld>
+</p:sld>`;
+}
+
+function createPptxTextBox(options: {
+  id: number;
+  name: string;
+  x: number;
+  y: number;
+  cx: number;
+  cy: number;
+  fontSize: number;
+  bold: boolean;
+  color: string;
+  lines: string[];
+}): string {
+  const paragraphs = options.lines
+    .map(
+      (line) => `<a:p>
+          <a:pPr marL="0" indent="0"/>
+          <a:r>
+            <a:rPr lang="en-US" sz="${options.fontSize}"${options.bold ? ' b="1"' : ""}>
+              <a:solidFill><a:srgbClr val="${options.color}"/></a:solidFill>
+            </a:rPr>
+            <a:t>${escapeXml(line)}</a:t>
+          </a:r>
+          <a:endParaRPr lang="en-US" sz="${options.fontSize}"/>
+        </a:p>`
+    )
+    .join("");
+  return `<p:sp>
+        <p:nvSpPr>
+          <p:cNvPr id="${options.id}" name="${options.name}"/>
+          <p:cNvSpPr txBox="1"/>
+          <p:nvPr/>
+        </p:nvSpPr>
+        <p:spPr>
+          <a:xfrm>
+            <a:off x="${options.x}" y="${options.y}"/>
+            <a:ext cx="${options.cx}" cy="${options.cy}"/>
+          </a:xfrm>
+          <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
+          <a:noFill/>
+          <a:ln><a:noFill/></a:ln>
+        </p:spPr>
+        <p:txBody>
+          <a:bodyPr wrap="square" rtlCol="0">
+            <a:spAutoFit/>
+          </a:bodyPr>
+          <a:lstStyle/>
+          ${paragraphs}
+        </p:txBody>
+      </p:sp>`;
+}
+
+function escapeXml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
 }
 
 function createZipFile(name: string, type: string, entries: ZipEntry[]): File {
@@ -891,6 +1029,7 @@ const languageToggle = requiredElement<HTMLButtonElement>("#languageToggle");
 const themeToggle = requiredElement<HTMLButtonElement>("#themeToggle");
 const codeSample = requiredElement<HTMLElement>("#codeSample");
 const pluginCodeElement = requiredElement<HTMLElement>("#pluginCode");
+const toolbarCodeElement = requiredElement<HTMLElement>("#toolbarCode");
 const formatGrid = requiredElement<HTMLElement>("#formatGrid");
 const apiOptionsElement = requiredElement<HTMLElement>("#apiOptions");
 const frameworkCopyElement = requiredElement<HTMLElement>("#frameworkCopy");
@@ -1091,7 +1230,7 @@ function setHighlightedCode(element: HTMLElement, source: string, languageName: 
 }
 
 function highlightStaticCodeBlocks() {
-  for (const code of document.querySelectorAll<HTMLElement>("pre code:not(#codeSample):not(#pluginCode)")) {
+  for (const code of document.querySelectorAll<HTMLElement>("pre code:not(#codeSample):not(#pluginCode):not(#toolbarCode)")) {
     const text = code.textContent || "";
     const languageName = text.trim().startsWith("npm ") ? "bash" : "typescript";
     setHighlightedCode(code, text, languageName);
@@ -1191,19 +1330,16 @@ for (const button of document.querySelectorAll<HTMLButtonElement>("[data-code-ta
   });
 }
 
-setHighlightedCode(pluginCodeElement, pluginCode, "typescript");
-highlightStaticCodeBlocks();
 applySiteTheme(siteTheme);
 applyLanguage(language);
-setCodeSample("vanilla");
+setHighlightedCode(pluginCodeElement, pluginCode, "typescript");
+setHighlightedCode(toolbarCodeElement, toolbarCode, "typescript");
+highlightStaticCodeBlocks();
 syncNavigationState();
 updateFilePickerLabel();
 syncResponsiveViewerHeight();
 renderViewer();
-
-window.addEventListener("DOMContentLoaded", () => {
-  setHighlightedCode(pluginCodeElement, pluginCode, "typescript");
-  highlightStaticCodeBlocks();
-  setCodeSample(activeCodeTab);
-  syncNavigationState();
+requestAnimationFrame(() => {
+  document.documentElement.dataset.siteReady = "true";
+  document.documentElement.dataset.siteBoot = "ready";
 });

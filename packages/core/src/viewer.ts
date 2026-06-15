@@ -10,6 +10,9 @@ import type {
   PreviewOptions,
   PreviewPlugin,
   PreviewSource,
+  PreviewToolbarActionId,
+  PreviewToolbarBuiltInAction,
+  PreviewToolbarCustomAction,
   PreviewToolbarOptions
 } from "./types";
 
@@ -108,6 +111,7 @@ export function createViewer(options: PreviewOptions): FileViewer {
         file,
         size: getElementSize(viewport),
         options: normalizedOptions,
+        toolbar: toolbar?.getContext(),
         setLoading,
         setError
       });
@@ -315,6 +319,8 @@ function createToolbar(
       element: HTMLElement;
       update: (file: PreviewFile, index: number, length: number) => void;
       setCommandSupport: (isSupported: (command: PreviewCommand) => boolean) => void;
+      getContext: () => ReturnType<typeof createToolbarContext>;
+      setZoom: (zoom?: number) => void;
       destroy: () => void;
     }
   | undefined {
@@ -333,19 +339,45 @@ function createToolbar(
   element.setAttribute("aria-label", "File preview toolbar");
 
   let file: PreviewFile | undefined;
+  let currentIndex = 0;
+  let currentLength = queue.getLength();
   let queueLabel: HTMLSpanElement | undefined;
   let previousButton: HTMLButtonElement | undefined;
   let nextButton: HTMLButtonElement | undefined;
+  let zoomResetButton: HTMLButtonElement | undefined;
+  let currentZoom: number | undefined;
   const commandButtons: Array<{ button: HTMLButtonElement; command: PreviewCommand }> = [];
+  const customButtons: Array<{ button: HTMLButtonElement; action: PreviewToolbarCustomAction }> = [];
   const disposers: Array<() => void> = [];
   const search = createSearchController(viewport);
   let searchInput: HTMLInputElement | undefined;
   let searchCount: HTMLSpanElement | undefined;
+  let canRunCommand = (_command: PreviewCommand) => false;
 
-  const addButton = (label: string, title: string, action: () => void, className?: string) => {
+  const getContext = () =>
+    createToolbarContext({
+      file,
+      index: currentIndex,
+      length: currentLength,
+      viewport,
+      queue,
+      element,
+      search,
+      canCommand: canRunCommand,
+      zoom: currentZoom,
+      setZoom
+    });
+
+  const addButton = (
+    label: string,
+    title: string,
+    action: () => void,
+    className?: string,
+    icon?: string | HTMLElement | SVGElement
+  ) => {
     const button = document.createElement("button");
     button.type = "button";
-    button.textContent = label;
+    setToolbarButtonContent(button, label, icon);
     button.title = title;
     button.setAttribute("aria-label", title);
     if (className) {
@@ -357,76 +389,129 @@ function createToolbar(
     return button;
   };
 
-  const addQueueButton = (label: string, title: string, action: () => void | Promise<void>) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.textContent = label;
-    button.title = title;
-    button.setAttribute("aria-label", title);
-    const listener = () => {
-      void action();
-    };
-    button.addEventListener("click", listener);
-    element.append(button);
-    disposers.push(() => button.removeEventListener("click", listener));
-    return button;
-  };
-
-  if (queue.getLength() > 1) {
-    previousButton = addQueueButton("Prev", "Previous file", queue.previous);
-    nextButton = addQueueButton("Next", "Next file", queue.next);
-    queueLabel = document.createElement("span");
-    queueLabel.className = "ofv-toolbar-queue";
-    element.append(queueLabel);
-  }
-
-  const addCommandButton = (label: string, title: string, command: PreviewCommand) => {
+  const addCommandButton = (
+    id: PreviewToolbarBuiltInAction,
+    label: string,
+    title: string,
+    command: PreviewCommand
+  ) => {
     const button = addButton(label, title, () => {
       queue.command(command);
-    });
+    }, undefined, options.icons?.[id]);
     button.disabled = true;
     commandButtons.push({ button, command });
   };
 
-  if (options.zoom) {
-    addCommandButton("-", "Zoom out", "zoom-out");
-    addCommandButton("+", "Zoom in", "zoom-in");
-    addCommandButton("100%", "Reset zoom", "zoom-reset");
-  }
-
-  if (options.rotate) {
-    addCommandButton("Rotate", "Rotate right", "rotate-right");
-  }
-
-  if (options.download !== false) {
-    addButton("Download", "Download file", () => {
-      if (file) {
-        downloadFile(file);
+  const renderDefaultAction = (id: PreviewToolbarActionId) => {
+    if (!isBuiltInToolbarAction(id)) {
+      const customAction = options.actions?.find((action) => action.id === id);
+      if (customAction) {
+        renderCustomAction(customAction);
       }
-    });
-  }
+      return;
+    }
 
-  if (options.fullscreen !== false) {
-    addButton("Fullscreen", "Open preview fullscreen", () => {
-      const target = element.parentElement;
-      void target?.requestFullscreen?.();
-    });
-  }
+    if (id === "previous" && queue.getLength() > 1) {
+      previousButton = addButton(
+        getToolbarLabel(options, "previous"),
+        getToolbarTitle(options, "previous"),
+        () => void queue.previous(),
+        undefined,
+        options.icons?.previous
+      );
+      return;
+    }
+    if (id === "next" && queue.getLength() > 1) {
+      nextButton = addButton(
+        getToolbarLabel(options, "next"),
+        getToolbarTitle(options, "next"),
+        () => void queue.next(),
+        undefined,
+        options.icons?.next
+      );
+      return;
+    }
+    if (id === "queue" && queue.getLength() > 1) {
+      queueLabel = document.createElement("span");
+      queueLabel.className = "ofv-toolbar-queue";
+      element.append(queueLabel);
+      return;
+    }
+    if (id === "zoom-out" && options.zoom) {
+      addCommandButton(id, getToolbarLabel(options, id), getToolbarTitle(options, id), "zoom-out");
+      return;
+    }
+    if (id === "zoom-in" && options.zoom) {
+      addCommandButton(id, getToolbarLabel(options, id), getToolbarTitle(options, id), "zoom-in");
+      return;
+    }
+    if (id === "zoom-reset" && options.zoom) {
+      addCommandButton(id, getToolbarLabel(options, id), getToolbarTitle(options, id), "zoom-reset");
+      zoomResetButton = commandButtons[commandButtons.length - 1]?.button;
+      updateZoomLabel();
+      return;
+    }
+    if (id === "rotate-right" && options.rotate) {
+      addCommandButton(id, getToolbarLabel(options, id), getToolbarTitle(options, id), "rotate-right");
+      return;
+    }
+    if (id === "download" && options.download !== false) {
+      addButton(
+        getToolbarLabel(options, id),
+        getToolbarTitle(options, id),
+        () => getContext().download(),
+        undefined,
+        options.icons?.download
+      );
+      return;
+    }
+    if (id === "fullscreen" && options.fullscreen !== false) {
+      addButton(
+        getToolbarLabel(options, id),
+        getToolbarTitle(options, id),
+        () => getContext().fullscreen(),
+        undefined,
+        options.icons?.fullscreen
+      );
+      return;
+    }
+    if (id === "print" && options.print) {
+      addButton(
+        getToolbarLabel(options, id),
+        getToolbarTitle(options, id),
+        () => getContext().print(),
+        undefined,
+        options.icons?.print
+      );
+      return;
+    }
+    if (id === "search" && options.search !== false) {
+      renderSearchControl();
+      return;
+    }
 
-  if (options.print) {
-    addButton("Print", "Print preview", () => {
-      printPreview(viewport);
-    });
-  }
+  };
 
-  if (options.search !== false) {
+  const renderCustomAction = (action: PreviewToolbarCustomAction) => {
+    const button = addButton(
+      action.label,
+      action.title || action.label,
+      () => void action.onClick(getContext()),
+      action.className,
+      action.icon
+    );
+    button.dataset.ofvToolbarAction = action.id;
+    customButtons.push({ button, action });
+  };
+
+  const renderSearchControl = () => {
     const searchGroup = document.createElement("div");
     searchGroup.className = "ofv-toolbar-search";
-    searchGroup.title = "Search preview text";
+    searchGroup.title = getToolbarTitle(options, "search");
     const nextSearchInput = document.createElement("input");
     nextSearchInput.type = "search";
-    nextSearchInput.placeholder = "Search";
-    nextSearchInput.setAttribute("aria-label", "Search preview text");
+    nextSearchInput.placeholder = getToolbarLabel(options, "search");
+    nextSearchInput.setAttribute("aria-label", getToolbarTitle(options, "search"));
     const nextSearchCount = document.createElement("span");
     nextSearchCount.className = "ofv-toolbar-search-count";
     searchInput = nextSearchInput;
@@ -441,19 +526,79 @@ function createToolbar(
     searchGroup.append(nextSearchInput, nextSearchCount);
     element.append(searchGroup);
     disposers.push(() => nextSearchInput.removeEventListener("input", runSearch));
+  };
+
+  const renderToolbar = () => {
+    if (options.render) {
+      element.replaceChildren();
+      const customElement = options.render(getContext());
+      if (customElement) {
+        element.append(customElement);
+      }
+      return;
+    }
+    getToolbarOrder(options, queue.getLength()).forEach(renderDefaultAction);
+    getImplicitCustomActions(options).forEach(renderCustomAction);
+  };
+
+  renderToolbar();
+
+  const updateCustomButtons = () => {
+    const context = getContext();
+    for (const { button, action } of customButtons) {
+      button.disabled = evaluateToolbarFlag(action.disabled, context);
+      button.hidden = evaluateToolbarFlag(action.hidden, context);
+    }
+  };
+
+  const resetSearch = () => {
+    search.clear();
+    if (searchInput) {
+      searchInput.value = "";
+    }
+    if (searchCount) {
+      searchCount.textContent = "";
+    }
+  };
+
+  function setZoom(zoom?: number) {
+    currentZoom = typeof zoom === "number" && Number.isFinite(zoom) && zoom > 0 ? zoom : undefined;
+    updateZoomLabel();
+    updateCustomButtons();
+    refreshCustomRender();
   }
+
+  function updateZoomLabel() {
+    if (!zoomResetButton) {
+      return;
+    }
+    setToolbarButtonContent(
+      zoomResetButton,
+      currentZoom === undefined ? getToolbarLabel(options, "zoom-reset") : formatToolbarZoom(currentZoom),
+      options.icons?.["zoom-reset"]
+    );
+  }
+
+  const refreshCustomRender = () => {
+    if (!options.render) {
+      return;
+    }
+    element.replaceChildren();
+    const customElement = options.render(getContext());
+    if (customElement) {
+      element.append(customElement);
+    }
+  };
 
   return {
     element,
     update(nextFile, index, length) {
       file = nextFile;
-      search.clear();
-      if (searchInput) {
-        searchInput.value = "";
-      }
-      if (searchCount) {
-        searchCount.textContent = "";
-      }
+      currentIndex = index;
+      currentLength = length;
+      currentZoom = undefined;
+      updateZoomLabel();
+      resetSearch();
       commandButtons.forEach(({ button }) => {
         button.disabled = true;
       });
@@ -466,19 +611,202 @@ function createToolbar(
       if (nextButton) {
         nextButton.disabled = index >= length - 1;
       }
+      updateCustomButtons();
+      refreshCustomRender();
     },
     setCommandSupport(isSupported) {
+      canRunCommand = isSupported;
       commandButtons.forEach(({ button, command }) => {
         button.disabled = !isSupported(command);
       });
+      updateCustomButtons();
+      refreshCustomRender();
     },
+    getContext,
+    setZoom,
     destroy() {
       search.clear();
       for (const dispose of disposers) {
         dispose();
       }
+      element.replaceChildren();
     }
   };
+}
+
+function createToolbarContext({
+  file,
+  index,
+  length,
+  viewport,
+  queue,
+  element,
+  search,
+  canCommand,
+  zoom,
+  setZoom
+}: {
+  file?: PreviewFile;
+  index: number;
+  length: number;
+  viewport: HTMLElement;
+  queue: {
+    next: () => void | Promise<void>;
+    previous: () => void | Promise<void>;
+    command: (command: PreviewCommand) => void | boolean | undefined;
+  };
+  element: HTMLElement;
+  search: ReturnType<typeof createSearchController>;
+  canCommand: (command: PreviewCommand) => boolean;
+  zoom?: number;
+  setZoom: (zoom?: number) => void;
+}) {
+  return {
+    file,
+    index,
+    length,
+    viewport,
+    canPrevious: index > 0,
+    canNext: index < length - 1,
+    zoom,
+    zoomLabel: zoom === undefined ? undefined : formatToolbarZoom(zoom),
+    async previous() {
+      await queue.previous();
+    },
+    async next() {
+      await queue.next();
+    },
+    command: queue.command,
+    canCommand,
+    setZoom,
+    download() {
+      if (file) {
+        downloadFile(file);
+      }
+    },
+    fullscreen() {
+      void element.parentElement?.requestFullscreen?.();
+    },
+    print() {
+      printPreview(viewport);
+    },
+    search: search.search,
+    clearSearch: search.clear
+  };
+}
+
+const defaultToolbarLabels: Record<PreviewToolbarBuiltInAction, string> = {
+  previous: "Prev",
+  next: "Next",
+  queue: "",
+  "zoom-out": "-",
+  "zoom-in": "+",
+  "zoom-reset": "100%",
+  "rotate-right": "Rotate",
+  download: "Download",
+  fullscreen: "Fullscreen",
+  print: "Print",
+  search: "Search"
+};
+
+const defaultToolbarTitles: Record<PreviewToolbarBuiltInAction, string> = {
+  previous: "Previous file",
+  next: "Next file",
+  queue: "Current file position",
+  "zoom-out": "Zoom out",
+  "zoom-in": "Zoom in",
+  "zoom-reset": "Reset zoom",
+  "rotate-right": "Rotate right",
+  download: "Download file",
+  fullscreen: "Open preview fullscreen",
+  print: "Print preview",
+  search: "Search preview text"
+};
+
+function getToolbarLabel(options: PreviewToolbarOptions, id: PreviewToolbarBuiltInAction): string {
+  return options.labels?.[id] ?? defaultToolbarLabels[id];
+}
+
+function getToolbarTitle(options: PreviewToolbarOptions, id: PreviewToolbarBuiltInAction): string {
+  return options.titles?.[id] ?? options.labels?.[id] ?? defaultToolbarTitles[id];
+}
+
+function formatToolbarZoom(zoom: number): string {
+  return `${Math.round(zoom * 100)}%`;
+}
+
+function getToolbarOrder(options: PreviewToolbarOptions, queueLength: number): PreviewToolbarActionId[] {
+  if (options.order) {
+    return options.order;
+  }
+
+  const actions: PreviewToolbarActionId[] = [];
+  if (queueLength > 1) {
+    actions.push("previous", "next", "queue");
+  }
+  if (options.zoom) {
+    actions.push("zoom-out", "zoom-in", "zoom-reset");
+  }
+  if (options.rotate) {
+    actions.push("rotate-right");
+  }
+  if (options.download !== false) {
+    actions.push("download");
+  }
+  if (options.fullscreen !== false) {
+    actions.push("fullscreen");
+  }
+  if (options.print) {
+    actions.push("print");
+  }
+  if (options.search !== false) {
+    actions.push("search");
+  }
+  return actions;
+}
+
+function getImplicitCustomActions(options: PreviewToolbarOptions): PreviewToolbarCustomAction[] {
+  if (options.order || !options.actions) {
+    return [];
+  }
+  return [...options.actions].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+}
+
+function evaluateToolbarFlag(
+  value: boolean | ((ctx: ReturnType<typeof createToolbarContext>) => boolean) | undefined,
+  context: ReturnType<typeof createToolbarContext>
+): boolean {
+  return typeof value === "function" ? value(context) : Boolean(value);
+}
+
+function setToolbarButtonContent(
+  button: HTMLButtonElement,
+  label: string,
+  icon?: string | HTMLElement | SVGElement
+): void {
+  button.replaceChildren();
+  if (!icon) {
+    button.textContent = label;
+    return;
+  }
+
+  const iconElement = document.createElement("span");
+  iconElement.className = "ofv-toolbar-icon";
+  iconElement.setAttribute("aria-hidden", "true");
+  if (typeof icon === "string") {
+    iconElement.innerHTML = icon;
+  } else {
+    iconElement.append(icon.cloneNode(true));
+  }
+
+  const labelElement = document.createElement("span");
+  labelElement.className = "ofv-toolbar-label";
+  labelElement.textContent = label;
+  button.append(iconElement, labelElement);
+}
+
+function isBuiltInToolbarAction(id: PreviewToolbarActionId): id is PreviewToolbarBuiltInAction {
+  return id in defaultToolbarLabels;
 }
 
 function createSearchController(root: HTMLElement): {

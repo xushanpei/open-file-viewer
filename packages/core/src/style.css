@@ -92,12 +92,41 @@
 }
 
 .ofv-toolbar button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   flex: 0 1 auto;
   min-width: 0;
   cursor: pointer;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.ofv-toolbar-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+}
+
+.ofv-toolbar-icon svg {
+  display: block;
+  width: 1em;
+  height: 1em;
+}
+
+.ofv-toolbar-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ofv-react-toolbar,
+.ofv-vue-toolbar,
+.ofv-vue-toolbar-content {
+  display: contents;
 }
 
 .ofv-toolbar button:hover {
@@ -1901,12 +1930,14 @@
 /* GIS / Map Visualization Styles */
 .ofv-gis-viewer {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
   width: 100%;
   max-width: 100%;
   height: 100%;
   min-width: 0;
-  min-height: 0;
+  min-height: 320px;
+  overflow: hidden;
 }
 
 .ofv-gis-summary {
@@ -1938,11 +1969,186 @@
   flex: 1 1 auto;
   width: 100%;
   max-width: 100%;
-  height: auto;
+  height: 100%;
   min-width: 0;
-  min-height: 0;
+  min-height: 280px;
   position: relative;
   background: var(--ofv-bg);
+  overflow: hidden;
+}
+
+.ofv-map-stage .leaflet-container,
+.ofv-map-stage.leaflet-container {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 280px;
+  background: var(--ofv-bg);
+}
+
+.ofv-map-stage .leaflet-pane,
+.ofv-map-stage .leaflet-tile,
+.ofv-map-stage .leaflet-marker-icon,
+.ofv-map-stage .leaflet-marker-shadow,
+.ofv-map-stage .leaflet-tile-container,
+.ofv-map-stage .leaflet-pane > svg,
+.ofv-map-stage .leaflet-pane > canvas,
+.ofv-map-stage.leaflet-container .leaflet-pane,
+.ofv-map-stage.leaflet-container .leaflet-tile,
+.ofv-map-stage.leaflet-container .leaflet-marker-icon,
+.ofv-map-stage.leaflet-container .leaflet-marker-shadow,
+.ofv-map-stage.leaflet-container .leaflet-tile-container,
+.ofv-map-stage.leaflet-container .leaflet-pane > svg,
+.ofv-map-stage.leaflet-container .leaflet-pane > canvas {
+  position: absolute;
+  left: 0;
+  top: 0;
+}
+
+.ofv-map-stage .leaflet-container,
+.ofv-map-stage.leaflet-container {
+  overflow: hidden;
+}
+
+.ofv-map-stage .leaflet-tile,
+.ofv-map-stage .leaflet-marker-icon,
+.ofv-map-stage .leaflet-marker-shadow,
+.ofv-map-stage.leaflet-container .leaflet-tile,
+.ofv-map-stage.leaflet-container .leaflet-marker-icon,
+.ofv-map-stage.leaflet-container .leaflet-marker-shadow {
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.ofv-map-stage .leaflet-overlay-pane svg,
+.ofv-map-stage.leaflet-container .leaflet-overlay-pane svg {
+  width: auto;
+  height: auto;
+  pointer-events: none;
+}
+
+.ofv-map-stage .leaflet-interactive,
+.ofv-map-stage.leaflet-container .leaflet-interactive {
+  pointer-events: auto;
+}
+
+.ofv-map-stage .leaflet-map-pane,
+.ofv-map-stage.leaflet-container .leaflet-map-pane {
+  z-index: 400;
+}
+
+.ofv-map-stage .leaflet-tile-pane,
+.ofv-map-stage.leaflet-container .leaflet-tile-pane {
+  z-index: 200;
+}
+
+.ofv-map-stage .leaflet-overlay-pane,
+.ofv-map-stage.leaflet-container .leaflet-overlay-pane {
+  z-index: 400;
+}
+
+.ofv-map-stage .leaflet-shadow-pane,
+.ofv-map-stage.leaflet-container .leaflet-shadow-pane {
+  z-index: 500;
+}
+
+.ofv-map-stage .leaflet-marker-pane,
+.ofv-map-stage.leaflet-container .leaflet-marker-pane {
+  z-index: 600;
+}
+
+.ofv-map-stage .leaflet-tooltip-pane,
+.ofv-map-stage.leaflet-container .leaflet-tooltip-pane {
+  z-index: 650;
+}
+
+.ofv-map-stage .leaflet-popup-pane,
+.ofv-map-stage.leaflet-container .leaflet-popup-pane {
+  z-index: 700;
+}
+
+.ofv-map-stage .leaflet-control,
+.ofv-map-stage.leaflet-container .leaflet-control {
+  position: relative;
+  z-index: 800;
+  pointer-events: auto;
+}
+
+.ofv-map-empty {
+  position: absolute;
+  inset: 0;
+  z-index: 400;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 24px;
+  text-align: center;
+  color: var(--ofv-text-muted);
+  pointer-events: none;
+}
+
+.ofv-map-empty strong {
+  color: var(--ofv-text);
+  font-size: 14px;
+}
+
+.ofv-map-legend {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 450;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: min(280px, calc(100% - 24px));
+  padding: 8px 10px;
+  border: 1px solid rgba(225, 29, 72, 0.28);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #475569;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.16);
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.ofv-map-legend strong {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #111827;
+  font-size: 13px;
+}
+
+.ofv-map-legend strong::before {
+  content: "";
+  display: inline-block;
+  width: 22px;
+  height: 4px;
+  border-radius: 999px;
+  background: #e11d48;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.9), 0 0 0 5px rgba(225, 29, 72, 0.24);
+}
+
+.ofv-map-stage .ofv-map-feature {
+  filter: drop-shadow(0 1px 0 #ffffff) drop-shadow(0 0 5px rgba(225, 29, 72, 0.82));
+}
+
+.ofv-map-stage .ofv-map-point {
+  filter: drop-shadow(0 0 0 #ffffff) drop-shadow(0 0 8px rgba(225, 29, 72, 0.95));
+}
+
+.ofv-map-stage .ofv-map-tooltip {
+  border: 1px solid rgba(225, 29, 72, 0.22);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.96);
+  color: #111827;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.16);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 /* Premium custom Leaflet map controls styling */

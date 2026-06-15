@@ -6,6 +6,10 @@ type PdfJsModule = typeof import("pdfjs-dist");
 export interface PdfPluginOptions {
   pdfjs?: PdfJsModule;
   workerSrc?: string;
+  cMapUrl?: string;
+  cMapPacked?: boolean;
+  standardFontDataUrl?: string;
+  useSystemFonts?: boolean;
 }
 
 // 2D affine transform matrix multiplication helper
@@ -42,7 +46,15 @@ export function pdfPlugin(options: PdfJsModule | PdfPluginOptions = {}): Preview
       viewer.append(summary, scroller);
       ctx.viewport.append(viewer);
 
-      const documentTask = pdf.getDocument(url);
+      const documentTask = pdf.getDocument({
+        url,
+        cMapUrl: normalizedOptions.cMapUrl ?? `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdf.version}/cmaps/`,
+        cMapPacked: normalizedOptions.cMapPacked ?? true,
+        standardFontDataUrl:
+          normalizedOptions.standardFontDataUrl ??
+          `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdf.version}/standard_fonts/`,
+        useSystemFonts: normalizedOptions.useSystemFonts ?? true
+      });
       const doc = await documentTask.promise.catch((error: unknown) => {
         viewer.remove();
         ctx.viewport.classList.add("ofv-center");
@@ -88,6 +100,7 @@ export function pdfPlugin(options: PdfJsModule | PdfPluginOptions = {}): Preview
 
       const updateSummary = () => {
         renderPdfSummary(summary, doc.numPages, pagesMeta, ctx.options.fit, zoomFactor);
+        ctx.toolbar?.setZoom(zoomFactor);
       };
 
       // Cancel page rendering and free canvas memory
@@ -126,11 +139,16 @@ export function pdfPlugin(options: PdfJsModule | PdfPluginOptions = {}): Preview
               : Math.max(0.1, Math.min(5, ((size.width - 32) / meta.width) * zoomFactor));
           
           const viewport = page.getViewport({ scale });
+          const outputScale = getPdfOutputScale();
+          const cssWidth = Math.floor(viewport.width);
+          const cssHeight = Math.floor(viewport.height);
 
           const canvas = document.createElement("canvas");
           canvas.className = "ofv-pdf-page";
-          canvas.width = Math.floor(viewport.width);
-          canvas.height = Math.floor(viewport.height);
+          canvas.width = Math.floor(cssWidth * outputScale);
+          canvas.height = Math.floor(cssHeight * outputScale);
+          canvas.style.width = `${cssWidth}px`;
+          canvas.style.height = `${cssHeight}px`;
 
           const context = canvas.getContext("2d");
           if (!context) {
@@ -142,7 +160,8 @@ export function pdfPlugin(options: PdfJsModule | PdfPluginOptions = {}): Preview
 
           const renderTask = page.render({
             canvasContext: context,
-            viewport
+            viewport,
+            transform: outputScale === 1 ? undefined : [outputScale, 0, 0, outputScale, 0, 0]
           });
           state.renderTask = renderTask;
           
@@ -153,8 +172,8 @@ export function pdfPlugin(options: PdfJsModule | PdfPluginOptions = {}): Preview
           const textContent = await page.getTextContent();
           const textLayer = document.createElement("div");
           textLayer.className = "ofv-pdf-text-layer";
-          textLayer.style.width = `${Math.floor(viewport.width)}px`;
-          textLayer.style.height = `${Math.floor(viewport.height)}px`;
+          textLayer.style.width = `${cssWidth}px`;
+          textLayer.style.height = `${cssHeight}px`;
           state.wrapper.appendChild(textLayer);
 
           for (const item of textContent.items) {
@@ -290,6 +309,7 @@ export function pdfPlugin(options: PdfJsModule | PdfPluginOptions = {}): Preview
           }, 120);
         },
         destroy() {
+          ctx.toolbar?.setZoom(undefined);
           window.clearTimeout(resizeTimer);
           observer?.disconnect();
           
@@ -310,6 +330,13 @@ export function pdfPlugin(options: PdfJsModule | PdfPluginOptions = {}): Preview
       };
     }
   };
+}
+
+function getPdfOutputScale(): number {
+  if (typeof window === "undefined") {
+    return 1;
+  }
+  return Math.max(1, Math.min(window.devicePixelRatio || 1, 2.5));
 }
 
 function renderPdfSummary(

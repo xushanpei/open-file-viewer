@@ -1,9 +1,10 @@
 {
   "name": "@open-file-viewer/core",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Framework-agnostic browser file preview core.",
+  "license": "MIT",
   "type": "module",
-  "homepage": "https://xushanpei.github.io/open-file-viewer/",
+  "homepage": "https://open-file-viewer-workspace.void.app",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/xushanpei/open-file-viewer.git",
@@ -26,8 +27,12 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "README.md"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsup src/index.ts --format esm,cjs --dts --sourcemap --clean && cp src/style.css dist/style.css",
     "typecheck": "tsc --noEmit"

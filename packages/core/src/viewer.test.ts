@@ -92,6 +92,224 @@ describe("createViewer", () => {
     viewer.destroy();
   });
 
+  it("updates the toolbar zoom percentage when plugins report zoom changes", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    let zoom = 1;
+    const viewer = createViewer({
+      container,
+      file: new Blob(["hello"], { type: "text/plain" }),
+      fileName: "hello.txt",
+      toolbar: true,
+      plugins: [
+        {
+          name: "zoom-state",
+          match: () => true,
+          render(ctx) {
+            ctx.viewport.textContent = ctx.file.name;
+            ctx.toolbar?.setZoom(zoom);
+            return {
+              canCommand: (command) => command === "zoom-in" || command === "zoom-reset",
+              command(command) {
+                if (command === "zoom-in") {
+                  zoom = 1.25;
+                  ctx.toolbar?.setZoom(zoom);
+                  return true;
+                }
+                if (command === "zoom-reset") {
+                  zoom = 1;
+                  ctx.toolbar?.setZoom(zoom);
+                  return true;
+                }
+                return false;
+              },
+              destroy: vi.fn()
+            };
+          }
+        }
+      ]
+    });
+
+    const zoomIn = container.querySelector<HTMLButtonElement>('button[aria-label="Zoom in"]');
+    const zoomReset = container.querySelector<HTMLButtonElement>('button[aria-label="Reset zoom"]');
+    await waitFor(() => zoomIn?.disabled === false);
+    expect(zoomReset?.textContent).toBe("100%");
+
+    zoomIn?.click();
+    await waitFor(() => zoomReset?.textContent === "125%");
+
+    zoomReset?.click();
+    await waitFor(() => zoomReset?.textContent === "100%");
+
+    viewer.destroy();
+  });
+
+  it("customizes toolbar labels, order, icons, and business actions", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    const approve = vi.fn();
+    const command = vi.fn();
+    const viewer = createViewer({
+      container,
+      file: new Blob(["hello"], { type: "text/plain" }),
+      fileName: "hello.txt",
+      toolbar: {
+        zoom: true,
+        rotate: false,
+        fullscreen: false,
+        print: false,
+        search: false,
+        labels: {
+          download: "下载",
+          "zoom-in": "放大"
+        },
+        titles: {
+          download: "下载文件"
+        },
+        icons: {
+          download: "<svg data-icon=\"download\"></svg>"
+        },
+        order: ["download", "approve", "zoom-in"],
+        actions: [
+          {
+            id: "approve",
+            label: "审批",
+            onClick(ctx) {
+              approve(ctx.file?.name);
+            }
+          }
+        ]
+      },
+      plugins: [
+        {
+          name: "commands",
+          match: () => true,
+          render(ctx) {
+            ctx.viewport.textContent = ctx.file.name;
+            return { command, destroy: vi.fn() };
+          }
+        }
+      ]
+    });
+
+    await waitFor(() => container.textContent?.includes("hello.txt") === true);
+    await waitFor(() => container.querySelector<HTMLButtonElement>('button[aria-label="放大"]')?.disabled === false);
+
+    const buttons = [...container.querySelectorAll<HTMLButtonElement>(".ofv-toolbar button")];
+    expect(buttons.map((button) => button.textContent)).toEqual(["下载", "审批", "放大"]);
+    expect(buttons[0].getAttribute("aria-label")).toBe("下载文件");
+    expect(buttons[0].querySelector("[data-icon='download']")).not.toBeNull();
+
+    buttons[1].click();
+    expect(approve).toHaveBeenCalledWith("hello.txt");
+
+    buttons[2].click();
+    expect(command).toHaveBeenCalledWith("zoom-in");
+
+    viewer.destroy();
+  });
+
+  it("supports a fully custom toolbar renderer", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    const viewer = createViewer({
+      container,
+      files: [
+        { file: new Blob(["one"], { type: "text/plain" }), fileName: "one.txt" },
+        { file: new Blob(["two"], { type: "text/plain" }), fileName: "two.txt" }
+      ],
+      toolbar: {
+        render(ctx) {
+          const shell = document.createElement("div");
+          shell.className = "business-toolbar";
+          const label = document.createElement("span");
+          label.textContent = `${ctx.index + 1}/${ctx.length}:${ctx.file?.name ?? ""}`;
+          const next = document.createElement("button");
+          next.type = "button";
+          next.textContent = "下一份";
+          next.disabled = !ctx.canNext;
+          next.addEventListener("click", () => void ctx.next());
+          shell.append(label, next);
+          return shell;
+        }
+      },
+      plugins: [
+        {
+          name: "text",
+          match: () => true,
+          render(ctx) {
+            ctx.viewport.textContent = ctx.file.name;
+            return { destroy: vi.fn() };
+          }
+        }
+      ]
+    });
+
+    await waitFor(() => container.querySelector(".business-toolbar")?.textContent?.includes("1/2:one.txt") === true);
+    container.querySelector<HTMLButtonElement>(".business-toolbar button")?.click();
+    await waitFor(() => container.querySelector(".business-toolbar")?.textContent?.includes("2/2:two.txt") === true);
+    expect(container.querySelector<HTMLButtonElement>(".business-toolbar button")?.disabled).toBe(true);
+
+    viewer.destroy();
+  });
+
+  it("exposes zoom state to custom toolbar renderers", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    let zoom = 1;
+    const viewer = createViewer({
+      container,
+      file: new Blob(["hello"], { type: "text/plain" }),
+      fileName: "hello.txt",
+      toolbar: {
+        render(ctx) {
+          const shell = document.createElement("div");
+          shell.className = "business-toolbar";
+          const zoomLabel = document.createElement("span");
+          zoomLabel.textContent = ctx.zoomLabel || "none";
+          const zoomIn = document.createElement("button");
+          zoomIn.type = "button";
+          zoomIn.textContent = "放大";
+          zoomIn.onclick = () => ctx.command("zoom-in");
+          shell.append(zoomLabel, zoomIn);
+          return shell;
+        }
+      },
+      plugins: [
+        {
+          name: "custom-zoom-state",
+          match: () => true,
+          render(ctx) {
+            ctx.viewport.textContent = ctx.file.name;
+            ctx.toolbar?.setZoom(zoom);
+            return {
+              canCommand: (command) => command === "zoom-in",
+              command(command) {
+                if (command === "zoom-in") {
+                  zoom = 1.5;
+                  ctx.toolbar?.setZoom(zoom);
+                  return true;
+                }
+                return false;
+              },
+              destroy: vi.fn()
+            };
+          }
+        }
+      ]
+    });
+
+    await waitFor(() => container.querySelector(".business-toolbar")?.textContent?.includes("100%") === true);
+    container.querySelector<HTMLButtonElement>(".business-toolbar button")?.click();
+    await waitFor(() => container.querySelector(".business-toolbar")?.textContent?.includes("150%") === true);
+
+    viewer.destroy();
+  });
+
   it("keeps current queue item metadata when reloading a Blob", async () => {
     const container = document.createElement("div");
     document.body.append(container);

@@ -131,12 +131,18 @@ export function gisPlugin(): PreviewPlugin {
       // 3. Render Leaflet Map
       const wrapper = document.createElement("div");
       wrapper.className = "ofv-gis-viewer";
-      wrapper.append(createGisSummary(geojson));
+      const summary = summarizeGeoJson(geojson);
+      wrapper.append(createGisSummary(summary));
       ctx.viewport.appendChild(wrapper);
 
       const mapContainer = document.createElement("div");
       mapContainer.className = "ofv-map-stage";
       wrapper.appendChild(mapContainer);
+      if (summary.features === 0) {
+        mapContainer.append(createEmptyMapState());
+      } else {
+        mapContainer.append(createMapLegend(summary));
+      }
 
       const map = Leaflet.map(mapContainer).setView([0, 0], 2);
 
@@ -147,23 +153,48 @@ export function gisPlugin(): PreviewPlugin {
       // Render GeoJSON elements with premium blue color styles
       const geojsonLayer = Leaflet.geoJSON(geojson, {
         style: () => ({
-          color: "#3b82f6",
+          className: "ofv-map-feature",
+          color: "#e11d48",
           weight: 2,
-          opacity: 0.8,
-          fillColor: "#93c5fd",
-          fillOpacity: 0.35
+          opacity: 0.92,
+          fillColor: "#fb923c",
+          fillOpacity: 0.3,
+          lineCap: "round",
+          lineJoin: "round"
         }),
         pointToLayer: (feature: any, latlng: any) => {
           return Leaflet.circleMarker(latlng, {
-            radius: 6,
-            fillColor: "#3b82f6",
+            className: "ofv-map-feature ofv-map-point",
+            radius: 7,
+            fillColor: "#e11d48",
             color: "#ffffff",
-            weight: 1.5,
+            weight: 2.5,
             opacity: 1,
-            fillOpacity: 0.8
+            fillOpacity: 0.9
           });
         },
         onEachFeature: (feature: any, layer: any) => {
+          const label = feature.properties?.name || feature.properties?.title || feature.properties?.label;
+          if (label) {
+            layer.bindTooltip?.(String(label), {
+              className: "ofv-map-tooltip",
+              direction: "top",
+              sticky: true
+            });
+          }
+          layer.on?.({
+            mouseover(event: any) {
+              event.target?.setStyle?.({
+                weight: 4,
+                opacity: 1,
+                fillOpacity: 0.4
+              });
+              event.target?.bringToFront?.();
+            },
+            mouseout(event: any) {
+              geojsonLayer.resetStyle?.(event.target);
+            }
+          });
           if (feature.properties) {
             const props = feature.properties;
             const keys = Object.keys(props);
@@ -207,16 +238,22 @@ export function gisPlugin(): PreviewPlugin {
         const bounds = geojsonLayer.getBounds();
         if (bounds.isValid()) {
           map.fitBounds(bounds, { padding: [20, 20] });
+          map.invalidateSize();
         }
       } catch (e) {
         console.warn("Could not fit bounds for GeoJSON data:", e);
       }
+
+      const resizeTimers = [0, 80, 240].map((delay) => window.setTimeout(() => {
+        map.invalidateSize();
+      }, delay));
 
       return {
         resize() {
           map.invalidateSize();
         },
         destroy() {
+          resizeTimers.forEach((timer) => window.clearTimeout(timer));
           map.remove();
           wrapper.remove();
         }
@@ -252,8 +289,7 @@ type GisSummary = {
   bounds?: [number, number, number, number];
 };
 
-function createGisSummary(geojson: any): HTMLElement {
-  const summary = summarizeGeoJson(geojson);
+function createGisSummary(summary: GisSummary): HTMLElement {
   const bar = document.createElement("div");
   bar.className = "ofv-gis-summary";
   appendSummaryItem(bar, "要素", String(summary.features));
@@ -266,6 +302,28 @@ function createGisSummary(geojson: any): HTMLElement {
     appendSummaryItem(bar, "范围", formatBounds(summary.bounds));
   }
   return bar;
+}
+
+function createEmptyMapState(): HTMLElement {
+  const empty = document.createElement("div");
+  empty.className = "ofv-map-empty";
+  const title = document.createElement("strong");
+  title.textContent = "暂无可展示的地图要素";
+  const detail = document.createElement("span");
+  detail.textContent = "GeoJSON 已识别，但 features 为空。";
+  empty.append(title, detail);
+  return empty;
+}
+
+function createMapLegend(summary: GisSummary): HTMLElement {
+  const legend = document.createElement("div");
+  legend.className = "ofv-map-legend";
+  const title = document.createElement("strong");
+  title.textContent = "GeoJSON";
+  const detail = document.createElement("span");
+  detail.textContent = `${summary.features} 个要素 · ${formatGeometryCounts(summary.geometryCounts)}`;
+  legend.append(title, detail);
+  return legend;
 }
 
 function appendSummaryItem(parent: HTMLElement, label: string, value: string): void {

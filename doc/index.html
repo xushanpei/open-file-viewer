@@ -7,6 +7,60 @@
       name="description"
       content="Open File Viewer is a framework-agnostic file preview SDK for vanilla JavaScript, React and Vue."
     />
+    <meta name="theme-color" content="#fbfaf8" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#080912" media="(prefers-color-scheme: dark)" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="shortcut icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="mask-icon" href="/favicon.svg" color="#7c5cff" />
+    <script>
+      (() => {
+        const root = document.documentElement;
+        root.dataset.siteBoot = "loading";
+        try {
+          const theme = localStorage.getItem("ofv-site-theme") === "dark" ? "dark" : "light";
+          root.dataset.siteTheme = theme;
+        } catch {
+          root.dataset.siteTheme = "light";
+        }
+        window.setTimeout(() => {
+          if (root.dataset.siteBoot === "loading") {
+            root.dataset.siteBoot = "timeout";
+          }
+        }, 1600);
+      })();
+    </script>
+    <style>
+      :root {
+        color-scheme: light;
+        background: #fbfaf8;
+      }
+
+      :root[data-site-theme="dark"] {
+        color-scheme: dark;
+        background: #080912;
+      }
+
+      html,
+      body {
+        min-height: 100%;
+        background-color: #fbfaf8;
+      }
+
+      :root[data-site-theme="dark"] body {
+        background-color: #080912;
+      }
+
+      :root[data-site-boot="loading"] body {
+        visibility: hidden;
+      }
+
+      :root[data-site-boot="loading"] *,
+      :root[data-site-boot="loading"] *::before,
+      :root[data-site-boot="loading"] *::after {
+        animation-play-state: paused !important;
+        transition: none !important;
+      }
+    </style>
     <title>Open File Viewer - File Preview SDK for JS, React and Vue</title>
   </head>
   <body>
@@ -373,6 +427,14 @@
             <div class="editor-window">
               <div class="editor-titlebar"><span></span><span></span><span></span><strong>custom-plugin.ts</strong></div>
               <pre><code id="pluginCode"></code></pre>
+            </div>
+          </article>
+          <article>
+            <h3 data-i18n="toolbar.title">Toolbar Customization</h3>
+            <p class="api-note" data-i18n="toolbar.desc">Change labels, order, icons, business actions or replace the toolbar completely.</p>
+            <div class="editor-window">
+              <div class="editor-titlebar"><span></span><span></span><span></span><strong>toolbar.ts</strong></div>
+              <pre><code id="toolbarCode"></code></pre>
             </div>
           </article>
         </div>
