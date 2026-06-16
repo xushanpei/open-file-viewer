@@ -5,7 +5,6 @@ import { textPlugin } from "./text";
 describe("textPlugin", () => {
   afterEach(() => {
     document.body.replaceChildren();
-    delete (globalThis as { __OFV_MONACO_LOADER__?: unknown }).__OFV_MONACO_LOADER__;
     vi.restoreAllMocks();
   });
 
@@ -291,13 +290,8 @@ describe("textPlugin", () => {
     expect(container.querySelector(".ofv-markdown-body h1")?.textContent).toBe(text.replace(/^#\s*/, ""));
   });
 
-  it("uses MIME-derived GraphQL for extensionless Monaco models", async () => {
+  it("uses MIME-derived GraphQL for extensionless code previews", async () => {
     const container = document.createElement("div");
-    const create = vi.fn(() => ({ dispose: vi.fn(), layout: vi.fn(), updateOptions: vi.fn() }));
-    const createModel = vi.fn(() => ({ dispose: vi.fn() }));
-    (globalThis as { __OFV_MONACO_LOADER__?: unknown }).__OFV_MONACO_LOADER__ = vi.fn(async () => ({
-      editor: { create, createModel, setTheme: vi.fn() }
-    }));
     document.body.append(container);
 
     createViewer({
@@ -307,14 +301,9 @@ describe("textPlugin", () => {
     });
 
     await waitFor(() => Boolean(container.querySelector(".ofv-code-container code")));
-    Array.from(container.querySelectorAll<HTMLButtonElement>(".ofv-code-action"))
-      .find((button) => button.textContent === "Editor")
-      ?.click();
-
-    await waitFor(() => createModel.mock.calls.length > 0);
 
     expect(container.querySelector(".ofv-code-title")?.textContent).toContain("graphql");
-    expect(createModel).toHaveBeenCalledWith("type Query { viewer: String }", "graphql");
+    expect(container.querySelector(".ofv-code-container code")?.className).toContain("language-graphql");
   });
 
   it("renders code with line numbers and reader actions", async () => {
@@ -335,11 +324,11 @@ describe("textPlugin", () => {
     expect(container.querySelector(".ofv-code-title")?.textContent).toContain("2 lines");
     expect(container.querySelector(".ofv-code-gutter")?.textContent).toBe("1\n2");
     expect(Array.from(container.querySelectorAll(".ofv-code-action")).map((button) => button.textContent)).toEqual([
-      "Editor",
       "Wrap",
       "Copy",
       "Download"
     ]);
+    expect(container.querySelector(".ofv-code-editor")).toBeNull();
     expect(container.querySelector(".ofv-code-container")?.classList.contains("is-wrapped")).toBe(false);
   });
 
@@ -362,117 +351,6 @@ describe("textPlugin", () => {
         (button) => button.textContent === "Wrap"
       )?.getAttribute("aria-pressed")
     ).toBe("true");
-  });
-
-  it("switches to an injected Monaco editor and disposes it on destroy", async () => {
-    const container = document.createElement("div");
-    const disposeEditor = vi.fn();
-    const disposeModel = vi.fn();
-    const layout = vi.fn();
-    const updateOptions = vi.fn();
-    const create = vi.fn(() => ({ dispose: disposeEditor, layout, updateOptions }));
-    const createModel = vi.fn(() => ({ dispose: disposeModel }));
-    const setTheme = vi.fn();
-    (globalThis as { __OFV_MONACO_LOADER__?: unknown }).__OFV_MONACO_LOADER__ = vi.fn(async () => ({
-      editor: { create, createModel, setTheme }
-    }));
-    document.body.append(container);
-
-    const viewer = createViewer({
-      container,
-      file: new Blob(["const value = 1;"], { type: "text/javascript" }),
-      fileName: "sample.ts",
-      plugins: [textPlugin()]
-    });
-
-    await waitFor(() => Boolean(container.querySelector(".ofv-code-container code")));
-    const editor = Array.from(container.querySelectorAll<HTMLButtonElement>(".ofv-code-action")).find(
-      (button) => button.textContent === "Editor"
-    );
-    editor?.click();
-
-    await waitFor(() => container.querySelector(".ofv-code-status")?.textContent === "Editor ready");
-
-    expect(createModel).toHaveBeenCalledWith("const value = 1;", "typescript");
-    expect(create).toHaveBeenCalledWith(
-      expect.any(HTMLElement),
-      expect.objectContaining({
-        automaticLayout: true,
-        readOnly: true,
-        wordWrap: "off"
-      })
-    );
-    expect(setTheme).toHaveBeenCalledWith("vs");
-    expect(container.querySelector<HTMLElement>(".ofv-code-body")?.hidden).toBe(true);
-    expect(container.querySelector<HTMLElement>(".ofv-code-editor")?.hidden).toBe(false);
-    expect(editor?.textContent).toBe("Reader");
-
-    const wrap = Array.from(container.querySelectorAll<HTMLButtonElement>(".ofv-code-action")).find(
-      (button) => button.textContent === "Wrap"
-    );
-    wrap?.click();
-    expect(updateOptions).toHaveBeenCalledWith({ wordWrap: "on" });
-
-    editor?.click();
-    expect(container.querySelector<HTMLElement>(".ofv-code-body")?.hidden).toBe(false);
-    expect(container.querySelector<HTMLElement>(".ofv-code-editor")?.hidden).toBe(true);
-
-    viewer.destroy();
-    expect(disposeEditor).toHaveBeenCalledTimes(1);
-    expect(disposeModel).toHaveBeenCalledTimes(1);
-  });
-
-  it("uses MIME-derived languages for extensionless Monaco models", async () => {
-    const container = document.createElement("div");
-    const create = vi.fn(() => ({ dispose: vi.fn(), layout: vi.fn(), updateOptions: vi.fn() }));
-    const createModel = vi.fn(() => ({ dispose: vi.fn() }));
-    (globalThis as { __OFV_MONACO_LOADER__?: unknown }).__OFV_MONACO_LOADER__ = vi.fn(async () => ({
-      editor: { create, createModel, setTheme: vi.fn() }
-    }));
-    document.body.append(container);
-
-    createViewer({
-      container,
-      file: new Blob(["const value: number = 1;"], { type: "application/typescript" }),
-      plugins: [textPlugin()]
-    });
-
-    await waitFor(() => Boolean(container.querySelector(".ofv-code-container code")));
-    Array.from(container.querySelectorAll<HTMLButtonElement>(".ofv-code-action"))
-      .find((button) => button.textContent === "Editor")
-      ?.click();
-
-    await waitFor(() => createModel.mock.calls.length > 0);
-
-    expect(container.querySelector(".ofv-code-title")?.textContent).toContain("typescript");
-    expect(createModel).toHaveBeenCalledWith("const value: number = 1;", "typescript");
-  });
-
-  it("uses a built-in editor fallback when Monaco loading fails", async () => {
-    const container = document.createElement("div");
-    vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    (globalThis as { __OFV_MONACO_LOADER__?: unknown }).__OFV_MONACO_LOADER__ = vi.fn(async () => {
-      throw new Error("missing Monaco");
-    });
-    document.body.append(container);
-
-    createViewer({
-      container,
-      file: new Blob(["body { color: red; }"], { type: "text/css" }),
-      fileName: "style.css",
-      plugins: [textPlugin()]
-    });
-
-    await waitFor(() => Boolean(container.querySelector(".ofv-code-container code")));
-    const editor = Array.from(container.querySelectorAll<HTMLButtonElement>(".ofv-code-action")).find(
-      (button) => button.textContent === "Editor"
-    );
-    editor?.click();
-
-    await waitFor(() => container.querySelector(".ofv-code-status")?.textContent === "Basic editor");
-    expect(container.querySelector<HTMLElement>(".ofv-code-body")?.hidden).toBe(true);
-    expect(container.querySelector<HTMLElement>(".ofv-code-editor")?.hidden).toBe(false);
-    expect(container.querySelector<HTMLTextAreaElement>(".ofv-code-editor-fallback")?.value).toContain("color");
   });
 
   it("copies the full code text from the preview action", async () => {

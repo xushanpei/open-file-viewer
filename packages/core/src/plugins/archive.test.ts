@@ -145,6 +145,82 @@ describe("archivePlugin", () => {
     expect(summary?.textContent).toContain("风险路径1");
   });
 
+  it("keeps archive sidebar collapsible and auto-collapses after selecting files in narrow containers", async () => {
+    const zip = new JSZip();
+    for (let index = 0; index < 30; index += 1) {
+      zip.file(`Visual Studio Code - Insiders very long file name ${index}.txt`, `file ${index}`);
+    }
+    const buffer = await zip.generateAsync({ type: "arraybuffer" });
+    const container = document.createElement("div");
+    container.style.width = "320px";
+    container.style.height = "520px";
+    document.body.append(container);
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(320);
+
+    createViewer({
+      container,
+      file: buffer,
+      fileName: "many-files.zip",
+      width: "320px",
+      height: "520px",
+      plugins: [archivePlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-archive-item")));
+
+    const layout = container.querySelector(".ofv-archive-layout");
+    const toggle = container.querySelector<HTMLButtonElement>(".ofv-archive-sidebar-toggle");
+    expect(layout?.classList.contains("is-sidebar-collapsed")).toBe(false);
+    expect(toggle?.getAttribute("aria-expanded")).toBe("true");
+    toggle?.click();
+    expect(layout?.classList.contains("is-sidebar-collapsed")).toBe(true);
+    expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+    toggle?.click();
+    expect(layout?.classList.contains("is-sidebar-collapsed")).toBe(false);
+
+    container.querySelector<HTMLButtonElement>(".ofv-archive-item")?.click();
+    await waitFor(() => Boolean(container.querySelector(".ofv-archive-item.is-active")));
+    expect(layout?.classList.contains("is-sidebar-collapsed")).toBe(true);
+    expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+
+    expect(container.querySelector(".ofv-archive-sidebar-panel")).not.toBeNull();
+    expect(container.querySelector(".ofv-archive-main")).not.toBeNull();
+    expect(container.querySelector<HTMLElement>(".ofv-archive-item-name")?.textContent).toContain(
+      "Visual Studio Code"
+    );
+  });
+
+  it("keeps the archive sidebar toggle effective in wide containers", async () => {
+    const zip = new JSZip();
+    zip.file("docs/readme.txt", "hello");
+    const buffer = await zip.generateAsync({ type: "arraybuffer" });
+    const container = document.createElement("div");
+    document.body.append(container);
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(960);
+
+    createViewer({
+      container,
+      file: buffer,
+      fileName: "wide.zip",
+      width: "960px",
+      height: "520px",
+      plugins: [archivePlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-archive-item")));
+
+    const layout = container.querySelector(".ofv-archive-layout");
+    const toggle = container.querySelector<HTMLButtonElement>(".ofv-archive-sidebar-toggle");
+    expect(layout?.classList.contains("is-sidebar-collapsed")).toBe(false);
+    toggle?.click();
+    expect(layout?.classList.contains("is-sidebar-collapsed")).toBe(true);
+    expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+
+    container.querySelector<HTMLButtonElement>(".ofv-archive-item")?.click();
+    await waitFor(() => Boolean(container.querySelector(".ofv-archive-item.is-active")));
+    expect(layout?.classList.contains("is-sidebar-collapsed")).toBe(true);
+  });
+
   it("renders RAR4 header entries without falling back to unsupported copy", async () => {
     const container = document.createElement("div");
     document.body.append(container);

@@ -1241,6 +1241,7 @@ pre::-webkit-scrollbar-thumb {
 
 .compact-editor {
   margin-top: 24px;
+  min-height: 0;
 }
 
 .editor-titlebar {
@@ -1352,6 +1353,7 @@ pre::-webkit-scrollbar-thumb {
 }
 
 .compact-editor pre {
+  min-height: 104px;
   padding-left: 22px;
   background:
     radial-gradient(circle at 90% 8%, rgba(255, 122, 182, 0.13), transparent 14rem),
@@ -1359,6 +1361,7 @@ pre::-webkit-scrollbar-thumb {
 }
 
 .compact-editor pre[class*="language-"] {
+  min-height: 104px;
   padding-left: 22px;
   background:
     radial-gradient(circle at 90% 8%, rgba(255, 122, 182, 0.13), transparent 14rem),
@@ -1551,6 +1554,9 @@ pre .token.important {
 .drop-icon svg {
   width: 21px;
   height: 21px;
+  color: #ffffff;
+  fill: none;
+  stroke: currentColor;
 }
 
 .file-picker-row {
@@ -1595,6 +1601,9 @@ pre .token.important {
 .file-picker-button svg {
   width: 15px;
   height: 15px;
+  color: #ffffff;
+  fill: none;
+  stroke: currentColor;
 }
 
 .file-picker-name {

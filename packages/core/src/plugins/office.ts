@@ -72,6 +72,8 @@ const officeMimeFormatMap: Record<string, string> = {
   "application/vnd.apple.keynote": "key"
 };
 
+type LegacyOfficeTextSource = "ascii" | "utf16";
+
 type PresentationSlideInsight = {
   title: string;
   layout?: string;
@@ -120,9 +122,10 @@ export function officePlugin(): PreviewPlugin {
       ctx.viewport.append(panel);
       const extension = resolveFormat(ctx.file, officeMimeFormatMap);
       const arrayBuffer = await readArrayBuffer(ctx.file);
+      let disposeDocxFit: (() => void) | undefined;
 
       if (fileIsDocx(extension)) {
-        await renderDocx(panel, arrayBuffer);
+        disposeDocxFit = await renderDocx(panel, arrayBuffer);
       } else if (extension === "rtf") {
         renderPlainDocument(panel, "RTF 文档", rtfToText(await readTextFromBuffer(arrayBuffer)));
       } else if (extension === "odt") {
@@ -149,6 +152,7 @@ export function officePlugin(): PreviewPlugin {
 
       return {
         destroy() {
+          disposeDocxFit?.();
           panel.remove();
         }
       };
@@ -160,7 +164,7 @@ function fileIsDocx(extension: string): boolean {
   return extension === "docx" || extension === "docm" || extension === "dotx" || extension === "dotm";
 }
 
-async function renderDocx(panel: HTMLElement, arrayBuffer: ArrayBuffer): Promise<void> {
+async function renderDocx(panel: HTMLElement, arrayBuffer: ArrayBuffer): Promise<() => void> {
   const section = createSection("Word 文档");
   const content = document.createElement("div");
   content.className = "ofv-docx-document";
@@ -185,6 +189,7 @@ async function renderDocx(panel: HTMLElement, arrayBuffer: ArrayBuffer): Promise
       experimental: true,
       useBase64URL: true
     });
+    return fitDocxPages(content);
   } catch (error) {
     content.replaceChildren();
     const fallbackNote = document.createElement("div");
@@ -199,7 +204,84 @@ async function renderDocx(panel: HTMLElement, arrayBuffer: ArrayBuffer): Promise
     }
     console.warn("DOCX layout preview failed, fell back to Mammoth:", error);
   }
+  return () => undefined;
+}
 
+function fitDocxPages(container: HTMLElement): () => void {
+  const wrapper = container.querySelector<HTMLElement>(".ofv-docx-wrapper");
+  if (!wrapper) {
+    return () => undefined;
+  }
+
+  const update = () => {
+    const frames = ensureDocxPageFrames(wrapper);
+    if (frames.length === 0) {
+      wrapper.style.removeProperty("--ofv-docx-scale");
+      return;
+    }
+
+    const availableWidth = Math.max(1, container.clientWidth - 48);
+    const pageWidth = Math.max(
+      1,
+      ...frames.map(({ page }) => {
+        const rectWidth = page.getBoundingClientRect().width;
+        return page.offsetWidth || rectWidth || parseCssPixelValue(page.style.width) || 794;
+      })
+    );
+    const scale = Math.min(1, Math.max(0.35, availableWidth / pageWidth));
+    wrapper.style.setProperty("--ofv-docx-scale", formatCssNumber(scale));
+    wrapper.style.setProperty("--ofv-docx-page-width", `${pageWidth}px`);
+
+    for (const { frame, page } of frames) {
+      const pageHeight = page.offsetHeight || page.getBoundingClientRect().height || parseCssPixelValue(page.style.height);
+      if (pageHeight > 0) {
+        frame.style.height = `${Math.ceil(pageHeight * scale)}px`;
+      }
+    }
+  };
+
+  update();
+  const timers = [0, 80, 240].map((delay) => window.setTimeout(update, delay));
+
+  if (typeof ResizeObserver === "undefined") {
+    window.addEventListener("resize", update);
+    return () => {
+      timers.forEach((timer) => window.clearTimeout(timer));
+      window.removeEventListener("resize", update);
+    };
+  }
+
+  const observer = new ResizeObserver(update);
+  observer.observe(container);
+  observer.observe(wrapper);
+  return () => {
+    timers.forEach((timer) => window.clearTimeout(timer));
+    observer.disconnect();
+  };
+}
+
+function ensureDocxPageFrames(wrapper: HTMLElement): Array<{ frame: HTMLElement; page: HTMLElement }> {
+  const pages = Array.from(wrapper.querySelectorAll<HTMLElement>("section.ofv-docx"));
+  return pages.map((page) => {
+    const parent = page.parentElement;
+    if (parent?.classList.contains("ofv-docx-page-frame")) {
+      return { frame: parent, page };
+    }
+    const frame = document.createElement("div");
+    frame.className = "ofv-docx-page-frame";
+    page.before(frame);
+    frame.append(page);
+    return { frame, page };
+  });
+}
+
+function parseCssPixelValue(value: string): number {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatCssNumber(value: number): string {
+  return Number.isFinite(value) ? value.toFixed(4).replace(/0+$/, "").replace(/\.$/, "") : "1";
 }
 
 async function renderDocxTextFallback(container: HTMLElement, arrayBuffer: ArrayBuffer): Promise<void> {
@@ -311,7 +393,7 @@ async function renderSheet(
     workbook = xlsx.read(arrayBuffer, { type: "array" }) as WorkBook;
   } catch (error) {
     if (isLegacyOfficeBinary(extension)) {
-      renderLegacyOfficeBinary(panel, extension, arrayBuffer, normalizeOfficeError(error));
+      renderLegacyOfficeBinary(panel, extension, arrayBuffer, `表格解析失败：${normalizeOfficeError(error)}`);
       return;
     }
     renderSheetFallback(panel, extension, normalizeOfficeError(error));
@@ -1640,14 +1722,15 @@ function legacyOfficeFormatLabel(extension: string): string {
 function renderLegacyOfficeBinary(panel: HTMLElement, extension: string, arrayBuffer: ArrayBuffer, parseError?: string): void {
   const fragments = extractLegacyOfficeText(arrayBuffer);
   panel.replaceChildren();
-  const section = createSection("Office 二进制基础预览");
+  const section = createSection("Office 转换提示");
+  section.classList.add("ofv-office-conversion");
   const format = document.createElement("p");
   const strong = document.createElement("strong");
   strong.textContent = `.${extension}`;
   format.append(
     strong,
     document.createTextNode(
-      " 属于旧版 Microsoft Office 二进制格式，浏览器内无法高保真解析；当前先提取可读文本片段和结构指纹，完整版式建议接入 LibreOffice/OnlyOffice 服务端转换。"
+      " 属于旧版 Microsoft Office 二进制格式，浏览器内无法高保真解析；当前仅展示可信文本片段和结构指纹，完整排版建议接入 LibreOffice/OnlyOffice 服务端转换为 PDF/HTML。"
     )
   );
 
@@ -1657,14 +1740,17 @@ function renderLegacyOfficeBinary(panel: HTMLElement, extension: string, arrayBu
   appendOfficeBinaryMeta(meta, "文件结构", hasOleSignature(arrayBuffer) ? "检测到 OLE Compound File 签名" : "未检测到标准 OLE 签名，按原始二进制尝试提取");
   appendOfficeBinaryMeta(meta, "文本片段", `${fragments.length} 段`);
   if (parseError) {
-    appendOfficeBinaryMeta(meta, "表格解析", `xlsx 读取失败，已切换二进制指纹：${parseError}`);
+    appendOfficeBinaryMeta(meta, "解析状态", parseError);
   }
 
   section.append(format, meta);
 
   if (fragments.length > 0) {
     const article = document.createElement("article");
-    article.className = "ofv-document";
+    article.className = "ofv-document ofv-office-binary-fragments";
+    const heading = document.createElement("h4");
+    heading.textContent = "可读文本片段";
+    article.append(heading);
     for (const fragment of fragments.slice(0, 80)) {
       const paragraph = document.createElement("p");
       paragraph.textContent = fragment;
@@ -1673,7 +1759,8 @@ function renderLegacyOfficeBinary(panel: HTMLElement, extension: string, arrayBu
     section.append(article);
   } else {
     const empty = document.createElement("p");
-    empty.textContent = "未提取到稳定可读文本。该文件可能经过压缩、加密，或需要完整二进制解析器。";
+    empty.className = "ofv-office-binary-empty";
+    empty.textContent = "未提取到稳定可读文本。该文件可能经过压缩、加密，或文本编码无法在浏览器端可靠识别；请使用服务端 LibreOffice/OnlyOffice 转换后预览。";
     section.append(empty);
   }
 
@@ -1715,14 +1802,14 @@ function normalizeOfficeError(error: unknown): string {
 function extractLegacyOfficeText(arrayBuffer: ArrayBuffer): string[] {
   const bytes = new Uint8Array(arrayBuffer);
   const fragments = [
-    ...extractPrintableRuns(bytes),
-    ...extractUtf16Runs(bytes)
+    ...extractPrintableRuns(bytes).map((text) => ({ text, source: "ascii" as const })),
+    ...extractUtf16Runs(bytes).map((text) => ({ text, source: "utf16" as const }))
   ]
-    .map((fragment) => normalizeLegacyText(fragment))
-    .filter((fragment) => fragment.length >= 3 && /[\p{L}\p{N}]/u.test(fragment));
+    .map(({ text, source }) => ({ text: normalizeLegacyText(text), source }))
+    .filter(({ text, source }) => isReadableLegacyTextFragment(text, source));
   const unique: string[] = [];
   const seen = new Set<string>();
-  for (const fragment of fragments) {
+  for (const { text: fragment } of fragments) {
     const key = fragment.toLowerCase();
     if (!seen.has(key)) {
       seen.add(key);
@@ -1730,6 +1817,110 @@ function extractLegacyOfficeText(arrayBuffer: ArrayBuffer): string[] {
     }
   }
   return unique.slice(0, 160);
+}
+
+function isReadableLegacyTextFragment(fragment: string, source: LegacyOfficeTextSource): boolean {
+  if (fragment.length > 600) {
+    return false;
+  }
+  if (isLegacyOfficeMetadataNoise(fragment)) {
+    return false;
+  }
+  if (!/[\p{L}\p{N}]/u.test(fragment)) {
+    return false;
+  }
+  const chars = Array.from(fragment);
+  const letters = chars.filter((char) => /\p{L}/u.test(char)).length;
+  const digits = chars.filter((char) => /\p{N}/u.test(char)).length;
+  const spaces = chars.filter((char) => /\s/u.test(char)).length;
+  const asciiLetters = chars.filter((char) => /[A-Za-z]/.test(char)).length;
+  const cjkLetters = chars.filter((char) => /[\u3400-\u9fff]/u.test(char)).length;
+  const punctuation = chars.filter((char) => /[^\p{L}\p{N}\s]/u.test(char)).length;
+  const alphaNumeric = letters + digits;
+  const readableRatio = alphaNumeric / chars.length;
+  const punctuationRatio = punctuation / chars.length;
+
+  if (fragment.length < 4 || readableRatio < 0.55 || punctuationRatio > 0.24) {
+    return false;
+  }
+  if (/([\p{L}\p{N}])\1{4,}/u.test(fragment)) {
+    return false;
+  }
+  if (cjkLetters >= 2) {
+    const suspiciousCjk = chars.filter((char) => isAsciiBytePairCjk(char)).length;
+    if (suspiciousCjk / cjkLetters > 0.65) {
+      return false;
+    }
+    if (isLikelyCjkHeading(fragment)) {
+      return true;
+    }
+    if (punctuation > 0 && fragment.length < 12) {
+      return false;
+    }
+    return cjkLetters >= 8 || (cjkLetters >= 4 && spaces > 0);
+  }
+  if (asciiLetters >= 4) {
+    if (punctuation > 0 && spaces === 0) {
+      return false;
+    }
+    if (source === "ascii" && /^[A-Z]{2,8}$/.test(fragment)) {
+      return false;
+    }
+    if (spaces > 0) {
+      return letters >= 3;
+    }
+    return fragment.length >= 6;
+  }
+  if (spaces > 0 && letters >= 3) {
+    return true;
+  }
+  return false;
+}
+
+function isLegacyOfficeMetadataNoise(fragment: string): boolean {
+  if (/[$�\uFFFD]/u.test(fragment)) {
+    return true;
+  }
+  if (/^(?:Root Entry|WordDocument|Workbook|Book|SummaryInformation|DocumentSummaryInformation|CompObj|ObjectPool|Data|PowerPoint Document|Pictures)$/i.test(fragment)) {
+    return true;
+  }
+  if (/\.(dotm?|docm?|pptx?|ppsx?|xlsm?|xlsx?)\b/i.test(fragment)) {
+    return true;
+  }
+  if (/^(?:默认段落字体|普通表格|正文|标题|副标题|目录|页眉|页脚|批注|超链接)(?:\s*\d+)?$/.test(fragment)) {
+    return true;
+  }
+  if (/\b(?:Normal|Default|Calibri|Times New Roman|WPS Office|Microsoft Office|KSOP?ProductBuildVer)\b/i.test(fragment)) {
+    return true;
+  }
+  if (/^\d+(?:Table|List|Heading|Title|Style)$/i.test(fragment)) {
+    return true;
+  }
+  if (/[{(]?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}[})]?/i.test(fragment)) {
+    return true;
+  }
+  if (/^[A-Z_]{3,}$/.test(fragment) || /^[A-Za-z]+(?:Information|Document|Storage|Stream|Table|Data|Pool|Obj|Props)$/i.test(fragment)) {
+    return true;
+  }
+  return false;
+}
+
+function isLikelyCjkHeading(fragment: string): boolean {
+  return /^(?:标题|第[一二三四五六七八九十\d]+[章节条]|[一二三四五六七八九十\d]+[、.．])\s*[\p{L}\p{N}\s-]*$/u.test(fragment);
+}
+
+function isAsciiBytePairCjk(char: string): boolean {
+  const code = char.codePointAt(0) || 0;
+  if (code < 0x3400 || code > 0x9fff) {
+    return false;
+  }
+  const low = code & 0xff;
+  const high = code >> 8;
+  return isPrintableAsciiByte(low) && isPrintableAsciiByte(high);
+}
+
+function isPrintableAsciiByte(value: number): boolean {
+  return value >= 0x20 && value <= 0x7e;
 }
 
 function extractPrintableRuns(bytes: Uint8Array): string[] {
@@ -1755,6 +1946,13 @@ function extractUtf16Runs(bytes: Uint8Array): string[] {
   const fragments: string[] = [];
   let current = "";
   for (let index = 0; index < bytes.length - 1; index += 2) {
+    if (looksLikeMisalignedAsciiUtf16(bytes[index], bytes[index + 1])) {
+      if (current.length >= 3) {
+        fragments.push(current);
+      }
+      current = "";
+      continue;
+    }
     const code = bytes[index] | (bytes[index + 1] << 8);
     if ((code >= 32 && code <= 0xd7ff) || code === 9) {
       current += String.fromCharCode(code);
@@ -1769,6 +1967,10 @@ function extractUtf16Runs(bytes: Uint8Array): string[] {
     fragments.push(current);
   }
   return fragments;
+}
+
+function looksLikeMisalignedAsciiUtf16(lowByte: number, highByte: number): boolean {
+  return lowByte === 0 && ((highByte >= 48 && highByte <= 57) || (highByte >= 65 && highByte <= 90) || (highByte >= 97 && highByte <= 122));
 }
 
 function normalizeLegacyText(value: string): string {

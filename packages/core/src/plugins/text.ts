@@ -159,25 +159,6 @@ const mimeLangMap: Record<string, string> = {
 
 const MAX_HIGHLIGHT_CHARS = 180_000;
 const MAX_RENDER_CHARS = 600_000;
-const MONACO_LOADER_KEY = "__OFV_MONACO_LOADER__";
-
-type MonacoModel = {
-  dispose?: () => void;
-};
-
-type MonacoEditor = {
-  dispose?: () => void;
-  layout?: () => void;
-  updateOptions?: (options: Record<string, unknown>) => void;
-};
-
-type MonacoModule = {
-  editor?: {
-    create?: (container: HTMLElement, options: Record<string, unknown>) => MonacoEditor;
-    createModel?: (value: string, language?: string) => MonacoModel;
-    setTheme?: (theme: string) => void;
-  };
-};
 
 function loadPrismCss(theme: "light" | "dark"): Promise<void> {
   const lightId = "ofv-prism-css-light";
@@ -436,10 +417,6 @@ export function textPlugin(): PreviewPlugin {
       wrapButton.addEventListener("click", () => {
         const wrapped = wrapper.classList.toggle("is-wrapped");
         wrapButton.setAttribute("aria-pressed", String(wrapped));
-        monacoEditor?.updateOptions?.({ wordWrap: wrapped ? "on" : "off" });
-        if (fallbackEditor) {
-          fallbackEditor.wrap = wrapped ? "soft" : "off";
-        }
       });
 
       const copyButton = document.createElement("button");
@@ -467,13 +444,7 @@ export function textPlugin(): PreviewPlugin {
         status.textContent = "Download ready";
       });
 
-      const editorButton = document.createElement("button");
-      editorButton.type = "button";
-      editorButton.className = "ofv-code-action";
-      editorButton.textContent = "Editor";
-      editorButton.setAttribute("aria-pressed", "false");
-
-      actions.append(status, editorButton, wrapButton, copyButton, downloadButton);
+      actions.append(wrapButton, copyButton, downloadButton, status);
       header.append(title, actions);
       const structureSummary = createTextStructureSummary(text, ext, lang, ctx.file.mimeType);
 
@@ -494,98 +465,6 @@ export function textPlugin(): PreviewPlugin {
 
       pre.appendChild(code);
       body.append(gutter, pre);
-      const editorHost = document.createElement("div");
-      editorHost.className = "ofv-code-editor";
-      editorHost.hidden = true;
-
-      let monacoEditor: MonacoEditor | undefined;
-      let monacoModel: MonacoModel | undefined;
-      let fallbackEditor: HTMLTextAreaElement | undefined;
-      let editorReady = false;
-      let editorLoading: Promise<void> | undefined;
-
-      const showReader = () => {
-        editorHost.hidden = true;
-        body.hidden = false;
-        wrapper.classList.remove("is-editor");
-        editorButton.textContent = "Editor";
-        editorButton.setAttribute("aria-pressed", "false");
-      };
-
-      const showEditor = async () => {
-        if (text.length > MAX_RENDER_CHARS) {
-          status.textContent = "Editor skipped for large file";
-          return;
-        }
-        if (editorReady) {
-          body.hidden = true;
-          editorHost.hidden = false;
-          wrapper.classList.add("is-editor");
-          editorButton.textContent = "Reader";
-          editorButton.setAttribute("aria-pressed", "true");
-          monacoEditor?.layout?.();
-          return;
-        }
-        if (!editorLoading) {
-          editorLoading = (async () => {
-            editorButton.disabled = true;
-            status.textContent = "Loading editor";
-            try {
-              const monaco = await loadMonaco();
-              if (!monaco.editor?.create) {
-                throw new Error("Monaco editor API is unavailable.");
-              }
-              const monacoLanguage = toMonacoLanguage(ext, lang);
-              monaco.editor.setTheme?.(isDark ? "vs-dark" : "vs");
-              monacoModel = monaco.editor.createModel?.(text, monacoLanguage);
-              monacoEditor = monaco.editor.create(editorHost, {
-                ...(monacoModel ? { model: monacoModel } : { value: text, language: monacoLanguage }),
-                automaticLayout: true,
-                fontFamily: "var(--ofv-font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace)",
-                fontSize: 13,
-                lineNumbers: "on",
-                minimap: { enabled: text.length <= 80_000 },
-                readOnly: true,
-                renderLineHighlight: "line",
-                scrollBeyondLastLine: false,
-                wordWrap: wrapper.classList.contains("is-wrapped") ? "on" : "off"
-              });
-              editorReady = true;
-              status.textContent = "Editor ready";
-              body.hidden = true;
-              editorHost.hidden = false;
-              wrapper.classList.add("is-editor");
-              editorButton.textContent = "Reader";
-              editorButton.setAttribute("aria-pressed", "true");
-              monacoEditor.layout?.();
-            } catch (error) {
-              console.warn("Monaco editor failed to load; using built-in code editor fallback:", error);
-              fallbackEditor = createBasicCodeEditor(text, wrapper.classList.contains("is-wrapped"));
-              editorHost.replaceChildren(fallbackEditor);
-              editorReady = true;
-              status.textContent = "Basic editor";
-              body.hidden = true;
-              editorHost.hidden = false;
-              wrapper.classList.add("is-editor");
-              editorButton.textContent = "Reader";
-              editorButton.setAttribute("aria-pressed", "true");
-            } finally {
-              editorButton.disabled = false;
-            }
-          })();
-        }
-        await editorLoading;
-      };
-
-      editorButton.addEventListener("click", () => {
-        if (editorHost.hidden) {
-          void showEditor();
-        } else {
-          showReader();
-          status.textContent = "Reader mode";
-        }
-      });
-
       wrapper.append(header);
       if (structureSummary) {
         wrapper.append(structureSummary);
@@ -603,7 +482,6 @@ export function textPlugin(): PreviewPlugin {
         wrapper.append(notice);
       }
       wrapper.appendChild(body);
-      wrapper.appendChild(editorHost);
       ctx.viewport.appendChild(wrapper);
 
       if (shouldHighlight) {
@@ -615,12 +493,7 @@ export function textPlugin(): PreviewPlugin {
       }
 
       return {
-        resize() {
-          monacoEditor?.layout?.();
-        },
         destroy() {
-          monacoEditor?.dispose?.();
-          monacoModel?.dispose?.();
           wrapper.remove();
         }
       };
@@ -642,48 +515,6 @@ function getTextLanguage(fileName: string, extension: string, mimeType: string):
 function normalizeFileName(name: string): string {
   const baseName = name.split(/[\\/]/).pop() || name;
   return baseName.toLowerCase();
-}
-
-async function loadMonaco(): Promise<MonacoModule> {
-  const injectedLoader = (globalThis as Record<string, unknown>)[MONACO_LOADER_KEY];
-  if (typeof injectedLoader === "function") {
-    return (await (injectedLoader as () => Promise<MonacoModule> | MonacoModule)()) as MonacoModule;
-  }
-  const importer = new Function("specifier", "return import(specifier)") as (specifier: string) => Promise<MonacoModule>;
-  return importer("monaco-editor");
-}
-
-function toMonacoLanguage(ext: string, prismLanguage: string): string {
-  if (ext === "vue") {
-    return "html";
-  }
-  if (ext === "tsx") {
-    return "typescript";
-  }
-  if (ext === "jsx") {
-    return "javascript";
-  }
-  if (prismLanguage === "markup") {
-    return ext === "xml" ? "xml" : "html";
-  }
-  if (prismLanguage === "bash") {
-    return "shell";
-  }
-  if (prismLanguage === "none") {
-    return "plaintext";
-  }
-  return prismLanguage;
-}
-
-function createBasicCodeEditor(text: string, wrapped: boolean): HTMLTextAreaElement {
-  const textarea = document.createElement("textarea");
-  textarea.className = "ofv-code-editor-fallback";
-  textarea.readOnly = true;
-  textarea.spellcheck = false;
-  textarea.wrap = wrapped ? "soft" : "off";
-  textarea.value = text;
-  textarea.setAttribute("aria-label", "Code editor preview");
-  return textarea;
 }
 
 function createTextFallback(fileName: string, url?: string): HTMLElement {

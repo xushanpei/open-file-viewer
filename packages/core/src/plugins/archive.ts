@@ -199,15 +199,28 @@ export function archivePlugin(): PreviewPlugin {
 
       const sidebar = document.createElement("div");
       sidebar.className = "ofv-archive-sidebar";
+      const sidebarPanel = document.createElement("div");
+      sidebarPanel.className = "ofv-archive-sidebar-panel";
 
       const header = document.createElement("div");
       header.className = "ofv-archive-header";
-      header.textContent = `文件列表 (${archiveEntries.filter(e => !e.dir).length})`;
-      sidebar.append(header);
+      const sidebarTitle = document.createElement("span");
+      sidebarTitle.className = "ofv-archive-header-title";
+      sidebarTitle.textContent = `文件列表 (${archiveEntries.filter(e => !e.dir).length})`;
+      const sidebarToggle = document.createElement("button");
+      sidebarToggle.className = "ofv-archive-sidebar-toggle";
+      sidebarToggle.type = "button";
+      sidebarToggle.setAttribute("aria-label", "展开文件列表");
+      sidebarToggle.setAttribute("aria-expanded", "false");
+      sidebarToggle.title = "展开文件列表";
+      sidebarToggle.textContent = "‹";
+      header.append(sidebarToggle, sidebarTitle);
+      sidebarPanel.append(header);
 
       const tree = document.createElement("div");
       tree.className = "ofv-archive-tree";
-      sidebar.append(tree);
+      sidebarPanel.append(tree);
+      sidebar.append(sidebarPanel);
 
       const mainPanel = document.createElement("div");
       mainPanel.className = "ofv-archive-main";
@@ -216,6 +229,20 @@ export function archivePlugin(): PreviewPlugin {
       panel.append(layout);
 
       let currentSubInstance: any = null;
+      const getSidebarViewportWidth = () => ctx.viewport.clientWidth || ctx.size.width;
+      const shouldAutoCollapseSidebar = () => getSidebarViewportWidth() <= 520;
+      const setSidebarCollapsed = (collapsed: boolean) => {
+        layout.classList.toggle("is-sidebar-collapsed", collapsed);
+        sidebarToggle.setAttribute("aria-expanded", String(!collapsed));
+        const label = collapsed ? "展开文件列表" : "收起文件列表";
+        sidebarToggle.setAttribute("aria-label", label);
+        sidebarToggle.title = label;
+        sidebarToggle.textContent = collapsed ? "›" : "‹";
+      };
+      setSidebarCollapsed(false);
+      sidebarToggle.addEventListener("click", () => {
+        setSidebarCollapsed(!layout.classList.contains("is-sidebar-collapsed"));
+      });
 
       // Render default metadata summary
       const showDefaultSummary = () => {
@@ -269,6 +296,9 @@ export function archivePlugin(): PreviewPlugin {
         item.addEventListener("click", async () => {
           if (destroyed) {
             return;
+          }
+          if (shouldAutoCollapseSidebar()) {
+            setSidebarCollapsed(true);
           }
           const token = ++renderToken;
           // Highlight active item

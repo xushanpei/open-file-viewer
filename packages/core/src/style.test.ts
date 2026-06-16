@@ -12,6 +12,7 @@ describe("core responsive styles", () => {
     expect(rule(".ofv-root [hidden]")).toContain("display: none !important");
     expect(rule(".ofv-host")).toContain("min-width: 0");
     expect(rule(".ofv-host")).toContain("overflow: hidden");
+    expect(rule(".ofv-viewport")).toContain("container-type: inline-size");
     expect(rule(".ofv-viewport")).toContain("min-width: 0");
     expect(rule(".ofv-viewport")).toContain("max-width: 100%");
   });
@@ -37,15 +38,19 @@ describe("core responsive styles", () => {
   it("keeps large document, code, markdown, and PDF content inside local scroll regions", () => {
     const docxWrapper = rule(".ofv-docx-document .ofv-docx-wrapper");
     const docxSection = rule(".ofv-docx-document section.ofv-docx");
-    expect(docxWrapper).not.toContain("min-width: max-content");
-    expect(docxWrapper).not.toContain("width: max-content");
+    expect(rule(".ofv-docx-document")).toContain("overflow-x: auto");
     expect(docxWrapper).toContain("width: 100%");
     expect(docxWrapper).toContain("max-width: 100%");
-    expect(docxWrapper).toContain("overflow: auto");
+    expect(docxWrapper).toContain("overflow: hidden");
+    expect(docxWrapper).toContain("--ofv-docx-scale: 1");
     expect(docxWrapper).toContain("box-sizing: border-box");
-    expect(docxSection).toContain("max-width: 100%");
-    expect(docxSection).toContain("overflow: auto");
-    expect(docxSection).toContain("overflow-wrap: anywhere");
+    expect(rule(".ofv-docx-page-frame")).toContain("max-width: 100%");
+    expect(rule(".ofv-docx-page-frame")).toContain("overflow: visible");
+    expect(docxSection).toContain("max-width: none");
+    expect(docxSection).toContain("overflow: visible");
+    expect(docxSection).toContain("overflow-wrap: normal");
+    expect(docxSection).toContain("transform: scale(var(--ofv-docx-scale))");
+    expect(docxSection).toContain("transform-origin: top left");
     expect(
       rule(
         ".ofv-docx-document section.ofv-docx img,\n.ofv-docx-document section.ofv-docx svg,\n.ofv-docx-document section.ofv-docx canvas,\n.ofv-docx-document section.ofv-docx video"
@@ -53,6 +58,14 @@ describe("core responsive styles", () => {
     ).toContain("max-width: 100%");
     expect(rule(".ofv-code-container")).toContain("max-width: 100%");
     expect(rule(".ofv-code-body")).toContain("overflow: auto");
+    expect(rule(".ofv-code-body")).toContain("isolation: isolate");
+    expect(rule(".ofv-code-gutter")).toContain("position: sticky");
+    expect(rule(".ofv-code-gutter")).toContain("z-index: 3");
+    expect(rule(".ofv-code-gutter")).toContain("background: var(--ofv-surface)");
+    expect(rule(".ofv-code-container pre")).toContain("z-index: 0");
+    expect(rule(".ofv-code-actions")).toContain("flex-wrap: nowrap");
+    expect(rule(".ofv-code-action")).toContain("white-space: nowrap");
+    expect(rule(".ofv-code-status")).toContain("text-overflow: ellipsis");
     expect(rule(".ofv-markdown-body")).toContain("overflow: auto");
     expect(rule(".ofv-markdown-body table")).toContain("max-width: 100%");
     expect(rule(".ofv-pdf")).toContain("overflow-x: hidden");
@@ -98,9 +111,30 @@ describe("core responsive styles", () => {
       expect(rule(selector), selector).toContain("min-width: 0");
     }
 
-    expect(rule(".ofv-archive-layout")).toContain("flex-wrap: wrap");
+    expect(rule(".ofv-archive")).toContain("height: 100%");
+    expect(rule(".ofv-archive")).toContain("overflow: hidden");
+    expect(rule(".ofv-archive-layout")).toContain("--ofv-archive-sidebar-expanded: 320px");
+    expect(rule(".ofv-archive-layout")).toContain("--ofv-archive-sidebar-collapsed: 56px");
+    expect(rule(".ofv-archive-layout")).toContain("flex-wrap: nowrap");
+    expect(rule(".ofv-archive-layout.is-sidebar-collapsed .ofv-archive-sidebar")).toContain(
+      "flex-basis: var(--ofv-archive-sidebar-collapsed)"
+    );
     expect(rule(".ofv-archive-sidebar")).toContain("min-width: 0");
+    expect(rule(".ofv-archive-sidebar")).toContain("overflow: hidden");
+    expect(rule(".ofv-archive-sidebar-panel")).toContain("display: flex");
+    expect(rule(".ofv-archive-sidebar-toggle")).toContain("display: inline-flex");
     expect(rule(".ofv-archive-tree")).toContain("overflow: auto");
+    expect(rule(".ofv-archive-tree")).toContain("overscroll-behavior: contain");
+    expect(rule(".ofv-archive-main")).toContain("overscroll-behavior: contain");
+    expect(rule(".ofv-archive-item-icon")).toContain("display: inline-flex");
+    expect(rule(".ofv-archive-item-icon")).toContain("justify-content: center");
+    expect(rule(".ofv-archive-layout.is-sidebar-collapsed .ofv-archive-item")).toContain(
+      "justify-content: center"
+    );
+    expect(css).toContain("@container (max-width: 520px)");
+    expect(css).toContain("--ofv-archive-sidebar-expanded: min(280px, 72cqw)");
+    expect(css).toContain("--ofv-archive-sidebar-collapsed: 48px");
+    expect(css).toContain("opacity: 0");
     expect(rule(".ofv-email-attachments")).toContain("min-width: 0");
     expect(rule(".ofv-email-attachment-item")).toContain("max-width: 100%");
     expect(rule(".ofv-email-body-iframe")).toContain("max-width: 100%");

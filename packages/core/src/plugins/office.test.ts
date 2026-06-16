@@ -10,10 +10,14 @@ const renderDocxAsync = vi.hoisted(() =>
     if (shouldFailDocxPreview.value) {
       throw new Error("docx-preview failed");
     }
+    const wrapper = document.createElement("div");
+    wrapper.className = "ofv-docx-wrapper";
     const page = document.createElement("section");
     page.className = "ofv-docx";
+    page.style.width = "794px";
     page.textContent = "DOCX layout page";
-    bodyContainer.append(page);
+    wrapper.append(page);
+    bodyContainer.append(wrapper);
   })
 );
 const openPptx = vi.hoisted(() =>
@@ -100,6 +104,29 @@ describe("officePlugin", () => {
     expect(container.querySelector(".ofv-sheet-summary")?.textContent).toContain("1 个公式单元格");
     expect(container.querySelector(".ofv-cell-formula")?.getAttribute("title")).toBe("=SUM(B2:B3)");
     expect(container.querySelector(".ofv-formula-list")?.textContent).toContain("B4: =SUM(B2:B3)");
+  });
+
+  it("renders legacy .xls files when the workbook parser can read them", async () => {
+    const xlsx = await import("xlsx");
+    const workbook = xlsx.utils.book_new();
+    xlsx.utils.book_append_sheet(workbook, xlsx.utils.aoa_to_sheet([["Item", "Value"], ["Revenue", 42]]), "Legacy");
+    const buffer = xlsx.write(workbook, { type: "array", bookType: "xls" }) as ArrayBuffer;
+
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    createViewer({
+      container,
+      file: buffer,
+      fileName: "legacy.xls",
+      plugins: [officePlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-sheet-summary")));
+
+    expect(container.querySelector(".ofv-sheet-summary")?.textContent).toContain("2 行 x 2 列");
+    expect(container.querySelector('[data-cell="A2"]')?.textContent).toBe("Revenue");
+    expect(container.querySelector(".ofv-office-conversion")).toBeNull();
   });
 
   it("keeps invalid workbook parsing failures local to the Office panel", async () => {
@@ -301,6 +328,39 @@ describe("officePlugin", () => {
     expect(container.querySelector(".ofv-docx-document")?.textContent).toContain("DOCX layout page");
   });
 
+  it("keeps DOCX page width stable inside narrow containers", async () => {
+    const container = document.createElement("div");
+    container.style.width = "220px";
+    container.style.height = "360px";
+    document.body.append(container);
+
+    const viewer = createViewer({
+      container,
+      file: new Blob(["docx"], {
+        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      }),
+      fileName: "narrow.docx",
+      width: "220px",
+      height: "360px",
+      plugins: [officePlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-docx-document")));
+    const docxDocument = container.querySelector<HTMLElement>(".ofv-docx-document");
+    Object.defineProperty(docxDocument, "clientWidth", { configurable: true, value: 220 });
+    window.dispatchEvent(new Event("resize"));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    expect(container.querySelector<HTMLElement>(".ofv-docx-wrapper")?.className).toContain("ofv-docx-wrapper");
+    expect(container.querySelector<HTMLElement>(".ofv-docx-page-frame")).not.toBeNull();
+    expect(container.querySelector<HTMLElement>("section.ofv-docx")?.style.width).toBe("794px");
+    expect(container.querySelector<HTMLElement>(".ofv-docx-wrapper")?.style.getPropertyValue("--ofv-docx-scale")).toBe(
+      "0.35"
+    );
+
+    viewer.destroy();
+  });
+
   it("keeps the DOCX layout preview without rendering supplemental footer code", async () => {
     const container = document.createElement("div");
     const onError = vi.fn();
@@ -464,11 +524,81 @@ describe("officePlugin", () => {
     await waitFor(() => Boolean(container.querySelector(".ofv-office")));
 
     expect(container.textContent).toContain(".doc");
-    expect(container.textContent).toContain("Office 二进制基础预览");
+    expect(container.textContent).toContain("Office 转换提示");
     expect(container.textContent).toContain("Word Binary File Format");
     expect(container.textContent).toContain("OLE Compound File");
+    expect(container.querySelector(".ofv-office-conversion")).not.toBeNull();
+    expect(container.textContent).toContain("可读文本片段");
     expect(container.textContent).toContain("Quarterly roadmap");
     expect(container.textContent).toContain("Budget 2026");
+  });
+
+  it("keeps literal ASCII text from legacy Word binaries even when it looks random", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    createViewer({
+      container,
+      file: createLegacyBinaryBlob([
+        "KSKS",
+        "NHr_",
+        "hdjcbwhjbcjhbdjwbcjwhb xhbsdhjbj",
+        "cdjskncjks",
+        "cdjkbncjkjdbc",
+        "cndcb ndbc"
+      ]),
+      fileName: "legacy.doc",
+      plugins: [officePlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-office-binary-fragments")));
+
+    expect(container.textContent).toContain("hdjcbwhjbcjhbdjwbcjwhb xhbsdhjbj");
+    expect(container.textContent).toContain("cdjskncjks");
+    expect(container.textContent).toContain("cdjkbncjkjdbc");
+    expect(container.textContent).toContain("cndcb ndbc");
+    expect(container.textContent).not.toContain("KSKS");
+    expect(container.textContent).not.toContain("NHr_");
+  });
+
+  it("filters legacy Word style names and corrupted text while keeping natural language", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    createViewer({
+      container,
+      file: createLegacyBinaryBlob([
+        "标题 1",
+        "项目上线检查清单",
+        "D쾌封$胡",
+        "标题 2",
+        "默认段落字体",
+        "普通表格",
+        "KSOProductBuildVer",
+        "KSOPProductBuildVer",
+        "0Table",
+        "映謡杀鐏",
+        "Root Entry",
+        "Normal.dotm",
+        "WPS Office 专业版_0.0.0.0_{F1E327BC-269C-435d-A152-05C5408002CA}"
+      ], "utf16"),
+      fileName: "legacy.doc",
+      plugins: [officePlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-office-conversion")));
+
+    expect(container.textContent).toContain("项目上线检查清单");
+    expect(container.textContent).not.toContain("标题 1");
+    expect(container.textContent).not.toContain("标题 2");
+    expect(container.textContent).not.toContain("D쾌封$胡");
+    expect(container.textContent).not.toContain("映謡杀鐏");
+    expect(container.textContent).not.toContain("Root Entry");
+    expect(container.textContent).not.toContain("Normal.dotm");
+    expect(container.textContent).not.toContain("WPS Office 专业版");
+    expect(container.textContent).not.toContain("KSOProductBuildVer");
+    expect(container.textContent).not.toContain("KSOPProductBuildVer");
+    expect(container.textContent).not.toContain("0Table");
   });
 
   it("extracts UTF-16 text fingerprints from legacy PowerPoint binary formats", async () => {
@@ -490,6 +620,26 @@ describe("officePlugin", () => {
     expect(container.textContent).toContain("Slide summary");
   });
 
+  it("shows a conversion-only state for legacy PowerPoint files without stable text", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    createViewer({
+      container,
+      file: new Blob([new Uint8Array([1, 7, 13, 21, 34, 55, 89]).buffer], { type: "application/octet-stream" }),
+      fileName: "deck.ppt",
+      plugins: [officePlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-office-conversion")));
+
+    expect(container.textContent).toContain(".ppt");
+    expect(container.textContent).toContain("Office 转换提示");
+    expect(container.textContent).toContain("PowerPoint Binary File Format");
+    expect(container.textContent).toContain("未提取到稳定可读文本");
+    expect(container.querySelector(".ofv-office-binary-fragments")).toBeNull();
+  });
+
   it("falls back to binary fingerprints when legacy Excel parsing fails", async () => {
     const container = document.createElement("div");
     document.body.append(container);
@@ -504,8 +654,9 @@ describe("officePlugin", () => {
     await waitFor(() => Boolean(container.querySelector(".ofv-office-binary-meta")));
 
     expect(container.textContent).toContain(".xls");
+    expect(container.textContent).toContain("Office 转换提示");
     expect(container.textContent).toContain("Excel Binary File Format");
-    expect(container.textContent).toContain("xlsx 读取失败，已切换二进制指纹");
+    expect(container.textContent).toContain("表格解析失败");
     expect(container.textContent).toContain("Revenue forecast");
     expect(container.textContent).toContain("Gross margin");
   });
