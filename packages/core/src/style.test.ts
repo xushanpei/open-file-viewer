@@ -55,7 +55,8 @@ describe("core responsive styles", () => {
     expect(rule(".ofv-code-body")).toContain("overflow: auto");
     expect(rule(".ofv-markdown-body")).toContain("overflow: auto");
     expect(rule(".ofv-markdown-body table")).toContain("max-width: 100%");
-    expect(rule(".ofv-pdf")).toContain("overflow: auto");
+    expect(rule(".ofv-pdf")).toContain("overflow-x: hidden");
+    expect(rule(".ofv-pdf")).toContain("overflow-y: auto");
   });
 
   it("keeps complex preview panels from widening narrow containers", () => {

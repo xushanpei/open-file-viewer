@@ -60,7 +60,8 @@
   min-height: 0;
   width: 100%;
   max-width: 100%;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   background: var(--ofv-bg);
   color: var(--ofv-text);
 }
@@ -382,7 +383,8 @@
   min-width: 0;
   min-height: 100%;
   padding: 16px;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   background: #6b7280;
 }
 
@@ -2617,6 +2619,8 @@
 /* PDF lazy loading elements */
 .ofv-pdf-page-wrapper {
   margin: 16px auto;
+  max-width: 100%;
+  min-width: 0;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
   border: 1px solid var(--ofv-border);
   background-color: var(--ofv-surface);

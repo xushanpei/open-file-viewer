@@ -29,8 +29,8 @@ describe("pdfPlugin", () => {
     await waitFor(() => container.querySelectorAll("canvas.ofv-pdf-page").length === 2);
 
     const canvas = container.querySelector<HTMLCanvasElement>("canvas.ofv-pdf-page");
-    expect(canvas?.style.width).toBe("40px");
-    expect(canvas?.style.height).toBe("60px");
+    expect(canvas?.style.width).toBe("20px");
+    expect(canvas?.style.height).toBe("30px");
     expect(canvas?.width).toBe(Number.parseInt(canvas?.style.width || "0", 10) * 2);
     expect(canvas?.height).toBe(Number.parseInt(canvas?.style.height || "0", 10) * 2);
     expect(page.render).toHaveBeenCalledWith(
@@ -129,6 +129,32 @@ describe("pdfPlugin", () => {
         useSystemFonts: false
       })
     );
+
+    viewer.destroy();
+  });
+
+  it("fits rendered PDF pages inside narrow preview containers", async () => {
+    vi.stubGlobal("IntersectionObserver", undefined);
+    const container = createSizedContainer({ width: 120, height: 260 });
+    const pdfjs = createPdfJsMock();
+
+    const viewer = createViewer({
+      container,
+      file: new Blob(["pdf"], { type: "application/pdf" }),
+      fileName: "narrow.pdf",
+      width: "120px",
+      height: "260px",
+      plugins: [pdfPlugin({ pdfjs })]
+    });
+    mockViewportSize(container, 120, 260);
+    await viewer.reload();
+
+    await waitFor(() => Boolean(container.querySelector("canvas.ofv-pdf-page")));
+
+    const wrapper = container.querySelector<HTMLElement>(".ofv-pdf-page-wrapper");
+    const canvas = container.querySelector<HTMLCanvasElement>("canvas.ofv-pdf-page");
+    expect(wrapper?.style.width).toBe("104px");
+    expect(canvas?.style.width).toBe("104px");
 
     viewer.destroy();
   });
@@ -245,21 +271,39 @@ function createPdfPageMock(): any {
   };
 }
 
-function createSizedContainer(): HTMLDivElement {
+function createSizedContainer(size = { width: 800, height: 600 }): HTMLDivElement {
   const container = document.createElement("div");
   vi.spyOn(container, "getBoundingClientRect").mockReturnValue({
     x: 0,
     y: 0,
     top: 0,
     left: 0,
-    right: 800,
-    bottom: 600,
-    width: 800,
-    height: 600,
+    right: size.width,
+    bottom: size.height,
+    width: size.width,
+    height: size.height,
     toJSON: () => ({})
   } as DOMRect);
   document.body.append(container);
   return container;
+}
+
+function mockViewportSize(container: HTMLElement, width: number, height: number): void {
+  const viewport = container.querySelector<HTMLElement>(".ofv-viewport");
+  if (!viewport) {
+    throw new Error("Expected viewer viewport to exist.");
+  }
+  vi.spyOn(viewport, "getBoundingClientRect").mockReturnValue({
+    x: 0,
+    y: 0,
+    top: 0,
+    left: 0,
+    right: width,
+    bottom: height,
+    width,
+    height,
+    toJSON: () => ({})
+  } as DOMRect);
 }
 
 async function waitFor(predicate: () => boolean, timeout = 1000): Promise<void> {

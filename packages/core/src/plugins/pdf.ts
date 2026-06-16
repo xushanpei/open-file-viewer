@@ -136,7 +136,7 @@ export function pdfPlugin(options: PdfJsModule | PdfPluginOptions = {}): Preview
           const scale =
             ctx.options.fit === "actual"
               ? zoomFactor
-              : Math.max(0.1, Math.min(5, ((size.width - 32) / meta.width) * zoomFactor));
+              : Math.max(0.05, Math.min(5, (getPdfAvailableWidth(size.width) / meta.width) * zoomFactor));
           
           const viewport = page.getViewport({ scale });
           const outputScale = getPdfOutputScale();
@@ -247,7 +247,7 @@ export function pdfPlugin(options: PdfJsModule | PdfPluginOptions = {}): Preview
           const scale =
             ctx.options.fit === "actual"
               ? zoomFactor
-              : Math.max(0.1, Math.min(5, ((size.width - 32) / meta.width) * zoomFactor));
+              : Math.max(0.05, Math.min(5, (getPdfAvailableWidth(size.width) / meta.width) * zoomFactor));
           
           const w = Math.floor(meta.width * scale);
           const h = Math.floor(meta.height * scale);
@@ -337,6 +337,14 @@ function getPdfOutputScale(): number {
     return 1;
   }
   return Math.max(1, Math.min(window.devicePixelRatio || 1, 2.5));
+}
+
+function getPdfAvailableWidth(width: number): number {
+  if (!Number.isFinite(width) || width <= 0) {
+    return 1;
+  }
+  const gutter = width < 160 ? 16 : 32;
+  return Math.max(1, width - gutter);
 }
 
 function renderPdfSummary(
