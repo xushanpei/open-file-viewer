@@ -5,6 +5,8 @@ Open File Viewer 是一个面向现代 Web 产品的文件预览 SDK。它把 PD
 <p>
   <a href="https://open-file-viewer-workspace.void.app">官网</a>
   ·
+  <a href="https://open-file-viewer-workspace.void.app/about.html">关于我们</a>
+  ·
   <a href="https://github.com/xushanpei/open-file-viewer">GitHub</a>
   ·
   <a href="https://www.npmjs.com/package/@open-file-viewer/core">NPM Core</a>
@@ -557,9 +559,58 @@ pnpm pack:check
 | `0.5.x` | CAD、3D、GIS、专用解析器和服务端转换协作 |
 | `1.0.0` | API 稳定、完整文档站、视觉回归测试和插件开发指南 |
 
+## 社区与支持
+
+Open File Viewer 会持续完善更多格式预览、框架接入和真实业务场景。开源项目不容易，如果它帮你节省了开发时间，欢迎给项目点一个免费的 Star，这对项目后续迭代非常重要。
+
+- 反馈问题：欢迎通过 GitHub Issue、交流群或作者微信反馈文件样例、排版问题、容器适配问题和新的格式诉求。
+- 交流学习：公众号「前端开发爱好者」会持续分享前端工程、组件开发和开源实践。
+- 支持作者：如果你愿意请作者喝杯咖啡，哪怕喝瓶娃哈哈矿泉水，也是非常真诚的鼓励。打赏用户欢迎添加作者微信，后续交流前端相关问题。
+
+<table>
+  <tr>
+    <td align="center" width="20%">
+      <img src="./doc/public/images/official-account-qr.jpg" width="140" alt="公众号二维码：前端开发爱好者" />
+      <br />
+      <strong>公众号</strong>
+      <br />
+      前端开发爱好者
+    </td>
+    <td align="center" width="20%">
+      <img src="./doc/public/images/community-group-qr.png" width="140" alt="交流群二维码" />
+      <br />
+      <strong>交流群</strong>
+      <br />
+      前端技术交流
+    </td>
+    <td align="center" width="20%">
+      <img src="./doc/public/images/author-wechat-qr.png" width="140" alt="作者微信二维码" />
+      <br />
+      <strong>作者微信</strong>
+      <br />
+      交流前端问题
+    </td>
+    <td align="center" width="20%">
+      <img src="./doc/public/images/wechat-donation-qr.png" width="140" alt="微信打赏二维码" />
+      <br />
+      <strong>微信打赏</strong>
+      <br />
+      请作者喝杯咖啡
+    </td>
+    <td align="center" width="20%">
+      <img src="./doc/public/images/alipay-donation-qr.png" width="140" alt="支付宝打赏二维码" />
+      <br />
+      <strong>支付宝打赏</strong>
+      <br />
+      请作者喝瓶水
+    </td>
+  </tr>
+</table>
+
 ## 链接
 
 - 官网：https://open-file-viewer-workspace.void.app
+- 关于我们：https://open-file-viewer-workspace.void.app/about.html
 - GitHub：https://github.com/xushanpei/open-file-viewer
 - NPM Core：https://www.npmjs.com/package/@open-file-viewer/core
 - NPM React：https://www.npmjs.com/package/@open-file-viewer/react

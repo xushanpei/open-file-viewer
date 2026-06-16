@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Open File Viewer about page, community, open source support and contact information."
+    />
+    <meta name="theme-color" content="#fbfaf8" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#080912" media="(prefers-color-scheme: dark)" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="shortcut icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="mask-icon" href="/favicon.svg" color="#7c5cff" />
+    <script>
+      (() => {
+        const root = document.documentElement;
+        root.dataset.siteBoot = "loading";
+        try {
+          const theme = localStorage.getItem("ofv-site-theme") === "dark" ? "dark" : "light";
+          root.dataset.siteTheme = theme;
+        } catch {
+          root.dataset.siteTheme = "light";
+        }
+        window.setTimeout(() => {
+          if (root.dataset.siteBoot === "loading") {
+            root.dataset.siteBoot = "timeout";
+          }
+        }, 1600);
+      })();
+    </script>
+    <style>
+      :root {
+        color-scheme: light;
+        background: #fbfaf8;
+      }
+
+      :root[data-site-theme="dark"] {
+        color-scheme: dark;
+        background: #080912;
+      }
+
+      html,
+      body {
+        min-height: 100%;
+        background-color: #fbfaf8;
+      }
+
+      :root[data-site-theme="dark"] body {
+        background-color: #080912;
+      }
+
+      :root[data-site-boot="loading"] body {
+        visibility: hidden;
+      }
+
+      :root[data-site-boot="loading"] *,
+      :root[data-site-boot="loading"] *::before,
+      :root[data-site-boot="loading"] *::after {
+        animation-play-state: paused !important;
+        transition: none !important;
+      }
+    </style>
+    <title>关于我们 - Open File Viewer</title>
+  </head>
+  <body class="api-doc-page about-doc-page">
+    <svg class="icon-sprite" aria-hidden="true" focusable="false">
+      <symbol id="icon-docs" viewBox="0 0 24 24">
+        <path d="M7 3h7l4 4v14H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z" />
+        <path d="M14 3v4h4M8.5 12h7M8.5 15h7M8.5 18h4" />
+      </symbol>
+      <symbol id="icon-framework" viewBox="0 0 24 24">
+        <path d="M12 3 4.5 7.2v9.6L12 21l7.5-4.2V7.2L12 3Z" />
+        <path d="m4.8 7.5 7.2 4 7.2-4M12 11.5V21" />
+      </symbol>
+      <symbol id="icon-grid" viewBox="0 0 24 24">
+        <path d="M4 4h6v6H4V4ZM14 4h6v6h-6V4ZM4 14h6v6H4v-6ZM14 14h6v6h-6v-6Z" />
+      </symbol>
+      <symbol id="icon-api" viewBox="0 0 24 24">
+        <path d="m8 8-4 4 4 4M16 8l4 4-4 4M14 4l-4 16" />
+      </symbol>
+      <symbol id="icon-play" viewBox="0 0 24 24">
+        <path d="M8 5.5v13l11-6.5-11-6.5Z" />
+      </symbol>
+      <symbol id="icon-moon" viewBox="0 0 24 24">
+        <path d="M20 15.2A8.2 8.2 0 0 1 8.8 4a8.6 8.6 0 1 0 11.2 11.2Z" />
+      </symbol>
+      <symbol id="icon-sun" viewBox="0 0 24 24">
+        <path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8ZM12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+      </symbol>
+      <symbol id="icon-github" viewBox="0 0 24 24">
+        <path d="M12 2.5a9.5 9.5 0 0 0-3 18.52c.48.09.65-.2.65-.46v-1.65c-2.65.58-3.2-1.12-3.2-1.12-.43-1.1-1.05-1.39-1.05-1.39-.86-.59.06-.58.06-.58.95.07 1.45.98 1.45.98.84 1.44 2.2 1.02 2.74.78.08-.61.33-1.02.6-1.26-2.11-.24-4.33-1.06-4.33-4.7 0-1.04.37-1.89.98-2.55-.1-.24-.43-1.22.09-2.52 0 0 .8-.26 2.62.98A9 9 0 0 1 12 7.2c.81 0 1.63.11 2.39.32 1.82-1.24 2.62-.98 2.62-.98.52 1.3.19 2.28.09 2.52.61.66.98 1.51.98 2.55 0 3.66-2.23 4.45-4.35 4.69.34.29.64.87.64 1.76v2.5c0 .26.17.56.66.46A9.5 9.5 0 0 0 12 2.5Z" />
+      </symbol>
+      <symbol id="icon-arrow" viewBox="0 0 24 24">
+        <path d="M5 12h13M13 6l6 6-6 6" />
+      </symbol>
+      <symbol id="icon-eye" viewBox="0 0 24 24">
+        <path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" />
+        <path d="M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z" />
+      </symbol>
+      <symbol id="icon-heart" viewBox="0 0 24 24">
+        <path d="M20.8 5.6a5.2 5.2 0 0 0-7.4 0L12 7l-1.4-1.4a5.2 5.2 0 0 0-7.4 7.4L12 21l8.8-8a5.2 5.2 0 0 0 0-7.4Z" />
+      </symbol>
+    </svg>
+
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="Open File Viewer home">
+        <span class="brand-mark">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path class="logo-ring" d="M12 5.35a6.65 6.65 0 1 1 0 13.3 6.65 6.65 0 0 1 0-13.3Z" />
+            <path class="logo-pointer" d="M8.55 8.15 16.85 11.45 12.95 12.78 11.65 16.72 8.55 8.15Z" />
+          </svg>
+        </span>
+        <span>Open File Viewer</span>
+      </a>
+      <nav class="desktop-nav" aria-label="Primary navigation">
+        <a href="/#docs"><svg><use href="#icon-docs"></use></svg><span>文档</span></a>
+        <a href="/#frameworks"><svg><use href="#icon-framework"></use></svg><span>框架</span></a>
+        <a href="/#formats"><svg><use href="#icon-grid"></use></svg><span>格式</span></a>
+        <a href="/api.html"><svg><use href="#icon-api"></use></svg><span>API</span></a>
+        <a href="/#playground"><svg><use href="#icon-play"></use></svg><span>在线使用</span></a>
+        <a class="active" href="/about.html"><svg><use href="#icon-heart"></use></svg><span>关于我们</span></a>
+      </nav>
+      <div class="nav-actions">
+        <button class="ghost-icon" id="themeToggle" type="button" aria-label="Toggle dark mode"><svg><use href="#icon-moon"></use></svg></button>
+        <a class="github-button" href="https://github.com/xushanpei/open-file-viewer" target="_blank" rel="noreferrer"><svg><use href="#icon-github"></use></svg><span>GitHub</span></a>
+      </div>
+    </header>
+
+    <main id="top">
+      <section class="api-doc-hero about-doc-hero">
+        <p>About Open File Viewer</p>
+        <h1>开源不易，感谢每一次认真使用。</h1>
+        <div>
+          <a class="primary-button" href="https://github.com/xushanpei/open-file-viewer" target="_blank" rel="noreferrer"><span>GitHub Star</span><svg><use href="#icon-arrow"></use></svg></a>
+          <a class="secondary-button" href="/#playground"><svg><use href="#icon-eye"></use></svg><span>在线体验</span></a>
+        </div>
+      </section>
+
+      <section class="api-doc-layout about-doc-layout">
+        <aside class="api-sidebar" aria-label="About sections">
+          <strong>目录</strong>
+          <a href="#opensource">开源项目</a>
+          <a href="#community">社区交流</a>
+          <a href="#support">支持作者</a>
+          <a href="#thanks">致谢</a>
+        </aside>
+
+        <div class="api-doc-content">
+          <section class="doc-panel" id="opensource">
+            <p class="doc-eyebrow">Open Source</p>
+            <h2>把复杂文件预览沉淀成长期可维护的基础设施</h2>
+            <p>
+              Open File Viewer 会持续完善更多格式预览、框架接入和真实业务场景。项目希望为原生 JavaScript、Vue、React、Svelte 等技术栈提供一套稳定、可扩展、适合生产环境迭代的 Web 文件预览能力。
+            </p>
+            <div class="doc-kpi-grid">
+              <div><strong>4</strong><span>Native JS / React / Vue / Svelte</span></div>
+              <div><strong>15+</strong><span>文件格式与插件能力</span></div>
+              <div><strong>1</strong><span>统一预览容器与插件协议</span></div>
+            </div>
+          </section>
+
+          <section class="doc-panel about-section" id="support">
+            <div class="about-panel">
+              <div class="about-copy">
+                <span class="about-icon"><svg><use href="#icon-heart"></use></svg></span>
+                <h3>支持这个项目继续进化</h3>
+                <p>开源项目不容易。如果该项目帮到了您，节省了您宝贵的开发时间，还请您不吝给项目点个免费的赞。</p>
+                <p>当然了，如果您能请作者喝杯咖啡，哪怕喝瓶娃哈哈矿泉水，也是对作者最真诚的鼓励。打赏用户欢迎添加微信，后续交流前端相关问题。</p>
+                <div class="about-actions">
+                  <a class="primary-button" href="https://github.com/xushanpei/open-file-viewer" target="_blank" rel="noreferrer"><svg><use href="#icon-github"></use></svg><span>GitHub Star</span></a>
+                  <a class="secondary-button" href="/#playground"><svg><use href="#icon-play"></use></svg><span>在线体验</span></a>
+                </div>
+              </div>
+              <div class="qr-grid" aria-label="Community and donation QR codes">
+                <article class="qr-card" id="community">
+                  <div class="qr-code qr-code-image">
+                    <img src="/images/official-account-qr.jpg" alt="公众号二维码：前端开发爱好者" />
+                  </div>
+                  <div class="qr-card-copy">
+                    <strong>公众号</strong>
+                    <p>前端开发爱好者</p>
+                  </div>
+                </article>
+                <article class="qr-card">
+                  <div class="qr-code qr-code-image">
+                    <img src="/images/community-group-qr.png" alt="交流群二维码" />
+                  </div>
+                  <div class="qr-card-copy">
+                    <strong>交流群</strong>
+                    <p>扫码加入前端技术交流</p>
+                  </div>
+                </article>
+                <article class="qr-card">
+                  <div class="qr-code qr-code-image">
+                    <img src="/images/author-wechat-qr.png" alt="作者微信二维码" />
+                  </div>
+                  <div class="qr-card-copy">
+                    <strong>作者微信</strong>
+                    <p>打赏用户可添加，交流前端问题</p>
+                  </div>
+                </article>
+                <article class="qr-card">
+                  <div class="qr-code qr-code-image">
+                    <img src="/images/wechat-donation-qr.png" alt="微信打赏二维码" />
+                  </div>
+                  <div class="qr-card-copy">
+                    <strong>微信打赏</strong>
+                    <p>请作者喝杯咖啡</p>
+                  </div>
+                </article>
+                <article class="qr-card">
+                  <div class="qr-code qr-code-image">
+                    <img src="/images/alipay-donation-qr.png" alt="支付宝打赏二维码" />
+                  </div>
+                  <div class="qr-card-copy">
+                    <strong>支付宝打赏</strong>
+                    <p>请作者喝瓶娃哈哈矿泉水</p>
+                  </div>
+                </article>
+              </div>
+            </div>
+          </section>
+
+          <section class="doc-panel" id="thanks">
+            <p class="doc-eyebrow">Thanks</p>
+            <h2>每一次反馈，都会让预览体验更进一步</h2>
+            <p>
+              欢迎通过 GitHub Issue、交流群或作者微信反馈真实业务里的文件样例、排版问题、容器适配问题和新的格式诉求。这个项目会持续围绕“更稳定的预览、更清晰的接入、更完整的格式覆盖”向前迭代。
+            </p>
+            <div class="doc-card-grid">
+              <article><strong>反馈问题</strong><p>遇到格式识别、渲染异常、移动端适配或工具栏交互问题时，欢迎提交可复现信息。</p></article>
+              <article><strong>贡献案例</strong><p>如果你在业务中接入了 Open File Viewer，也欢迎分享使用场景和优化建议。</p></article>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <span>Open File Viewer</span>
+      <span>面向现代 Web 产品的文件预览 SDK。</span>
+    </footer>
+
+    <script type="module" src="/src/api.ts"></script>
+  </body>
+</html>
