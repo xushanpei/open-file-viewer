@@ -1,9 +1,9 @@
 # Open File Viewer
 
 <p align="right">
-  <a href="./README.md">Simplified Chinese</a>
+  <a href="./README.md">简体中文</a>
   |
-  <strong>English</strong>
+  <a href="./README.en.md">English</a>
   |
   <a href="./README.ja.md">日本語</a>
   |
@@ -11,15 +11,15 @@
   |
   <a href="./README.es.md">Español</a>
   |
-  <a href="./README.pt-BR.md">Português</a>
+  <strong>Português</strong>
 </p>
 
-Open File Viewer is a file preview SDK for modern web applications. It brings PDFs, Office documents, images, audio and video, archives, emails, drawings, 3D files, GIS data, and source code into one controlled container, with support for vanilla JavaScript, React, Vue, and Svelte.
+Open File Viewer é um SDK de visualização de arquivos para aplicações web modernas. Ele coloca PDFs, documentos Office, imagens, áudio e vídeo, arquivos compactados, emails, desenhos, arquivos 3D, dados GIS e código-fonte dentro de um único contêiner controlado, com suporte a JavaScript nativo, React, Vue e Svelte.
 
 <p>
-  <a href="https://open-file-viewer-workspace.void.app">Website</a>
+  <a href="https://open-file-viewer-workspace.void.app">Site</a>
   |
-  <a href="https://open-file-viewer-workspace.void.app/about.html">About</a>
+  <a href="https://open-file-viewer-workspace.void.app/about.html">Sobre</a>
   |
   <a href="https://github.com/xushanpei/open-file-viewer">GitHub</a>
   |
@@ -39,18 +39,18 @@ Open File Viewer is a file preview SDK for modern web applications. It brings PD
 [![Svelte](https://img.shields.io/npm/v/@open-file-viewer/svelte?label=svelte&color=ff3e00)](https://www.npmjs.com/package/@open-file-viewer/svelte)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
-## Why Choose It
+## Por Que Escolher
 
-Most business systems eventually need attachment preview: contracts, spreadsheets, drawings, archives, emails, images, videos, and source files. Open File Viewer is not a PDF-only demo. It is a file preview foundation that can evolve with real product needs over time.
+A maioria dos sistemas de negócio acaba precisando visualizar anexos: contratos, planilhas, desenhos, arquivos compactados, emails, imagens, vídeos e arquivos de código. Open File Viewer não é uma demonstração apenas para PDF; é uma base de visualização de arquivos que pode evoluir com necessidades reais de produto.
 
-- **Container-first**: all content renders inside the DOM container you provide. It does not open a new window or interrupt the host business page.
-- **Multi-framework compatibility**: vanilla JavaScript, React, Vue, and Svelte share the same core capabilities.
-- **Plugin-based formats**: each file format is handled by an independent plugin, making behavior easier to replace, trim, and extend.
-- **Responsive preview**: supports CSS sizes such as `px`, `%`, `vh`, `vw`, `rem`, and `calc()`, and responds automatically to container changes.
-- **Application-ready states**: includes loading, error, unsupported, download fallback, toolbar, theme, and multi-file queue behavior.
-- **Progressive enhancement for complex formats**: formats that browsers can preview directly are rendered locally first; complex formats can gradually integrate WASM, dedicated parsers, or server-side conversion.
+- **Contêiner em primeiro lugar**: todo o conteúdo é renderizado dentro do contêiner DOM que você fornece. Ele não abre uma nova janela nem interrompe a página de negócio.
+- **Compatibilidade com vários frameworks**: JavaScript nativo, React, Vue e Svelte compartilham as mesmas capacidades do core.
+- **Formatos baseados em plugins**: cada formato de arquivo é tratado por um plugin independente, facilitando substituição, recorte e extensão.
+- **Visualização responsiva**: suporta tamanhos CSS como `px`, `%`, `vh`, `vw`, `rem` e `calc()`, respondendo automaticamente às mudanças do contêiner.
+- **Estados prontos para aplicação**: inclui loading, error, unsupported, download fallback, toolbar, theme e fila de múltiplos arquivos.
+- **Aprimoramento progressivo para formatos complexos**: formatos que o navegador consegue visualizar diretamente são renderizados localmente primeiro; formatos complexos podem integrar gradualmente WASM, parsers dedicados ou conversão no servidor.
 
-## Installation
+## Instalação
 
 ```bash
 pnpm add @open-file-viewer/core
@@ -74,28 +74,28 @@ Svelte:
 pnpm add @open-file-viewer/core @open-file-viewer/svelte
 ```
 
-PDF preview requires `pdfjs-dist` when you use `pdfPlugin()`:
+A visualização de PDF requer `pdfjs-dist` quando você usa `pdfPlugin()`:
 
 ```bash
 pnpm add pdfjs-dist
 ```
 
-You can also use npm or yarn:
+Você também pode usar npm ou yarn:
 
 ```bash
 npm install @open-file-viewer/core
 yarn add @open-file-viewer/core
 ```
 
-Import the shared stylesheet once in your application:
+Importe a folha de estilos compartilhada uma vez na aplicação:
 
 ```ts
 import "@open-file-viewer/core/style.css";
 ```
 
-## Quick Start
+## Início Rápido
 
-### Vanilla JavaScript
+### JavaScript Nativo
 
 ```ts
 import {
@@ -242,53 +242,53 @@ const plugins = [
 />
 ```
 
-## Use Cases
+## Casos de Uso
 
-| Scenario | What Open File Viewer Provides |
+| Cenário | O Que o Open File Viewer Fornece |
 | --- | --- |
-| OA / ERP / CRM attachment centers | A unified container preview for contracts, spreadsheets, images, emails, and archives |
-| Cloud drives / knowledge bases / document systems | Multi-file queues, download, search, fullscreen, and theme adaptation |
-| Low-code / form systems | Vanilla JS integration without forcing React, Vue, or Svelte |
-| Engineering / manufacturing / GIS systems | Recognition and progressive enhancement for CAD, 3D, GIS, and drawing files |
-| Developer platforms / log platforms | Text, config, Markdown, code highlighting, and large-file protection |
+| Centros de anexos OA / ERP / CRM | Visualização unificada em contêiner para contratos, planilhas, imagens, emails e arquivos compactados |
+| Drives em nuvem / bases de conhecimento / sistemas documentais | Fila de múltiplos arquivos, download, busca, tela cheia e adaptação de tema |
+| Sistemas low-code / formulários | Integração com JavaScript nativo sem exigir React, Vue ou Svelte |
+| Engenharia / manufatura / sistemas GIS | Reconhecimento e aprimoramento progressivo para arquivos CAD, 3D, GIS e desenhos |
+| Plataformas de desenvolvimento / logs | Texto, configuração, Markdown, destaque de código e proteção para arquivos grandes |
 
-## Feature Overview
+## Visão Geral de Recursos
 
-| Capability | Status |
+| Recurso | Status |
 | --- | --- |
-| Vanilla JS / React / Vue / Svelte integration | Supported |
-| Custom container, width, height, and responsive sizing | Supported |
-| Multi-file queue, switching, and current index | Supported |
-| Toolbar, download, fullscreen, print, and search | Supported |
-| Light, dark, and `auto` themes | Supported |
-| Local `File` / `Blob` / URL / `ArrayBuffer` sources | Supported |
-| Plugin protocol and custom fallback | Supported |
-| PDF, images, audio/video, text/code | Supported |
-| Office, OFD, EPUB, XPS, email, and archives | Basic to enhanced preview |
-| CAD, 3D, GIS, drawing boards, and design assets | Detection, basic preview, and ongoing enhancements |
+| Integração com JS nativo / React / Vue / Svelte | Suportado |
+| Contêiner, largura, altura e tamanho responsivo personalizados | Suportado |
+| Fila de múltiplos arquivos, troca e índice atual | Suportado |
+| Toolbar, download, tela cheia, impressão e busca | Suportado |
+| Temas light, dark e `auto` | Suportado |
+| Fontes locais `File` / `Blob` / URL / `ArrayBuffer` | Suportado |
+| Protocolo de plugins e fallback personalizado | Suportado |
+| PDF, imagens, áudio/vídeo, texto/código | Suportado |
+| Office, OFD, EPUB, XPS, email e arquivos compactados | Visualização básica a aprimorada |
+| CAD, 3D, GIS, quadros de desenho e ativos de design | Reconhecimento, visualização básica e melhorias contínuas |
 
-## Format Coverage
+## Cobertura de Formatos
 
-| Category | Plugin | Representative Formats |
+| Categoria | Plugin | Formatos Representativos |
 | --- | --- | --- |
-| Images | `imagePlugin()` | `jpg`, `png`, `gif`, `webp`, `avif`, `svg`, `bmp`, `tiff`, `heic`, `heif` |
-| Video | `videoPlugin()` | `mp4`, `webm`, `mov`, `m4v`, `avi`, `mkv`, `flv`, `wmv`, `m3u8`, `m2ts` |
-| Audio | `audioPlugin()` | `mp3`, `wav`, `ogg`, `aac`, `m4a`, `flac`, `opus`, `mid`, `wma` |
-| Text / code | `textPlugin()` | `txt`, `md`, `json`, `yaml`, `xml`, `csv`, `js`, `ts`, `tsx`, `vue`, `html`, `css`, `py`, `go`, `rs`, `sql`, `sh` |
+| Imagens | `imagePlugin()` | `jpg`, `png`, `gif`, `webp`, `avif`, `svg`, `bmp`, `tiff`, `heic`, `heif` |
+| Vídeo | `videoPlugin()` | `mp4`, `webm`, `mov`, `m4v`, `avi`, `mkv`, `flv`, `wmv`, `m3u8`, `m2ts` |
+| Áudio | `audioPlugin()` | `mp3`, `wav`, `ogg`, `aac`, `m4a`, `flac`, `opus`, `mid`, `wma` |
+| Texto / código | `textPlugin()` | `txt`, `md`, `json`, `yaml`, `xml`, `csv`, `js`, `ts`, `tsx`, `vue`, `html`, `css`, `py`, `go`, `rs`, `sql`, `sh` |
 | PDF / ebooks | `pdfPlugin()`, `epubPlugin()`, `xpsPlugin()` | `pdf`, `epub`, `xps`, `oxps` |
 | Office | `officePlugin()` | `docx`, `rtf`, `odt`, `xlsx`, `csv`, `pptx`, `odp`, `wps`, `et`, `dps` |
 | OFD | `ofdPlugin()` | `ofd` |
-| Archives | `archivePlugin()` | `zip`, `rar`, `7z`, `tar`, `gz`, `tgz`, `bz2`, `xz` |
+| Arquivos compactados | `archivePlugin()` | `zip`, `rar`, `7z`, `tar`, `gz`, `tgz`, `bz2`, `xz` |
 | Email | `emailPlugin()` | `eml`, `msg`, `mbox` |
-| Drawing / whiteboard | `drawingPlugin()` | `drawio`, `dio`, `excalidraw`, `tldraw` |
-| CAD / engineering | `cadPlugin()` | `dxf`, `dwg`, `dwf`, `step`, `stp`, `iges`, `igs`, `ifc`, `skp`, `sldprt` |
-| 3D models | `model3dPlugin()` | `gltf`, `glb`, `obj`, `stl`, `fbx`, `dae`, `ply`, `3mf`, `usd`, `usdz` |
+| Desenho / quadro branco | `drawingPlugin()` | `drawio`, `dio`, `excalidraw`, `tldraw` |
+| CAD / engenharia | `cadPlugin()` | `dxf`, `dwg`, `dwf`, `step`, `stp`, `iges`, `igs`, `ifc`, `skp`, `sldprt` |
+| Modelos 3D | `model3dPlugin()` | `gltf`, `glb`, `obj`, `stl`, `fbx`, `dae`, `ply`, `3mf`, `usd`, `usdz` |
 | GIS | `gisPlugin()` | `geojson`, `topojson`, `kml`, `kmz`, `gpx`, `shp` |
-| Asset recognition | `assetPlugin()` | `ttf`, `woff2`, `psd`, `ai`, `eps`, `sqlite`, `wasm`, `parquet`, `avro` |
+| Reconhecimento de ativos | `assetPlugin()` | `ttf`, `woff2`, `psd`, `ai`, `eps`, `sqlite`, `wasm`, `parquet`, `avro` |
 
-Preview quality for complex formats depends on browser capabilities, file structure, and the parser used by each plugin. The current version focuses on making every format enter a controlled preview path inside the container. High-fidelity Office, CAD, design, and proprietary binary formats can continue to integrate dedicated engines or server-side conversion.
+A qualidade da visualização para formatos complexos depende das capacidades do navegador, da estrutura do arquivo e do parser usado por cada plugin. A versão atual prioriza colocar todos os formatos em um caminho de visualização controlado dentro do contêiner. Formatos Office, CAD, de design e binários proprietários de alta fidelidade podem continuar sendo aprimorados com motores dedicados ou conversão no servidor.
 
-Plugin order matters because the first matching plugin renders the file. For example, `csv` and `tsv` can match both `textPlugin()` and `officePlugin()`; place `officePlugin()` earlier if you want spreadsheet-style table preview.
+A ordem dos plugins importa porque o primeiro plugin correspondente renderiza o arquivo. Por exemplo, `csv` e `tsv` podem corresponder tanto a `textPlugin()` quanto a `officePlugin()`; coloque `officePlugin()` antes se quiser visualização em tabela no estilo planilha.
 
 ## Core API
 
@@ -298,32 +298,32 @@ createViewer(options: PreviewOptions): FileViewer;
 
 ### PreviewOptions
 
-| Option | Type | Default | Description |
+| Opção | Tipo | Padrão | Descrição |
 | --- | --- | --- | --- |
-| `container` | `HTMLElement \| string` | Required | Preview container |
-| `file` | `File \| Blob \| string \| ArrayBuffer` | - | Single-file preview source |
-| `files` | `(PreviewSource \| PreviewItem)[]` | - | Multi-file preview queue |
-| `initialIndex` | `number` | `0` | Initial file index |
-| `fileName` | `string` | Auto inferred | File name used for extension detection |
-| `mimeType` | `string` | Auto inferred | MIME type |
-| `width` | `number \| string` | Original container width | Preview container width |
-| `height` | `number \| string` | Original container height | Preview container height |
-| `fit` | `contain \| cover \| width \| height \| actual \| scale-down` | `contain` | Content fitting mode |
-| `plugins` | `PreviewPlugin[]` | `[]` | Plugin list, matched in order |
-| `fallback` | `inline \| download \| custom` | `inline` | Fallback strategy for unsupported formats |
-| `renderFallback` | `(ctx) => PreviewInstance` | - | Custom fallback renderer |
-| `toolbar` | `boolean \| PreviewToolbarOptions` | `false` | Toolbar configuration |
-| `theme` | `light \| dark \| auto` | `light` | Viewer theme |
-| `className` | `string` | - | Extra container class name |
-| `onLoad` | `(file) => void` | - | Callback after loading completes |
-| `onError` | `(error, file) => void` | - | Error callback |
-| `onUnsupported` | `(file) => void` | - | Unsupported-format callback |
+| `container` | `HTMLElement \| string` | Obrigatório | Contêiner de visualização |
+| `file` | `File \| Blob \| string \| ArrayBuffer` | - | Fonte de visualização de arquivo único |
+| `files` | `(PreviewSource \| PreviewItem)[]` | - | Fila de visualização de múltiplos arquivos |
+| `initialIndex` | `number` | `0` | Índice inicial do arquivo |
+| `fileName` | `string` | Inferido automaticamente | Nome usado para detectar extensão |
+| `mimeType` | `string` | Inferido automaticamente | Tipo MIME |
+| `width` | `number \| string` | Largura original do contêiner | Largura do contêiner |
+| `height` | `number \| string` | Altura original do contêiner | Altura do contêiner |
+| `fit` | `contain \| cover \| width \| height \| actual \| scale-down` | `contain` | Modo de ajuste do conteúdo |
+| `plugins` | `PreviewPlugin[]` | `[]` | Lista de plugins, avaliada em ordem |
+| `fallback` | `inline \| download \| custom` | `inline` | Estratégia fallback para formatos não suportados |
+| `renderFallback` | `(ctx) => PreviewInstance` | - | Renderer fallback personalizado |
+| `toolbar` | `boolean \| PreviewToolbarOptions` | `false` | Configuração da toolbar |
+| `theme` | `light \| dark \| auto` | `light` | Tema do viewer |
+| `className` | `string` | - | Classe extra para o contêiner |
+| `onLoad` | `(file) => void` | - | Callback após carregamento |
+| `onError` | `(error, file) => void` | - | Callback de erro |
+| `onUnsupported` | `(file) => void` | - | Callback para formato não suportado |
 
-## Toolbar Customization
+## Personalização da Toolbar
 
-`toolbar: true` enables the default toolbar, including multi-file navigation, zoom, rotate, download, fullscreen, print, and search when supported by the active plugin. You can extend it for business workflows without rewriting the whole viewer.
+`toolbar: true` habilita a toolbar padrão, incluindo navegação de múltiplos arquivos, zoom, rotação, download, tela cheia, impressão e busca quando suportados pelo plugin ativo. Você pode estendê-la para fluxos de negócio sem reescrever todo o viewer.
 
-### Custom Labels, Order, and Icons
+### Labels, Ordem e Ícones Personalizados
 
 ```ts
 createViewer({
@@ -356,7 +356,7 @@ createViewer({
 });
 ```
 
-### Add Business Actions
+### Adicionar Ações de Negócio
 
 ```ts
 createViewer({
@@ -395,7 +395,7 @@ createViewer({
 });
 ```
 
-### Fully Replace the Toolbar
+### Substituir Completamente a Toolbar
 
 ```ts
 createViewer({
@@ -428,9 +428,9 @@ createViewer({
 });
 ```
 
-The `render(ctx)` context includes `file`, `index`, `length`, `previous()`, `next()`, `command()`, `download()`, `fullscreen()`, `print()`, `search()`, and `clearSearch()`. In core, `toolbar.render(ctx)` returns a DOM `HTMLElement | void`; React, Vue, and Svelte expose framework-native toolbar APIs.
+O contexto `render(ctx)` inclui `file`, `index`, `length`, `previous()`, `next()`, `command()`, `download()`, `fullscreen()`, `print()`, `search()` e `clearSearch()`. No core, `toolbar.render(ctx)` retorna um DOM `HTMLElement | void`; React, Vue e Svelte expõem APIs de toolbar próprias de cada framework.
 
-### React Custom Toolbar
+### Toolbar Personalizada no React
 
 ```tsx
 <FileViewer
@@ -448,7 +448,7 @@ The `render(ctx)` context includes `file`, `index`, `length`, `previous()`, `nex
 />
 ```
 
-### Vue Custom Toolbar
+### Toolbar Personalizada no Vue
 
 ```vue
 <OpenFileViewer :files="files" :plugins="plugins">
@@ -462,7 +462,7 @@ The `render(ctx)` context includes `file`, `index`, `length`, `previous()`, `nex
 </OpenFileViewer>
 ```
 
-### Svelte Custom Toolbar
+### Toolbar Personalizada no Svelte
 
 ```svelte
 <OpenFileViewer files={files} plugins={plugins}>
@@ -478,22 +478,22 @@ The `render(ctx)` context includes `file`, `index`, `length`, `previous()`, `nex
 </OpenFileViewer>
 ```
 
-At the style layer, you can still override classes such as `.ofv-toolbar`, `.ofv-toolbar button`, and `.ofv-toolbar-search`. Custom icon buttons also generate `.ofv-toolbar-icon` and `.ofv-toolbar-label`, making alignment, spacing, and truncation easier to control.
+Na camada de estilos, você ainda pode sobrescrever classes como `.ofv-toolbar`, `.ofv-toolbar button` e `.ofv-toolbar-search`. Botões com ícones personalizados também geram `.ofv-toolbar-icon` e `.ofv-toolbar-label`, facilitando controlar alinhamento, espaçamento e truncamento.
 
 ### FileViewer
 
-| Method | Description |
+| Método | Descrição |
 | --- | --- |
-| `reload(file?)` | Reload the current file or a specified file |
-| `next()` / `previous()` | Switch through the multi-file queue |
-| `goTo(index)` | Jump to a specified file |
-| `getCurrentIndex()` | Get the current index |
-| `resize()` | Manually trigger size recalculation |
-| `destroy()` | Destroy the viewer and clean up resources |
+| `reload(file?)` | Recarrega o arquivo atual ou um arquivo especificado |
+| `next()` / `previous()` | Alterna dentro da fila de múltiplos arquivos |
+| `goTo(index)` | Vai para um arquivo específico |
+| `getCurrentIndex()` | Obtém o índice atual |
+| `resize()` | Dispara manualmente o recálculo de tamanho |
+| `destroy()` | Destrói o viewer e limpa recursos |
 
-## Plugin Development
+## Desenvolvimento de Plugins
 
-Each format is integrated through a plugin. A plugin only needs to answer two questions: whether the file matches, and how to render into `ctx.viewport`.
+Cada formato é integrado por meio de um plugin. Um plugin só precisa responder a duas perguntas: se o arquivo corresponde e como renderizar em `ctx.viewport`.
 
 ```ts
 import type { PreviewPlugin } from "@open-file-viewer/core";
@@ -522,37 +522,37 @@ export function customPlugin(): PreviewPlugin {
 }
 ```
 
-Plugin constraints:
+Restrições de plugins:
 
-- Render only into `ctx.viewport`.
-- Do not open a new window by default.
-- Implement `resize(size)` when the plugin needs to react to container size changes.
-- Implement `destroy()` to clean up events, object URLs, timers, Canvas/WebGL resources, and other side effects.
+- Renderizar apenas dentro de `ctx.viewport`.
+- Não abrir uma nova janela por padrão.
+- Implementar `resize(size)` quando o plugin precisar reagir a mudanças de tamanho do contêiner.
+- Implementar `destroy()` para limpar eventos, Object URLs, temporizadores, recursos Canvas/WebGL e outros efeitos colaterais.
 
-## Package Structure
+## Estrutura de Pacotes
 
 ```txt
 packages/
-  core/      # Framework-agnostic preview core and plugins
-  react/     # React adapter
-  vue/       # Vue adapter
-  svelte/    # Svelte adapter
+  core/      # Core de visualização e plugins independentes de framework
+  react/     # Adaptador React
+  vue/       # Adaptador Vue
+  svelte/    # Adaptador Svelte
 examples/
-  vanilla/   # Vanilla JavaScript example
-  react/     # React example
-  vue/       # Vue example
-  svelte/    # Svelte example
-doc/         # Website and online experience
+  vanilla/   # Exemplo com JavaScript nativo
+  react/     # Exemplo React
+  vue/       # Exemplo Vue
+  svelte/    # Exemplo Svelte
+doc/         # Site e experiência online
 ```
 
-## Local Development
+## Desenvolvimento Local
 
 ```bash
 pnpm install
 pnpm check
 ```
 
-Common commands:
+Comandos comuns:
 
 ```bash
 pnpm dev:doc
@@ -568,26 +568,26 @@ pnpm build:doc
 pnpm pack:check
 ```
 
-`pnpm check` runs tests, type checks, package builds, example builds, website build, and package export validation in sequence.
+`pnpm check` executa testes, type checks, builds dos packages, builds dos examples, build do site e validação de package exports em sequência.
 
 ## Roadmap
 
-| Version | Focus |
+| Versão | Foco |
 | --- | --- |
-| `0.1.x` | Core plugin system, in-container preview, React/Vue/Svelte/Vanilla integration, basic multi-format preview |
-| `0.2.x` | Toolbar, themes, image interactions, PDF search, unified states, and fallback |
-| `0.3.x` | Markdown/code reader, enhanced Office spreadsheets and document experience |
-| `0.4.x` | OFD, email, archives, drawing files, and enhancements for high-frequency domestic business formats |
-| `0.5.x` | CAD, 3D, GIS, dedicated parsers, and server-side conversion collaboration |
-| `1.0.0` | Stable API, complete documentation site, visual regression tests, and plugin development guide |
+| `0.1.x` | Sistema de plugins core, visualização dentro do contêiner, integração React/Vue/Svelte/Vanilla, visualização básica de múltiplos formatos |
+| `0.2.x` | Toolbar, temas, interações de imagem, busca em PDF, estados unificados e fallback |
+| `0.3.x` | Leitor Markdown/código, melhorias em planilhas e documentos Office |
+| `0.4.x` | OFD, email, arquivos compactados, desenhos e melhorias para formatos frequentes em negócios domésticos chineses |
+| `0.5.x` | CAD, 3D, GIS, parsers dedicados e colaboração com conversão no servidor |
+| `1.0.0` | API estável, site de documentação completo, testes visuais de regressão e guia de desenvolvimento de plugins |
 
-## Community and Support
+## Comunidade e Suporte
 
-Open File Viewer will continue improving format preview, framework integration, and real business scenarios. Open source is not easy. If it saves you development time, a free GitHub star is a meaningful way to support future iteration.
+Open File Viewer continuará melhorando a visualização de mais formatos, integrações com frameworks e cenários reais de negócio. Manter open source não é fácil. Se ele economizar seu tempo de integração, uma estrela no GitHub ajuda o projeto a continuar evoluindo.
 
-- Feedback: use GitHub Issues, the community group, or the author's WeChat to share file samples, layout problems, container adaptation issues, and new format requests.
-- Learning and discussion: the official account "Frontend Development Enthusiasts" will continue sharing frontend engineering, component development, and open-source practice.
-- Support the author: if you would like to buy the author a coffee, or even a bottle of mineral water, that encouragement is appreciated. Donation users are welcome to add the author's WeChat for future frontend discussions.
+- Feedback: use GitHub Issues, o grupo da comunidade ou o WeChat do autor para compartilhar amostras de arquivos, problemas de layout, adaptação de contêiner e pedidos de novos formatos.
+- Aprendizado e discussão: a conta oficial "Frontend Development Enthusiasts" continuará compartilhando engenharia frontend, desenvolvimento de componentes e prática open source.
+- Apoie o autor: se quiser pagar um café ao autor, ou até uma garrafa de água mineral, esse apoio é muito bem-vindo. Usuários que doarem podem adicionar o WeChat do autor para futuras conversas sobre frontend.
 
 <table>
   <tr>
@@ -631,8 +631,8 @@ Open File Viewer will continue improving format preview, framework integration, 
 
 ## Links
 
-- Website: https://open-file-viewer-workspace.void.app
-- About: https://open-file-viewer-workspace.void.app/about.html
+- Site: https://open-file-viewer-workspace.void.app
+- Sobre: https://open-file-viewer-workspace.void.app/about.html
 - GitHub: https://github.com/xushanpei/open-file-viewer
 - NPM Core: https://www.npmjs.com/package/@open-file-viewer/core
 - NPM React: https://www.npmjs.com/package/@open-file-viewer/react
