@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const stylePath = resolve(process.cwd(), "packages/core/src/style.css");
-const css = readFileSync(stylePath, "utf8");
+const css = readFileSync(stylePath, "utf8").replace(/\r\n?/g, "\n");
 
 describe("core responsive styles", () => {
   it("keeps the preview shell constrained to its host container", () => {
@@ -151,7 +151,7 @@ describe("core responsive styles", () => {
 });
 
 function rule(selector: string): string {
-  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const escaped = selector.replace(/\r\n?/g, "\n").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const match = css.match(new RegExp(`${escaped}\\s*\\{(?<body>[^}]*)\\}`, "m"));
   if (!match?.groups?.body) {
     throw new Error(`Missing CSS rule for ${selector}.`);

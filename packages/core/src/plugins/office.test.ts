@@ -115,6 +115,37 @@ describe("officePlugin", () => {
     expect(container.querySelector(".ofv-formula-list")?.textContent).toContain("B4: =SUM(B2:B3)");
   });
 
+  it("decodes GBK CSV files before rendering sheet cells", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    createViewer({
+      container,
+      file: new Blob(
+        [
+          Uint8Array.from([
+            0xca, 0xd3, 0xc6, 0xb5, 0xc3, 0xfb, 0xb3, 0xc6, 0x2c, 0xbf, 0xaa, 0xca, 0xbc, 0xca, 0xb1, 0xbc,
+            0xe4, 0x28, 0xc3, 0xeb, 0x29, 0x2c, 0xbd, 0xe1, 0xca, 0xf8, 0xca, 0xb1, 0xbc, 0xe4, 0x28, 0xc3,
+            0xeb, 0x29, 0x2c, 0xb6, 0xaf, 0xd7, 0xf7, 0xc3, 0xfb, 0xb3, 0xc6, 0x0a, 0xb0, 0xb2, 0xc8, 0xab,
+            0xb7, 0xc0, 0xbb, 0xa4, 0xd3, 0xeb, 0xca, 0xb5, 0xb2, 0xd9, 0xbc, 0xec, 0xb2, 0xe9, 0x2e, 0x6d,
+            0x70, 0x34, 0x2c, 0x30, 0x2c, 0x31, 0x30, 0x2c, 0xc6, 0xe4, 0xcb, 0xfb, 0x0a
+          ])
+        ],
+        { type: "text/csv" }
+      ),
+      fileName: "action.csv",
+      plugins: [officePlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-sheet-summary")));
+
+    expect(container.querySelector('[data-cell="A1"]')?.textContent).toBe("视频名称");
+    expect(container.querySelector('[data-cell="B1"]')?.textContent).toBe("开始时间(秒)");
+    expect(container.querySelector('[data-cell="A2"]')?.textContent).toBe("安全防护与实操检查.mp4");
+    expect(container.querySelector('[data-cell="D2"]')?.textContent).toBe("其他");
+    expect(container.textContent).not.toContain("��");
+  });
+
   it("renders legacy .xls files when the workbook parser can read them", async () => {
     const xlsx = await import("xlsx");
     const workbook = xlsx.utils.book_new();
@@ -334,6 +365,26 @@ describe("officePlugin", () => {
       renderHeaders: true,
       renderFooters: true
     });
+    expect(container.querySelector(".ofv-docx-document")?.textContent).toContain("DOCX layout page");
+  });
+
+  it("sniffs OOXML Word packages even when they use a legacy .doc extension", async () => {
+    const container = document.createElement("div");
+    const callsBefore = renderDocxAsync.mock.calls.length;
+    document.body.append(container);
+
+    createViewer({
+      container,
+      file: await createMinimalDocx("Mislabeled docx"),
+      fileName: "template.doc",
+      plugins: [officePlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-docx-document")));
+
+    expect(renderDocxAsync).toHaveBeenCalledTimes(callsBefore + 1);
+    expect(container.querySelector(".ofv-office-package-note")?.textContent).toContain("DOCX");
+    expect(container.querySelector(".ofv-office-conversion")).toBeNull();
     expect(container.querySelector(".ofv-docx-document")?.textContent).toContain("DOCX layout page");
   });
 

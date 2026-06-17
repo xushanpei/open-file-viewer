@@ -1,6 +1,7 @@
 /// <reference path="../shims-text.d.ts" />
 import { isTextLike } from "../detect";
 import type { PreviewPlugin } from "../types";
+import { decodeTextBuffer } from "./utils";
 
 const langMap: Record<string, string> = {
   js: "javascript",
@@ -744,13 +745,13 @@ async function readText(source: unknown): Promise<string> {
     if (!response.ok) {
       throw new Error(`Failed to fetch text file: ${response.status}`);
     }
-    return response.text();
+    return decodeTextBuffer(await response.arrayBuffer());
   }
   if (source instanceof Blob) {
-    return source.text();
+    return decodeTextBuffer(await source.arrayBuffer());
   }
   if (source instanceof ArrayBuffer) {
-    return new TextDecoder().decode(source);
+    return decodeTextBuffer(source);
   }
   return String(source);
 }

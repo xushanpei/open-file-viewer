@@ -34,7 +34,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsup src/index.ts --format esm,cjs --dts --sourcemap --clean && cp src/style.css dist/style.css",
+    "build": "tsup src/index.ts --format esm,cjs --dts --sourcemap --clean && node ../../scripts/copy-file.mjs src/style.css dist/style.css",
     "typecheck": "tsc --noEmit"
   },
   "peerDependenciesMeta": {

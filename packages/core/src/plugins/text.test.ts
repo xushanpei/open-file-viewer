@@ -353,6 +353,32 @@ describe("textPlugin", () => {
     ).toBe("true");
   });
 
+  it("decodes GBK text blobs before rendering", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    createViewer({
+      container,
+      file: new Blob(
+        [
+          Uint8Array.from([
+            0xca, 0xd3, 0xc6, 0xb5, 0xc3, 0xfb, 0xb3, 0xc6, 0x2c, 0xbf, 0xaa, 0xca, 0xbc, 0xca, 0xb1, 0xbc,
+            0xe4, 0x28, 0xc3, 0xeb, 0x29
+          ])
+        ],
+        { type: "text/csv" }
+      ),
+      fileName: "action.csv",
+      plugins: [textPlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-code-container code")));
+
+    expect(container.textContent).toContain("视频名称");
+    expect(container.textContent).toContain("开始时间(秒)");
+    expect(container.textContent).not.toContain("��");
+  });
+
   it("copies the full code text from the preview action", async () => {
     const container = document.createElement("div");
     const writeText = vi.fn().mockResolvedValue(undefined);

@@ -2,7 +2,7 @@ import JSZip from "jszip";
 import DOMPurify from "dompurify";
 import type { WorkBook } from "xlsx";
 import type { PreviewPlugin } from "../types";
-import { createPanel, createSection, readArrayBuffer, resolveFormat } from "./utils";
+import { createPanel, createSection, decodeTextBuffer, readArrayBuffer, resolveFormat } from "./utils";
 
 const wordExtensions = new Set(["docx", "docm", "doc", "dotx", "dotm", "dot", "rtf", "odt", "fodt", "wps"]);
 const sheetExtensions = new Set(["xlsx", "xls", "xlsm", "xlsb", "xlt", "xltx", "xltm", "csv", "tsv", "ods", "fods", "numbers", "et"]);
@@ -122,9 +122,19 @@ export function officePlugin(): PreviewPlugin {
       ctx.viewport.append(panel);
       const extension = resolveFormat(ctx.file, officeMimeFormatMap);
       const arrayBuffer = await readArrayBuffer(ctx.file);
+      const packageFormat = shouldSniffPackagedOffice(extension) ? await detectPackagedOfficeFormat(arrayBuffer) : undefined;
       let disposeDocxFit: (() => void) | undefined;
 
-      if (fileIsDocx(extension)) {
+      if (packageFormat === "docx" && !fileIsDocx(extension)) {
+        renderOfficePackageNotice(panel, extension, "检测到 OOXML Word 包结构，已按 DOCX 兼容路径预览。");
+        disposeDocxFit = await renderDocx(panel, arrayBuffer);
+      } else if (packageFormat === "xlsx" && !sheetExtensions.has(extension)) {
+        renderOfficePackageNotice(panel, extension, "检测到 OOXML Workbook 包结构，已按 XLSX 兼容路径预览。");
+        await renderSheet(panel, arrayBuffer, "xlsx");
+      } else if (packageFormat === "pptx" && !["pptx", "pptm", "ppsx", "ppsm", "potx", "potm"].includes(extension)) {
+        renderOfficePackageNotice(panel, extension, "检测到 OOXML Presentation 包结构，已按 PPTX 兼容路径预览。");
+        await renderPptx(panel, arrayBuffer);
+      } else if (fileIsDocx(extension)) {
         disposeDocxFit = await renderDocx(panel, arrayBuffer);
       } else if (extension === "rtf") {
         renderPlainDocument(panel, "RTF 文档", rtfToText(await readTextFromBuffer(arrayBuffer)));
@@ -162,6 +172,30 @@ export function officePlugin(): PreviewPlugin {
 
 function fileIsDocx(extension: string): boolean {
   return extension === "docx" || extension === "docm" || extension === "dotx" || extension === "dotm";
+}
+
+function shouldSniffPackagedOffice(extension: string): boolean {
+  return isLegacyOfficeBinary(extension) || packagedOfficeCandidates.has(extension) || extension === "";
+}
+
+async function detectPackagedOfficeFormat(arrayBuffer: ArrayBuffer): Promise<"docx" | "xlsx" | "pptx" | undefined> {
+  try {
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    const entries = Object.values(zip.files).filter((entry) => !entry.dir);
+    const hasEntry = (path: string) => entries.some((entry) => entry.name.toLowerCase() === path.toLowerCase());
+    if (hasEntry("word/document.xml")) {
+      return "docx";
+    }
+    if (hasEntry("xl/workbook.xml")) {
+      return "xlsx";
+    }
+    if (hasEntry("ppt/presentation.xml")) {
+      return "pptx";
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
 }
 
 async function renderDocx(panel: HTMLElement, arrayBuffer: ArrayBuffer): Promise<() => void> {
@@ -416,7 +450,10 @@ async function renderSheet(
   const xlsx = await import("xlsx");
   let workbook: WorkBook;
   try {
-    workbook = xlsx.read(arrayBuffer, { type: "array" }) as WorkBook;
+    workbook =
+      extension === "csv" || extension === "tsv"
+        ? (xlsx.read(decodeTextBuffer(arrayBuffer), { type: "string", FS: extension === "tsv" ? "\t" : "," }) as WorkBook)
+        : (xlsx.read(arrayBuffer, { type: "array" }) as WorkBook);
   } catch (error) {
     if (isLegacyOfficeBinary(extension)) {
       renderLegacyOfficeBinary(panel, extension, arrayBuffer, `表格解析失败：${normalizeOfficeError(error)}`);
@@ -2065,7 +2102,7 @@ function rtfToText(rtf: string): string {
 }
 
 async function readTextFromBuffer(arrayBuffer: ArrayBuffer): Promise<string> {
-  return new TextDecoder("utf-8", { fatal: false }).decode(arrayBuffer);
+  return decodeTextBuffer(arrayBuffer);
 }
 
 
