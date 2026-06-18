@@ -99,6 +99,65 @@ describe("pdfPlugin", () => {
     expect(URL.revokeObjectURL).toHaveBeenCalledWith(objectUrl);
   });
 
+  it("renders the first page immediately when IntersectionObserver is available", async () => {
+    const observed: Element[] = [];
+    const disconnect = vi.fn();
+    const container = createSizedContainer();
+    const pdfjs = createPdfJsMock();
+
+    vi.stubGlobal(
+      "IntersectionObserver",
+      vi.fn(function (this: IntersectionObserver) {
+        return {
+          observe(element: Element) {
+            observed.push(element);
+          },
+          disconnect
+        } as unknown as IntersectionObserver;
+      })
+    );
+
+    const viewer = createViewer({
+      container,
+      file: new Blob(["pdf"], { type: "application/pdf" }),
+      fileName: "modal.pdf",
+      plugins: [pdfPlugin({ pdfjs })]
+    });
+
+    await waitFor(() => Boolean(container.querySelector("canvas.ofv-pdf-page")));
+
+    expect(observed).toHaveLength(2);
+    expect(container.querySelectorAll("canvas.ofv-pdf-page")).toHaveLength(1);
+
+    viewer.destroy();
+  });
+
+  it("shows a worker-specific fallback message when the PDF worker fails to load", async () => {
+    const container = createSizedContainer();
+    const pdfjs = {
+      version: "4.0.0-test",
+      GlobalWorkerOptions: { workerSrc: "" },
+      getDocument: vi.fn(() => ({
+        promise: Promise.reject(new Error("Setting up fake worker failed: Failed to fetch dynamically imported module")),
+        destroy: vi.fn()
+      }))
+    };
+
+    const viewer = createViewer({
+      container,
+      file: new Blob(["pdf"], { type: "application/pdf" }),
+      fileName: "worker.pdf",
+      plugins: [pdfPlugin({ pdfjs: pdfjs as any })]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-fallback")));
+
+    expect(container.textContent).toContain("PDF worker 加载失败");
+    expect(container.textContent).toContain("pdf.worker.mjs?url");
+
+    viewer.destroy();
+  });
+
   it("allows overriding PDF CMap and standard font resources", async () => {
     vi.stubGlobal("IntersectionObserver", undefined);
     const container = createSizedContainer();

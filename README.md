@@ -172,6 +172,44 @@ export function AttachmentPreview({ file }: { file: File }) {
 }
 ```
 
+### 在 Ant Design Modal 中预览 PDF
+
+PDF 预览依赖 `pdfjs-dist` worker。不要直接写死 `workerSrc: "/pdf.worker.min.mjs"`，除非你已经把该文件复制到了应用的 `public` 根目录；更推荐让 Vite / webpack 通过 `?url` 产出正确的静态资源地址。
+
+```tsx
+import { FileViewer } from "@open-file-viewer/react";
+import { imagePlugin, officePlugin, pdfPlugin, textPlugin } from "@open-file-viewer/core";
+import "@open-file-viewer/core/style.css";
+import pdfWorkerSrc from "pdfjs-dist/build/pdf.worker.mjs?url";
+import { Modal } from "antd";
+import { useMemo } from "react";
+
+export function AttachmentModal({ open, file, onClose }: { open: boolean; file?: File; onClose: () => void }) {
+  const plugins = useMemo(
+    () => [imagePlugin(), pdfPlugin({ workerSrc: pdfWorkerSrc }), officePlugin(), textPlugin()],
+    []
+  );
+
+  return (
+    <Modal open={open} onCancel={onClose} width="80vw" destroyOnHidden footer={null}>
+      {open && file ? (
+        <FileViewer
+          file={file}
+          fileName={file.name}
+          width="100%"
+          height="calc(75vh - 48px)"
+          fit="contain"
+          toolbar
+          plugins={plugins}
+        />
+      ) : null}
+    </Modal>
+  );
+}
+```
+
+如果文件来自远程 URL，还需要确保文件地址允许浏览器跨域读取；否则请先由业务后端签发可访问的临时 URL，或在前端 `fetch` 成 `Blob` 后再传入。
+
 ### Vue
 
 ```vue

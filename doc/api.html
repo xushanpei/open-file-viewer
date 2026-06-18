@@ -265,8 +265,9 @@ const viewer = createViewer({
                   <pre><code data-language="tsx">import { FileViewer } from "@open-file-viewer/react";
 import { imagePlugin, officePlugin, pdfPlugin, textPlugin } from "@open-file-viewer/core";
 import "@open-file-viewer/core/style.css";
+import pdfWorkerSrc from "pdfjs-dist/build/pdf.worker.mjs?url";
 
-const plugins = [imagePlugin(), pdfPlugin({ workerSrc }), officePlugin(), textPlugin()];
+const plugins = [imagePlugin(), pdfPlugin({ workerSrc: pdfWorkerSrc }), officePlugin(), textPlugin()];
 
 export function AttachmentPreview({ file }: { file: File }) {
   return (
@@ -289,9 +290,10 @@ export function AttachmentPreview({ file }: { file: File }) {
 import { OpenFileViewer } from "@open-file-viewer/vue";
 import { imagePlugin, officePlugin, pdfPlugin, textPlugin } from "@open-file-viewer/core";
 import "@open-file-viewer/core/style.css";
+import pdfWorkerSrc from "pdfjs-dist/build/pdf.worker.mjs?url";
 
 defineProps&lt;{ file: File }&gt;();
-const plugins = [imagePlugin(), pdfPlugin({ workerSrc }), officePlugin(), textPlugin()];
+const plugins = [imagePlugin(), pdfPlugin({ workerSrc: pdfWorkerSrc }), officePlugin(), textPlugin()];
 &lt;/script&gt;
 
 &lt;template&gt;
@@ -313,9 +315,10 @@ const plugins = [imagePlugin(), pdfPlugin({ workerSrc }), officePlugin(), textPl
   import { OpenFileViewer } from "@open-file-viewer/svelte";
   import { imagePlugin, officePlugin, pdfPlugin, textPlugin } from "@open-file-viewer/core";
   import "@open-file-viewer/core/style.css";
+  import pdfWorkerSrc from "pdfjs-dist/build/pdf.worker.mjs?url";
 
   export let file: File;
-  const plugins = [imagePlugin(), pdfPlugin({ workerSrc }), officePlugin(), textPlugin()];
+  const plugins = [imagePlugin(), pdfPlugin({ workerSrc: pdfWorkerSrc }), officePlugin(), textPlugin()];
 &lt;/script&gt;
 
 &lt;OpenFileViewer {file} fileName={file.name} height="640px" toolbar {plugins} /&gt;</code></pre>
@@ -510,6 +513,10 @@ export function customReportPlugin(): PreviewPlugin {
               <details>
                 <summary>容器宽度变化后如何避免排版问题？</summary>
                 <p>优先给外层容器稳定的 width / height，并在布局变化后调用实例的 <code>resize()</code>。内置插件会尽量把滚动限制在预览容器内部。</p>
+              </details>
+              <details>
+                <summary>为什么 Ant Design Modal 里 PDF 预览失败？</summary>
+                <p>优先检查 <code>workerSrc</code> 是否真实可访问。推荐使用 <code>import pdfWorkerSrc from "pdfjs-dist/build/pdf.worker.mjs?url"</code>，再传给 <code>pdfPlugin({ workerSrc: pdfWorkerSrc })</code>；不要直接写死 <code>/pdf.worker.min.mjs</code>，除非已经把 worker 文件放进应用 public 根目录。Modal 内容建议在 <code>open</code> 后再渲染，并给 <code>FileViewer</code> 一个稳定高度。</p>
               </details>
               <details>
                 <summary>如何接入服务端转换？</summary>

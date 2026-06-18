@@ -56,6 +56,44 @@ export function AttachmentPreview({ file }: { file: File }) {
 }
 ```
 
+## Ant Design Modal
+
+When previewing PDFs inside `Modal`, import the PDF worker with your bundler instead of hard-coding `/pdf.worker.min.mjs`. A hard-coded root path only works if that worker file is actually copied to your app's public root.
+
+```tsx
+import { FileViewer } from "@open-file-viewer/react";
+import { imagePlugin, officePlugin, pdfPlugin, textPlugin } from "@open-file-viewer/core";
+import "@open-file-viewer/core/style.css";
+import pdfWorkerSrc from "pdfjs-dist/build/pdf.worker.mjs?url";
+import { Modal } from "antd";
+import { useMemo } from "react";
+
+export function AttachmentModal({ open, file, onClose }: { open: boolean; file?: File; onClose: () => void }) {
+  const plugins = useMemo(
+    () => [imagePlugin(), pdfPlugin({ workerSrc: pdfWorkerSrc }), officePlugin(), textPlugin()],
+    []
+  );
+
+  return (
+    <Modal open={open} onCancel={onClose} width="80vw" destroyOnHidden footer={null}>
+      {open && file ? (
+        <FileViewer
+          file={file}
+          fileName={file.name}
+          width="100%"
+          height="calc(75vh - 48px)"
+          fit="contain"
+          toolbar
+          plugins={plugins}
+        />
+      ) : null}
+    </Modal>
+  );
+}
+```
+
+For remote PDFs, make sure the file URL is readable by the browser and has the right CORS headers. If it is a private file, sign a temporary URL on your backend or fetch it as a `Blob` first.
+
 ## Props
 
 The component accepts the same preview options as `createViewer`, including:

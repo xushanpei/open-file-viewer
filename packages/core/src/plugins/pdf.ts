@@ -281,6 +281,10 @@ export function pdfPlugin(options: PdfJsModule | PdfPluginOptions = {}): Preview
             void renderPage(i, size);
           }
         }
+
+        if (observer && pageStates.length > 0) {
+          void renderPage(0, size);
+        }
       };
 
       renderLayout(ctx.size);
@@ -433,6 +437,13 @@ function normalizePdfError(error: unknown): string {
   const lower = `${name} ${message}`.toLowerCase();
   if (lower.includes("invalid") || lower.includes("missing") || lower.includes("corrupt")) {
     return "该 PDF 文件可能已损坏或格式无效。";
+  }
+  if (
+    lower.includes("worker") ||
+    lower.includes("failed to fetch dynamically imported module") ||
+    lower.includes("loading dynamically imported module")
+  ) {
+    return "PDF worker 加载失败。请使用 pdfjs-dist/build/pdf.worker.mjs?url 导入 workerSrc，并传给 pdfPlugin({ workerSrc })。";
   }
   return "当前浏览器无法加载该 PDF。";
 }

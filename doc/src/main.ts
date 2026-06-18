@@ -238,6 +238,7 @@ const frameworkCopy: Record<CodeTab, Record<Language, string>> = {
 const codeSamples: Record<CodeTab, string> = {
   vanilla: `import { createViewer, imagePlugin, pdfPlugin, officePlugin, textPlugin } from "@open-file-viewer/core";
 import "@open-file-viewer/core/style.css";
+import pdfWorkerSrc from "pdfjs-dist/build/pdf.worker.mjs?url";
 
 createViewer({
   container: "#viewer",
@@ -246,12 +247,14 @@ createViewer({
   height: "70vh",
   theme: "auto",
   toolbar: true,
-  plugins: [imagePlugin(), pdfPlugin({ workerSrc }), officePlugin(), textPlugin()]
+  plugins: [imagePlugin(), pdfPlugin({ workerSrc: pdfWorkerSrc }), officePlugin(), textPlugin()]
 });`,
   react: `import { FileViewer } from "@open-file-viewer/react";
 import { imagePlugin, pdfPlugin, officePlugin, textPlugin } from "@open-file-viewer/core";
+import "@open-file-viewer/core/style.css";
+import pdfWorkerSrc from "pdfjs-dist/build/pdf.worker.mjs?url";
 
-const plugins = [imagePlugin(), pdfPlugin({ workerSrc }), officePlugin(), textPlugin()];
+const plugins = [imagePlugin(), pdfPlugin({ workerSrc: pdfWorkerSrc }), officePlugin(), textPlugin()];
 
 export function AttachmentPreview({ file }) {
   return <FileViewer file={file} fileName={file.name} height="640px" toolbar plugins={plugins} />;
@@ -259,9 +262,11 @@ export function AttachmentPreview({ file }) {
   vue: `<script setup lang="ts">
 import { OpenFileViewer } from "@open-file-viewer/vue";
 import { imagePlugin, pdfPlugin, officePlugin, textPlugin } from "@open-file-viewer/core";
+import "@open-file-viewer/core/style.css";
+import pdfWorkerSrc from "pdfjs-dist/build/pdf.worker.mjs?url";
 
 defineProps<{ file: File }>();
-const plugins = [imagePlugin(), pdfPlugin({ workerSrc }), officePlugin(), textPlugin()];
+const plugins = [imagePlugin(), pdfPlugin({ workerSrc: pdfWorkerSrc }), officePlugin(), textPlugin()];
 </script>
 
 <template>
@@ -270,9 +275,11 @@ const plugins = [imagePlugin(), pdfPlugin({ workerSrc }), officePlugin(), textPl
   svelte: `<script lang="ts">
 import { OpenFileViewer } from "@open-file-viewer/svelte";
 import { imagePlugin, pdfPlugin, officePlugin, textPlugin } from "@open-file-viewer/core";
+import "@open-file-viewer/core/style.css";
+import pdfWorkerSrc from "pdfjs-dist/build/pdf.worker.mjs?url";
 
 export let file: File;
-const plugins = [imagePlugin(), pdfPlugin({ workerSrc }), officePlugin(), textPlugin()];
+const plugins = [imagePlugin(), pdfPlugin({ workerSrc: pdfWorkerSrc }), officePlugin(), textPlugin()];
 </script>
 
 <OpenFileViewer {file} fileName={file.name} height="640px" toolbar {plugins} />`
