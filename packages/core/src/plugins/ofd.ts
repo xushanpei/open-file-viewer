@@ -1,7 +1,7 @@
 import JSZip from "jszip";
 import { createObjectUrl, revokeObjectUrl } from "../dom";
 import type { PreviewPlugin } from "../types";
-import { createPanel, createSection, readArrayBuffer } from "./utils";
+import { createPanel, readArrayBuffer } from "./utils";
 
 export function ofdPlugin(): PreviewPlugin {
   return {
@@ -48,15 +48,19 @@ export function ofdPlugin(): PreviewPlugin {
         };
       }
 
-      const images = await readOfdImages(entries);
-      const pages = await readOfdPages(entries, images);
-      const section = createSection("OFD 基础预览");
-      const note = document.createElement("p");
-      note.textContent = pages.length > 0
-        ? "当前版本提取 OFD 页面文本、路径、直线和图片对象，并按 Boundary 坐标生成轻量 SVG 版式预览。复杂字体、签章和颜色空间可后续接入专用 OFD 渲染器。"
-        : "当前版本提取 OFD 包内 XML 文本和文件结构。版式级渲染可在后续接入专用 OFD 渲染器。";
-      section.append(note);
-      section.append(createOfdSummary(entries, pages, images));
+      const context = await readOfdContext(entries);
+      const pages = await readOfdPages(entries, context);
+      let zoom = 1;
+      let rotation = 0;
+      const applyZoom = () => {
+        panel.style.setProperty("--ofv-ofd-zoom", formatOfdCssNumber(zoom));
+        ctx.toolbar?.setZoom(zoom);
+      };
+      const applyRotation = () => {
+        const normalizedRotation = ((rotation % 360) + 360) % 360;
+        panel.style.setProperty("--ofv-ofd-rotation", `${normalizedRotation}deg`);
+        panel.classList.toggle("is-ofd-rotated-sideways", normalizedRotation === 90 || normalizedRotation === 270);
+      };
 
       if (pages.length > 0) {
         const pagesWrap = document.createElement("div");
@@ -64,26 +68,61 @@ export function ofdPlugin(): PreviewPlugin {
         for (const page of pages) {
           pagesWrap.append(renderOfdPage(page));
         }
-        section.append(pagesWrap);
+        panel.append(pagesWrap);
+        applyZoom();
+        applyRotation();
       }
-
-      const content = document.createElement("pre");
-      content.className = "ofv-text-block";
-      content.textContent = textFragments.slice(0, 300).join("\n") || "未提取到可读文本。";
-      section.append(content);
-
-      const list = createSection(`文件结构 ${entries.length}`);
-      const ul = document.createElement("ul");
-      for (const entry of entries.slice(0, 200)) {
-        const li = document.createElement("li");
-        li.textContent = entry.name;
-        ul.append(li);
+      if (pages.length === 0) {
+        const content = document.createElement("pre");
+        content.className = "ofv-text-block";
+        content.textContent = textFragments.slice(0, 300).join("\n") || "未提取到可读文本。";
+        panel.append(content);
       }
-      list.append(ul);
-      panel.append(section, list);
 
       return {
+        canCommand(command) {
+          return (
+            pages.length > 0 &&
+            (command === "zoom-in" ||
+              command === "zoom-out" ||
+              command === "zoom-reset" ||
+              command === "rotate-right" ||
+              command === "rotate-left")
+          );
+        },
+        command(command) {
+          if (pages.length === 0) {
+            return false;
+          }
+          if (command === "zoom-in") {
+            zoom = Math.min(4, zoom + 0.15);
+            applyZoom();
+            return true;
+          }
+          if (command === "zoom-out") {
+            zoom = Math.max(0.25, zoom - 0.15);
+            applyZoom();
+            return true;
+          }
+          if (command === "zoom-reset") {
+            zoom = 1;
+            applyZoom();
+            return true;
+          }
+          if (command === "rotate-right") {
+            rotation += 90;
+            applyRotation();
+            return true;
+          }
+          if (command === "rotate-left") {
+            rotation -= 90;
+            applyRotation();
+            return true;
+          }
+          return false;
+        },
         destroy() {
+          ctx.toolbar?.setZoom(undefined);
           panel.remove();
           revokeObjectUrl(url, isExternal);
         }
@@ -101,7 +140,11 @@ type OfdTextObject = {
   size: number;
   color: string;
   weight: string;
+  fontFamily: string;
   letterSpacing?: number;
+  deltaX?: number[];
+  vertical?: boolean;
+  align?: "start" | "end";
 };
 
 type OfdPathObject = {
@@ -113,6 +156,7 @@ type OfdPathObject = {
   stroke: string;
   fill: string;
   strokeWidth: number;
+  transform: string;
 };
 
 type OfdLineObject = {
@@ -143,63 +187,16 @@ type OfdPagePreview = {
   images: OfdImageObject[];
 };
 
-function createOfdSummary(entries: JSZip.JSZipObject[], pages: OfdPagePreview[], images: Map<string, string>): HTMLElement {
-  const summary = document.createElement("div");
-  summary.className = "ofv-ofd-summary";
-  const xmlEntries = entries.filter((entry) => entry.name.endsWith(".xml")).length;
-  const textCount = pages.reduce((count, page) => count + page.texts.length, 0);
-  const pathCount = pages.reduce((count, page) => count + page.paths.length, 0);
-  const lineCount = pages.reduce((count, page) => count + page.lines.length, 0);
-  const imageCount = pages.reduce((count, page) => count + page.images.length, 0);
-  const textLength = pages.reduce((count, page) => count + page.texts.reduce((inner, item) => inner + item.text.length, 0), 0);
-  appendOfdSummary(summary, "文件", String(entries.length));
-  appendOfdSummary(summary, "XML", String(xmlEntries));
-  appendOfdSummary(summary, "页面", String(pages.length));
-  appendOfdSummary(summary, "文本", String(textCount));
-  appendOfdSummary(summary, "路径", String(pathCount));
-  appendOfdSummary(summary, "线条", String(lineCount));
-  appendOfdSummary(summary, "图片对象", String(imageCount));
-  appendOfdSummary(summary, "图片资源", String(uniqueOfdImageResources(images)));
-  if (textLength > 0) {
-    appendOfdSummary(summary, "文字长度", String(textLength));
-  }
-  const sizes = formatOfdPageSizes(pages);
-  if (sizes) {
-    appendOfdSummary(summary, "页面尺寸", sizes);
-  }
-  return summary;
-}
-
-function appendOfdSummary(parent: HTMLElement, label: string, value: string): void {
-  const item = document.createElement("span");
-  const key = document.createElement("span");
-  key.textContent = label;
-  const content = document.createElement("strong");
-  content.textContent = value;
-  item.append(key, content);
-  parent.append(item);
-}
-
-function uniqueOfdImageResources(images: Map<string, string>): number {
-  return new Set(images.values()).size;
-}
-
-function formatOfdPageSizes(pages: OfdPagePreview[]): string {
-  const counts = new Map<string, number>();
-  for (const page of pages) {
-    const key = `${Math.round(page.width)} x ${Math.round(page.height)}`;
-    counts.set(key, (counts.get(key) || 0) + 1);
-  }
-  return [...counts.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 4)
-    .map(([size, count]) => (count > 1 ? `${size} (${count})` : size))
-    .join(", ");
-}
+type OfdContext = {
+  images: Map<string, string>;
+  templates: Map<string, string>;
+  fonts: Map<string, string>;
+  pageSize?: { width: number; height: number };
+};
 
 async function readOfdPages(
   entries: JSZip.JSZipObject[],
-  images: Map<string, string>
+  context: OfdContext
 ): Promise<OfdPagePreview[]> {
   const pages: OfdPagePreview[] = [];
   const pageEntries = entries
@@ -207,7 +204,8 @@ async function readOfdPages(
     .slice(0, 80);
   for (const entry of pageEntries) {
     const xml = await entry.async("text");
-    const page = parseOfdPage(entry.name, xml, images);
+    const templates = await readPageTemplates(xml, context, entries);
+    const page = parseOfdPage(entry.name, xml, context.images, context.fonts, templates, context.pageSize);
     if (page.texts.length > 0 || page.paths.length > 0 || page.lines.length > 0 || page.images.length > 0) {
       pages.push(page);
     }
@@ -215,14 +213,64 @@ async function readOfdPages(
   return pages;
 }
 
-function parseOfdPage(name: string, xml: string, images: Map<string, string>): OfdPagePreview {
+async function readPageTemplates(xml: string, context: OfdContext, entries: JSZip.JSZipObject[]): Promise<string[]> {
+  const doc = new DOMParser().parseFromString(xml, "application/xml");
+  if (doc.querySelector("parsererror")) {
+    return [];
+  }
+  const templateIds = Array.from(doc.getElementsByTagName("*"))
+    .filter((element) => element.localName === "Template")
+    .map((element) => getOfdAttribute(element, "TemplateID") || getOfdAttribute(element, "ID"))
+    .filter((id): id is string => Boolean(id));
+  const templates: string[] = [];
+  for (const id of templateIds) {
+    const path = context.templates.get(id);
+    const entry = path ? findOfdEntry(entries, path) : undefined;
+    if (entry) {
+      templates.push(await entry.async("text"));
+    }
+  }
+  return templates;
+}
+
+function parseOfdPage(
+  name: string,
+  xml: string,
+  images: Map<string, string>,
+  fonts: Map<string, string>,
+  templateXmls: string[] = [],
+  defaultPageSize?: { width: number; height: number }
+): OfdPagePreview {
   const doc = new DOMParser().parseFromString(xml, "application/xml");
   if (doc.querySelector("parsererror")) {
     return { name, width: 210, height: 297, texts: [], paths: [], lines: [], images: [] };
   }
-  const pageSize = parseOfdPageSize(doc);
+  const pageSize = parseOfdPageSize(doc, defaultPageSize);
+  const templatePages = templateXmls.map((templateXml) => {
+    const templateDoc = new DOMParser().parseFromString(templateXml, "application/xml");
+    return templateDoc.querySelector("parsererror") ? emptyOfdPageContent() : parseOfdPageContent(templateDoc, images, fonts);
+  });
+  const pageContent = parseOfdPageContent(doc, images, fonts);
+  const texts = [...templatePages.flatMap((page) => page.texts), ...pageContent.texts];
+  const paths = [...templatePages.flatMap((page) => page.paths), ...pageContent.paths];
+  const lines = [...templatePages.flatMap((page) => page.lines), ...pageContent.lines];
+  const imageObjects = [...templatePages.flatMap((page) => page.images), ...pageContent.images];
+  if (pageSize.explicit) {
+    return { name, width: pageSize.width, height: pageSize.height, texts, paths, lines, images: imageObjects };
+  }
+  const bounds = createOfdBounds(texts, paths, lines, imageObjects);
+  const width = Math.max(pageSize.width, ...bounds.map((item) => item.x + item.width + 12));
+  const height = Math.max(pageSize.height, ...bounds.map((item) => item.y + item.height + 12));
+  return { name, width, height, texts, paths, lines, images: imageObjects };
+}
+
+function parseOfdPageContent(
+  doc: Document,
+  images: Map<string, string>,
+  fonts: Map<string, string>
+): Omit<OfdPagePreview, "name" | "width" | "height"> {
   const textObjects = Array.from(doc.getElementsByTagName("*")).filter((element) => element.localName === "TextObject");
-  const texts = textObjects.flatMap((element) => parseOfdTextObject(element));
+  const texts = textObjects.flatMap((element) => parseOfdTextObject(element, fonts));
   const paths = Array.from(doc.getElementsByTagName("*"))
     .filter((element) => element.localName === "PathObject")
     .flatMap((element) => parseOfdPathObject(element));
@@ -232,7 +280,20 @@ function parseOfdPage(name: string, xml: string, images: Map<string, string>): O
   const imageObjects = Array.from(doc.getElementsByTagName("*"))
     .filter((element) => element.localName === "ImageObject")
     .flatMap((element) => parseOfdImageObject(element, images));
-  const bounds = [
+  return { texts, paths, lines, images: imageObjects };
+}
+
+function emptyOfdPageContent(): Omit<OfdPagePreview, "name" | "width" | "height"> {
+  return { texts: [], paths: [], lines: [], images: [] };
+}
+
+function createOfdBounds(
+  texts: OfdTextObject[],
+  paths: OfdPathObject[],
+  lines: OfdLineObject[],
+  imageObjects: OfdImageObject[]
+): Array<{ x: number; y: number; width: number; height: number }> {
+  return [
     ...texts.map((item) => ({ x: item.x, y: item.y, width: item.width, height: item.height })),
     ...paths.map((item) => ({ x: item.x, y: item.y, width: item.width, height: item.height })),
     ...lines.map((item) => ({
@@ -243,40 +304,65 @@ function parseOfdPage(name: string, xml: string, images: Map<string, string>): O
     })),
     ...imageObjects.map((item) => ({ x: item.x, y: item.y, width: item.width, height: item.height }))
   ];
-  const width = Math.max(pageSize.width, ...bounds.map((item) => item.x + item.width + 12));
-  const height = Math.max(pageSize.height, ...bounds.map((item) => item.y + item.height + 12));
-  return { name, width, height, texts, paths, lines, images: imageObjects };
 }
 
-function parseOfdTextObject(element: Element): OfdTextObject[] {
+function parseOfdTextObject(element: Element, fonts: Map<string, string>): OfdTextObject[] {
   const boundary = parseBoundary(getOfdAttribute(element, "Boundary"));
   const size = finiteNumber(getOfdAttribute(element, "Size"), Math.max(4, boundary.height || 5));
   const color = parseOfdColor(element, "#111827");
   const weight = finiteNumber(getOfdAttribute(element, "Weight"), 400) >= 600 ? "700" : "400";
-  const letterSpacing = getOfdAttribute(element, "DeltaX") ? 0.5 : undefined;
+  const fontFamily = fontStackForOfdFont(fonts.get(getOfdAttribute(element, "Font") || ""));
+  const objectLetterSpacing = getOfdAttribute(element, "DeltaX") ? 0.5 : undefined;
   const textCodes = Array.from(element.getElementsByTagName("*")).filter((child) => child.localName === "TextCode");
   if (textCodes.length === 0) {
     return [];
   }
-  return textCodes.map((code) => {
+  return textCodes.flatMap((code): OfdTextObject[] => {
     const x = boundary.x + finiteNumber(getOfdAttribute(code, "X"), 0);
     const y = boundary.y + finiteNumber(getOfdAttribute(code, "Y"), 0);
-    return {
-      text: code.textContent?.trim() || "",
-      x,
-      y,
-      width: boundary.width,
-      height: boundary.height,
-      size,
-      color,
-      weight,
-      letterSpacing
-    };
+    const text = code.textContent?.trim() || "";
+    const deltaX = parseOfdDeltaX(getOfdAttribute(code, "DeltaX"));
+    const align = deltaX ? "start" : inferOfdTextAlign(text, boundary);
+    const deltaY = getOfdAttribute(code, "DeltaY");
+    if (deltaY && text.length > 1) {
+      const step = parseOfdDeltaStep(deltaY, size);
+      return Array.from(text).map((char, index) => ({
+        text: char,
+        x,
+        y: y + index * step,
+        width: boundary.width,
+        height: boundary.height,
+        size,
+        color,
+        weight,
+        fontFamily,
+        letterSpacing: objectLetterSpacing,
+        vertical: true,
+        align
+      }));
+    }
+    return [
+      {
+        text,
+        x,
+        y,
+        width: boundary.width,
+        height: boundary.height,
+        size,
+        color,
+        weight,
+        fontFamily,
+        letterSpacing: deltaX ? undefined : objectLetterSpacing,
+        deltaX,
+        align
+      }
+    ];
   }).filter((item) => item.text);
 }
 
 function parseOfdPathObject(element: Element): OfdPathObject[] {
   const boundary = parseBoundary(getOfdAttribute(element, "Boundary"));
+  const ctm = parseOfdCtm(getOfdAttribute(element, "CTM"));
   const commands = Array.from(element.getElementsByTagName("*")).filter(
     (child) => child.localName === "AbbreviatedData" || child.localName === "PathData"
   );
@@ -291,9 +377,10 @@ function parseOfdPathObject(element: Element): OfdPathObject[] {
       y: boundary.y,
       width: boundary.width,
       height: boundary.height,
-      stroke: parseOfdColor(element, "#334155", "StrokeColor"),
+      stroke: parseOfdColor(element, "#111827", "StrokeColor"),
       fill: parseOfdFill(element),
-      strokeWidth: finiteNumber(getOfdAttribute(element, "LineWidth"), 1)
+      strokeWidth: finiteNumber(getOfdAttribute(element, "LineWidth"), 1),
+      transform: createOfdPathTransform(boundary.x, boundary.y, ctm)
     }
   ];
 }
@@ -311,7 +398,7 @@ function parseOfdLineObject(element: Element): OfdLineObject[] {
       y1: boundary.y + start.y,
       x2: boundary.x + end.x,
       y2: boundary.y + end.y,
-      stroke: parseOfdColor(element, "#334155"),
+      stroke: parseOfdColor(element, "#111827"),
       strokeWidth: finiteNumber(getOfdAttribute(element, "LineWidth"), 1)
     }
   ];
@@ -335,6 +422,8 @@ function parseOfdImageObject(element: Element, images: Map<string, string>): Ofd
 function renderOfdPage(page: OfdPagePreview): HTMLElement {
   const figure = document.createElement("figure");
   figure.className = "ofv-ofd-page";
+  figure.style.setProperty("--ofv-ofd-page-width", `${formatOfdCssNumber(page.width)}mm`);
+  figure.style.setProperty("--ofv-ofd-page-height", `${formatOfdCssNumber(page.height)}mm`);
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("viewBox", `0 0 ${page.width} ${page.height}`);
   svg.setAttribute("role", "img");
@@ -374,7 +463,7 @@ function renderOfdPage(page: OfdPagePreview): HTMLElement {
   for (const item of page.paths) {
     const path = document.createElementNS(svg.namespaceURI, "path");
     path.setAttribute("d", item.d);
-    path.setAttribute("transform", `translate(${item.x} ${item.y})`);
+    path.setAttribute("transform", item.transform);
     path.setAttribute("fill", item.fill);
     path.setAttribute("stroke", item.stroke);
     path.setAttribute("stroke-width", String(item.strokeWidth));
@@ -395,22 +484,65 @@ function renderOfdPage(page: OfdPagePreview): HTMLElement {
 
   for (const item of page.texts) {
     const text = document.createElementNS(svg.namespaceURI, "text");
-    text.setAttribute("x", String(item.x));
-    text.setAttribute("y", String(item.y + item.size));
+    text.setAttribute("x", String(item.align === "end" ? item.x + item.width : item.x));
+    text.setAttribute("y", String(item.y));
     text.setAttribute("font-size", String(item.size));
     text.setAttribute("fill", item.color);
     text.setAttribute("font-weight", item.weight);
+    text.setAttribute("font-family", item.fontFamily);
     if (item.letterSpacing !== undefined) {
       text.setAttribute("letter-spacing", String(item.letterSpacing));
     }
-    text.textContent = item.text;
+    if (item.deltaX && item.deltaX.length > 0 && item.align !== "end") {
+      const chars = Array.from(item.text);
+      let x = item.x;
+      for (let index = 0; index < chars.length; index += 1) {
+        const span = document.createElementNS(svg.namespaceURI, "tspan");
+        span.setAttribute("x", String(x));
+        span.setAttribute("y", String(item.y));
+        if (index < chars.length - 1) {
+          x += item.deltaX[Math.min(index, item.deltaX.length - 1)] || item.size;
+        }
+        span.textContent = chars[index];
+        text.append(span);
+      }
+    } else {
+      if (item.align === "end") {
+        text.setAttribute("text-anchor", "end");
+      }
+      text.textContent = item.text;
+    }
     svg.append(text);
   }
 
-  const caption = document.createElement("figcaption");
-  caption.textContent = `${page.name} · ${page.texts.length} text · ${page.paths.length} path · ${page.lines.length} line · ${page.images.length} image`;
-  figure.append(svg, caption);
+  figure.append(svg);
   return figure;
+}
+
+async function readOfdContext(entries: JSZip.JSZipObject[]): Promise<OfdContext> {
+  const images = await readOfdImages(entries);
+  const fonts = await readOfdFonts(entries);
+  const { templates, pageSize } = await readOfdDocumentInfo(entries);
+  return { images, templates, fonts, pageSize };
+}
+
+async function readOfdFonts(entries: JSZip.JSZipObject[]): Promise<Map<string, string>> {
+  const fonts = new Map<string, string>();
+  for (const entry of entries.filter((item) => /(?:^|\/)(?:DocumentRes|PublicRes)\.xml$/i.test(item.name))) {
+    const xml = await entry.async("text");
+    const doc = new DOMParser().parseFromString(xml, "application/xml");
+    if (doc.querySelector("parsererror")) {
+      continue;
+    }
+    for (const font of Array.from(doc.getElementsByTagName("*")).filter((element) => element.localName === "Font")) {
+      const id = getOfdAttribute(font, "ID");
+      const name = getOfdAttribute(font, "FontName") || getOfdAttribute(font, "FamilyName");
+      if (id && name) {
+        fonts.set(id, name.trim());
+      }
+    }
+  }
+  return fonts;
 }
 
 async function readOfdImages(entries: JSZip.JSZipObject[]): Promise<Map<string, string>> {
@@ -427,18 +559,74 @@ async function readOfdImages(entries: JSZip.JSZipObject[]): Promise<Map<string, 
     images.set(entry.name, href);
     images.set(entry.name.split("/").pop() || entry.name, href);
   }
+  for (const entry of entries.filter((item) => /(?:^|\/)(?:DocumentRes|PublicRes)\.xml$/i.test(item.name))) {
+    const xml = await entry.async("text");
+    const doc = new DOMParser().parseFromString(xml, "application/xml");
+    if (doc.querySelector("parsererror")) {
+      continue;
+    }
+    const baseLoc = getOfdAttribute(doc.documentElement, "BaseLoc") || "";
+    const resourceDir = joinOfdPath(directoryName(entry.name), baseLoc);
+    for (const media of Array.from(doc.getElementsByTagName("*")).filter((element) => element.localName === "MultiMedia")) {
+      const id = getOfdAttribute(media, "ID");
+      const mediaFile = findOfdChild(media, "MediaFile")?.textContent?.trim();
+      if (!id || !mediaFile) {
+        continue;
+      }
+      const imageEntry = findOfdEntry(entries, joinOfdPath(resourceDir, mediaFile)) || findOfdEntry(entries, mediaFile);
+      const href = imageEntry ? images.get(imageEntry.name) || images.get(imageEntry.name.split("/").pop() || imageEntry.name) : undefined;
+      if (href) {
+        images.set(id, href);
+      }
+    }
+  }
   return images;
 }
 
-function parseOfdPageSize(doc: Document): { width: number; height: number } {
+async function readOfdDocumentInfo(entries: JSZip.JSZipObject[]): Promise<{ templates: Map<string, string>; pageSize?: { width: number; height: number } }> {
+  const templates = new Map<string, string>();
+  let pageSize: { width: number; height: number } | undefined;
+  for (const entry of entries.filter((item) => /(?:^|\/)Document\.xml$/i.test(item.name))) {
+    const xml = await entry.async("text");
+    const doc = new DOMParser().parseFromString(xml, "application/xml");
+    if (doc.querySelector("parsererror")) {
+      continue;
+    }
+    const documentDir = directoryName(entry.name);
+    const physicalBox = Array.from(doc.getElementsByTagName("*")).find((element) => element.localName === "PageArea")
+      ?.getElementsByTagName("*");
+    const pageAreaBox = physicalBox
+      ? Array.from(physicalBox).find((element) => element.localName === "PhysicalBox")
+      : undefined;
+    if (pageAreaBox?.textContent) {
+      const box = parseBoundary(pageAreaBox.textContent);
+      if (box.width > 0 && box.height > 0) {
+        pageSize = { width: box.width, height: box.height };
+      }
+    }
+    for (const template of Array.from(doc.getElementsByTagName("*")).filter((element) => element.localName === "TemplatePage")) {
+      const id = getOfdAttribute(template, "ID");
+      const baseLoc = getOfdAttribute(template, "BaseLoc");
+      if (id && baseLoc) {
+        templates.set(id, joinOfdPath(documentDir, baseLoc));
+      }
+    }
+  }
+  return { templates, pageSize };
+}
+
+function parseOfdPageSize(doc: Document, defaultPageSize?: { width: number; height: number }): { width: number; height: number; explicit: boolean } {
+  if (defaultPageSize) {
+    return { ...defaultPageSize, explicit: true };
+  }
   const physicalBox = Array.from(doc.getElementsByTagName("*")).find((element) => element.localName === "PhysicalBox");
   if (physicalBox?.textContent) {
     const box = parseBoundary(physicalBox.textContent);
     if (box.width > 0 && box.height > 0) {
-      return { width: box.width, height: box.height };
+      return { width: box.width, height: box.height, explicit: true };
     }
   }
-  return { width: 210, height: 297 };
+  return { width: 210, height: 297, explicit: false };
 }
 
 function parseOfdColor(element: Element, fallback: string, preferredLocalName = "FillColor"): string {
@@ -484,6 +672,114 @@ function normalizeOfdPathData(value: string): string {
     .trim();
 }
 
+function parseOfdCtm(value: string | null): [number, number, number, number, number, number] | undefined {
+  const parts = (value || "")
+    .trim()
+    .split(/\s+/)
+    .map((part) => Number(part));
+  if (parts.length !== 6 || parts.some((part) => !Number.isFinite(part))) {
+    return undefined;
+  }
+  return parts as [number, number, number, number, number, number];
+}
+
+function createOfdPathTransform(x: number, y: number, ctm?: [number, number, number, number, number, number]): string {
+  if (!ctm) {
+    return `translate(${x} ${y})`;
+  }
+  const [a, b, c, d, e, f] = ctm;
+  return `translate(${x} ${y}) matrix(${a} ${b} ${c} ${d} ${e} ${f})`;
+}
+
+function parseOfdDeltaStep(value: string, fallback: number): number {
+  const numbers = value.match(/-?\d+(?:\.\d+)?/g)?.map((part) => Number(part)).filter((part) => Number.isFinite(part)) || [];
+  return numbers.length > 0 ? numbers[numbers.length - 1] : fallback;
+}
+
+function parseOfdDeltaX(value: string | null): number[] | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const parts = value.match(/[a-z]+|-?\d+(?:\.\d+)?/gi) || [];
+  const deltas: number[] = [];
+  for (let index = 0; index < parts.length; index += 1) {
+    const token = parts[index];
+    if (/^g$/i.test(token)) {
+      const count = Number(parts[index + 1]);
+      const step = Number(parts[index + 2]);
+      if (Number.isFinite(count) && Number.isFinite(step)) {
+        deltas.push(...Array.from({ length: Math.max(0, Math.floor(count)) }, () => step));
+      }
+      index += 2;
+      continue;
+    }
+    const numeric = Number(token);
+    if (Number.isFinite(numeric)) {
+      deltas.push(numeric);
+    }
+  }
+  return deltas.length > 0 ? deltas : undefined;
+}
+
+function fontStackForOfdFont(fontName: string | undefined): string {
+  const normalized = (fontName || "").trim().toLowerCase();
+  if (normalized.includes("courier")) {
+    return '"Courier New", Courier, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace';
+  }
+  if (normalized.includes("kaiti") || normalized.includes("kai") || normalized.includes("楷")) {
+    return '"STKaiti", "Kaiti SC", "KaiTi", "楷体", serif';
+  }
+  if (normalized.includes("simsun") || normalized.includes("simsong") || normalized.includes("song") || normalized.includes("宋")) {
+    return '"SimSong", "Songti SC", "STSong", SimSun, "宋体", serif';
+  }
+  if (normalized.includes("hei") || normalized.includes("黑")) {
+    return '"PingFang SC", "Microsoft YaHei", SimHei, sans-serif';
+  }
+  return '"SimSong", "Songti SC", "STSong", SimSun, "Noto Serif CJK SC", serif';
+}
+
+function inferOfdTextAlign(text: string, boundary: { x: number; y: number; width: number; height: number }): "start" | "end" {
+  const normalized = text.trim();
+  if (!/^[¥￥]?\d+(?:\.\d+)?%?$/.test(normalized)) {
+    return "start";
+  }
+  if (boundary.x >= 75 || boundary.width <= 30) {
+    return "end";
+  }
+  return "start";
+}
+
+function findOfdEntry(entries: JSZip.JSZipObject[], path: string): JSZip.JSZipObject | undefined {
+  const normalized = normalizeOfdPath(path);
+  return entries.find((entry) => normalizeOfdPath(entry.name) === normalized || normalizeOfdPath(entry.name).endsWith(`/${normalized}`));
+}
+
+function joinOfdPath(...parts: string[]): string {
+  const joined = parts.filter(Boolean).join("/");
+  const segments: string[] = [];
+  for (const segment of joined.split("/")) {
+    if (!segment || segment === ".") {
+      continue;
+    }
+    if (segment === "..") {
+      segments.pop();
+      continue;
+    }
+    segments.push(segment);
+  }
+  return segments.join("/");
+}
+
+function directoryName(path: string): string {
+  const normalized = normalizeOfdPath(path);
+  const index = normalized.lastIndexOf("/");
+  return index >= 0 ? normalized.slice(0, index) : "";
+}
+
+function normalizeOfdPath(path: string): string {
+  return path.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+/g, "/");
+}
+
 function mimeTypeFromPath(path: string): string {
   const extension = path.split(".").pop()?.toLowerCase();
   const map: Record<string, string> = {
@@ -523,6 +819,10 @@ function getOfdAttribute(element: Element, localName: string): string | null {
 function finiteNumber(value: string | null, fallback: number): number {
   const parsed = value === null ? Number.NaN : Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function formatOfdCssNumber(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
 }
 
 function createOfdFallback(fileName: string, url: string, detail: string): HTMLElement {

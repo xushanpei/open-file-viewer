@@ -126,13 +126,10 @@ export function officePlugin(): PreviewPlugin {
       let disposeDocxFit: (() => void) | undefined;
 
       if (packageFormat === "docx" && !fileIsDocx(extension)) {
-        renderOfficePackageNotice(panel, extension, "检测到 OOXML Word 包结构，已按 DOCX 兼容路径预览。");
         disposeDocxFit = await renderDocx(panel, arrayBuffer);
       } else if (packageFormat === "xlsx" && !sheetExtensions.has(extension)) {
-        renderOfficePackageNotice(panel, extension, "检测到 OOXML Workbook 包结构，已按 XLSX 兼容路径预览。");
         await renderSheet(panel, arrayBuffer, "xlsx");
       } else if (packageFormat === "pptx" && !["pptx", "pptm", "ppsx", "ppsm", "potx", "potm"].includes(extension)) {
-        renderOfficePackageNotice(panel, extension, "检测到 OOXML Presentation 包结构，已按 PPTX 兼容路径预览。");
         await renderPptx(panel, arrayBuffer);
       } else if (fileIsDocx(extension)) {
         disposeDocxFit = await renderDocx(panel, arrayBuffer);
@@ -199,11 +196,9 @@ async function detectPackagedOfficeFormat(arrayBuffer: ArrayBuffer): Promise<"do
 }
 
 async function renderDocx(panel: HTMLElement, arrayBuffer: ArrayBuffer): Promise<() => void> {
-  const section = createSection("Word 文档");
   const content = document.createElement("div");
   content.className = "ofv-docx-document";
-  section.append(content);
-  panel.append(section);
+  panel.append(content);
 
   try {
     const docxPreview = await import("docx-preview");
@@ -1236,9 +1231,32 @@ async function renderPptx(panel: HTMLElement, arrayBuffer: ArrayBuffer): Promise
   try {
     const { PptxViewer } = await import("@aiden0z/pptx-renderer");
     await PptxViewer.open(arrayBuffer, container);
+    normalizePptxLayout(container);
   } catch {
     container.textContent = "PPTX 渲染失败，请检查文件是否损坏。";
   }
+}
+
+function normalizePptxLayout(container: HTMLElement): void {
+  const slideCanvases = findPptxSlideCanvases(container);
+  for (const slide of slideCanvases) {
+    slide.style.backgroundColor = "#FFFFFF";
+  }
+}
+
+function findPptxSlideCanvases(container: HTMLElement): HTMLElement[] {
+  const slideWrappers = Array.from(container.querySelectorAll<HTMLElement>("div[data-slide-index]"));
+  const candidates = slideWrappers.flatMap((wrapper) =>
+    Array.from(wrapper.querySelectorAll<HTMLElement>("div")).filter(isPptxSlideCanvas)
+  );
+  if (candidates.length > 0) {
+    return Array.from(new Set(candidates));
+  }
+  return Array.from(container.querySelectorAll<HTMLElement>("div")).filter(isPptxSlideCanvas);
+}
+
+function isPptxSlideCanvas(element: HTMLElement): boolean {
+  return element.style.position === "relative" && parseCssPixelValue(element.style.width) > 0 && parseCssPixelValue(element.style.height) > 0;
 }
 
 async function renderOdp(panel: HTMLElement, arrayBuffer: ArrayBuffer): Promise<void> {
@@ -1276,19 +1294,16 @@ async function renderPackagedOfficePreview(
   const contentXml = zip.file(/(^|\/)content\.xml$/i)[0];
 
   if (hasEntry("word/document.xml")) {
-    renderOfficePackageNotice(panel, extension, "检测到 OOXML Word 包结构，已按 DOCX 兼容路径预览。");
     await renderDocx(panel, arrayBuffer);
     return true;
   }
 
   if (hasEntry("xl/workbook.xml")) {
-    renderOfficePackageNotice(panel, extension, "检测到 OOXML Workbook 包结构，已按 XLSX 兼容路径预览。");
     await renderSheet(panel, arrayBuffer, extension);
     return true;
   }
 
   if (hasEntry("ppt/presentation.xml")) {
-    renderOfficePackageNotice(panel, extension, "检测到 OOXML Presentation 包结构，已按 PPTX 兼容路径预览。");
     await renderPptx(panel, arrayBuffer);
     return true;
   }
@@ -1296,17 +1311,14 @@ async function renderPackagedOfficePreview(
   if (contentXml) {
     const xml = await contentXml.async("text");
     if (/<office:spreadsheet\b|<table:table\b/i.test(xml)) {
-      renderOfficePackageNotice(panel, extension, "检测到 OpenDocument Spreadsheet 包结构，已按 ODS 兼容路径预览。");
       renderParsedSheets(panel, parseFlatOds(xml), `${extension.toUpperCase()} 文件未解析到表格。`);
       return true;
     }
     if (/<office:presentation\b|<draw:page\b/i.test(xml)) {
-      renderOfficePackageNotice(panel, extension, "检测到 OpenDocument Presentation 包结构，已按 ODP 兼容路径预览。");
       renderOpenDocumentPresentation(panel, `${extension.toUpperCase()} 演示文稿`, xml, await extractZipImages(zip, /^Pictures\//));
       return true;
     }
     if (/<office:text\b|<text:p\b/i.test(xml)) {
-      renderOfficePackageNotice(panel, extension, "检测到 OpenDocument Text 包结构，已按 ODT 兼容路径预览。");
       renderOpenDocumentXml(panel, `${extension.toUpperCase()} 文档`, xml);
       return true;
     }
@@ -1334,15 +1346,6 @@ async function renderPackagedOfficePreview(
   }
 
   return false;
-}
-
-function renderOfficePackageNotice(panel: HTMLElement, extension: string, message: string): void {
-  const section = createSection("兼容包识别");
-  const note = document.createElement("p");
-  note.className = "ofv-office-package-note";
-  note.textContent = `.${extension} ${message}`;
-  section.append(note);
-  panel.append(section);
 }
 
 function renderOfficePackageStructure(

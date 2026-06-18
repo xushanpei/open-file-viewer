@@ -70,6 +70,25 @@ describe("core responsive styles", () => {
     expect(rule(".ofv-markdown-body table")).toContain("max-width: 100%");
     expect(rule(".ofv-pdf")).toContain("overflow-x: hidden");
     expect(rule(".ofv-pdf")).toContain("overflow-y: auto");
+    expect(rule(".ofv-ofd")).toContain("--ofv-ofd-zoom: 1");
+    expect(rule(".ofv-ofd")).toContain("--ofv-ofd-rotation: 0deg");
+    expect(rule(".ofv-ofd")).toContain("height: 100%");
+    expect(rule(".ofv-ofd")).toContain("min-height: 0");
+    expect(rule(".ofv-ofd")).toContain("overflow: auto");
+    expect(rule(".ofv-ofd-pages")).not.toContain("--ofv-ofd-zoom");
+    expect(rule(".ofv-ofd-pages")).toContain("width: max-content");
+    expect(rule(".ofv-ofd-pages")).toContain("min-width: 100%");
+    expect(rule(".ofv-ofd-page")).toContain(
+      "width: min(100%, calc(var(--ofv-ofd-page-width, 210mm) * var(--ofv-ofd-zoom)))"
+    );
+    expect(rule(".ofv-ofd-page")).toContain(
+      "aspect-ratio: var(--ofv-ofd-page-width, 210mm) / var(--ofv-ofd-page-height, 297mm)"
+    );
+    expect(rule(".ofv-ofd.is-ofd-rotated-sideways .ofv-ofd-page")).toContain(
+      "width: min(100%, calc(var(--ofv-ofd-page-height, 297mm) * var(--ofv-ofd-zoom)))"
+    );
+    expect(rule(".ofv-ofd-page svg")).toContain("transform: rotate(var(--ofv-ofd-rotation))");
+    expect(rule(".ofv-ofd-page svg")).toContain("transform-origin: center");
   });
 
   it("keeps complex preview panels from widening narrow containers", () => {
@@ -95,6 +114,8 @@ describe("core responsive styles", () => {
     expect(rule(".ofv-pptx-viewer")).toContain("overflow: auto");
     expect(rule(".ofv-pptx-viewer > div[data-slide-index]")).toContain("max-width: 100%");
     expect(rule(".ofv-pptx-viewer > div[data-slide-index]")).toContain("overflow: auto");
+    expect(rule(".ofv-pptx-viewer svg")).toContain("width: auto");
+    expect(rule(".ofv-pptx-viewer svg")).toContain("stroke-width: initial");
   });
 
   it("keeps specialized preview surfaces constrained and locally scrollable", () => {
@@ -106,7 +127,7 @@ describe("core responsive styles", () => {
       ".ofv-archive-main",
       ".ofv-epub-reader",
       ".ofv-xps-pages",
-      ".ofv-ofd-pages"
+      ".ofv-ofd"
     ]) {
       expect(rule(selector), selector).toContain("min-width: 0");
     }

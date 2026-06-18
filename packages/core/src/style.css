@@ -1107,6 +1107,16 @@
   overflow-wrap: anywhere;
 }
 
+.ofv-pptx-viewer svg {
+  width: auto;
+  height: auto;
+  fill: initial;
+  stroke: initial;
+  stroke-linecap: initial;
+  stroke-linejoin: initial;
+  stroke-width: initial;
+}
+
 .ofv-presentation-summary {
   display: grid;
   min-width: 0;
@@ -1573,58 +1583,60 @@
   margin-top: 12px;
 }
 
+.ofv-ofd {
+  --ofv-ofd-zoom: 1;
+  --ofv-ofd-rotation: 0deg;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  overflow: auto;
+  background: var(--ofv-bg);
+}
+
 .ofv-ofd-pages {
   display: grid;
   gap: 18px;
-  min-width: 0;
-  margin: 12px 0;
-}
-
-.ofv-ofd-summary {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 14px;
-  min-width: 0;
-  margin: 0 0 12px;
-  padding: 8px 10px;
-  border: 1px solid var(--ofv-border);
-  border-radius: 6px;
-  background: var(--ofv-surface-muted);
-  color: var(--ofv-text-muted);
-  font-size: 12px;
-}
-
-.ofv-ofd-summary > span {
-  display: inline-flex;
-  gap: 5px;
-  min-width: 0;
-}
-
-.ofv-ofd-summary strong {
-  color: var(--ofv-text);
-  font-weight: 600;
-  overflow-wrap: anywhere;
+  width: max-content;
+  min-width: 100%;
+  margin: 0;
+  padding: 16px;
+  justify-items: center;
+  overscroll-behavior: contain;
 }
 
 .ofv-ofd-page {
+  width: min(100%, calc(var(--ofv-ofd-page-width, 210mm) * var(--ofv-ofd-zoom)));
+  aspect-ratio: var(--ofv-ofd-page-width, 210mm) / var(--ofv-ofd-page-height, 297mm);
+  min-width: 0;
   margin: 0;
+}
+
+.ofv-ofd.is-ofd-rotated-sideways .ofv-ofd-page {
+  width: min(100%, calc(var(--ofv-ofd-page-height, 297mm) * var(--ofv-ofd-zoom)));
+  aspect-ratio: var(--ofv-ofd-page-height, 297mm) / var(--ofv-ofd-page-width, 210mm);
 }
 
 .ofv-ofd-page svg {
   display: block;
-  width: min(100%, 760px);
+  width: 100%;
   max-width: 100%;
-  max-height: 760px;
+  height: 100%;
+  max-height: none;
   border: 1px solid var(--ofv-border);
   border-radius: 6px;
   background: #fff;
   box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
+  transform: rotate(var(--ofv-ofd-rotation));
+  transform-origin: center;
 }
 
-.ofv-ofd-page figcaption {
-  margin-top: 8px;
-  color: var(--ofv-text-muted);
-  font-size: 12px;
+.ofv-ofd-page svg {
+  fill: revert;
+  stroke: revert;
+  stroke-linecap: revert;
+  stroke-linejoin: revert;
+  stroke-width: revert;
 }
 
 .ofv-model-stage {

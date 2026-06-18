@@ -31,10 +31,24 @@ const renderDocxAsync = vi.hoisted(() =>
 );
 const openPptx = vi.hoisted(() =>
   vi.fn(async (_data: unknown, container: HTMLElement) => {
+    const wrapper = document.createElement("div");
+    wrapper.dataset.slideIndex = "0";
+    const viewport = document.createElement("div");
+    viewport.style.position = "relative";
+    viewport.style.width = "960px";
+    viewport.style.height = "540px";
+    viewport.style.overflow = "hidden";
     const page = document.createElement("div");
     page.className = "pptx-rendered";
+    page.style.position = "relative";
+    page.style.width = "1280px";
+    page.style.height = "720px";
+    page.style.transform = "scale(0.75)";
     page.textContent = "PPTX rendered";
-    container.append(page);
+    page.style.backgroundColor = "transparent";
+    viewport.append(page);
+    wrapper.append(viewport);
+    container.append(wrapper);
   })
 );
 
@@ -359,6 +373,8 @@ describe("officePlugin", () => {
     await waitFor(() => Boolean(container.querySelector(".ofv-docx-document")));
 
     expect(renderDocxAsync).toHaveBeenCalledTimes(1);
+    expect(container.querySelector(".ofv-docx-document")?.parentElement?.classList.contains("ofv-office")).toBe(true);
+    expect(container.querySelector(".ofv-office > section > h3")).toBeNull();
     expect(renderDocxAsync.mock.calls[0][3]).toMatchObject({
       className: "ofv-docx",
       breakPages: true,
@@ -383,7 +399,8 @@ describe("officePlugin", () => {
     await waitFor(() => Boolean(container.querySelector(".ofv-docx-document")));
 
     expect(renderDocxAsync).toHaveBeenCalledTimes(callsBefore + 1);
-    expect(container.querySelector(".ofv-office-package-note")?.textContent).toContain("DOCX");
+    expect(container.querySelector(".ofv-office-package-note")).toBeNull();
+    expect(container.textContent).not.toContain("兼容包识别");
     expect(container.querySelector(".ofv-office-conversion")).toBeNull();
     expect(container.querySelector(".ofv-docx-document")?.textContent).toContain("DOCX layout page");
   });
@@ -567,6 +584,7 @@ describe("officePlugin", () => {
     expect(summary?.dataset.animationCount).toBe("1");
     expect(container.querySelector(".ofv-presentation-slides")).toBeNull();
     expect(container.querySelector(".ofv-pptx-viewer")?.textContent).toContain("PPTX rendered");
+    expect(container.querySelector<HTMLElement>(".pptx-rendered")?.style.backgroundColor).toBe("rgb(255, 255, 255)");
   });
 
   it("renders OpenDocument presentation insight for FODP layout and animation markers", async () => {
@@ -759,7 +777,8 @@ describe("officePlugin", () => {
 
     await waitFor(() => Boolean(container.querySelector(".ofv-sheet-summary")));
 
-    expect(container.querySelector(".ofv-office-package-note")?.textContent).toContain("OOXML Workbook");
+    expect(container.querySelector(".ofv-office-package-note")).toBeNull();
+    expect(container.textContent).not.toContain("兼容包识别");
     expect(container.querySelector(".ofv-tabs button")?.textContent).toBe("Scores");
     expect(container.querySelector('[data-cell="A2"]')?.textContent).toBe("Ada");
   });
