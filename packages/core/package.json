@@ -1,6 +1,6 @@
 {
   "name": "@open-file-viewer/core",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Framework-agnostic browser file preview core.",
   "license": "MIT",
   "type": "module",
