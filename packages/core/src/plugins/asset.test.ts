@@ -2,6 +2,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createViewer } from "../viewer";
 import { assetPlugin } from "./asset";
 
+vi.mock("ag-psd", () => ({
+  readPsd: vi.fn()
+}));
+
 describe("assetPlugin", () => {
   afterEach(() => {
     document.body.replaceChildren();
@@ -402,7 +406,21 @@ describe("assetPlugin", () => {
     viewer.destroy();
   });
 
-  it("renders Photoshop document header metadata", async () => {
+  it("renders Photoshop documents as a direct composite preview", async () => {
+    const { readPsd } = await import("ag-psd");
+    const canvas = document.createElement("canvas");
+    canvas.width = 1920;
+    canvas.height = 1080;
+    vi.mocked(readPsd).mockReturnValueOnce({
+      width: 1920,
+      height: 1080,
+      channels: 4,
+      bitsPerChannel: 8,
+      colorMode: 3,
+      canvas,
+      children: [{}, { children: [{}] }]
+    });
+
     const container = document.createElement("div");
     document.body.append(container);
 
@@ -415,18 +433,21 @@ describe("assetPlugin", () => {
 
     await waitFor(() => Boolean(container.querySelector(".ofv-psd-preview")));
 
-    expect(container.textContent).toContain("设计文件预览");
-    expect(container.textContent).toContain("Photoshop 结构");
-    expect(container.textContent).toContain("版本PSD");
-    expect(container.textContent).toContain("画布1920 x 1080px");
-    expect(container.textContent).toContain("通道4");
-    expect(container.textContent).toContain("位深8 bit");
-    expect(container.textContent).toContain("RGB (3)");
+    expect(container.querySelector(".ofv-psd-canvas")).toBe(canvas);
+    expect(container.textContent?.trim()).toBe("");
+    expect(container.querySelector(".ofv-asset-summary")).toBeNull();
+    expect(container.querySelector(".ofv-asset-download")).toBeNull();
+    expect(container.querySelector(".ofv-asset-hex")).toBeNull();
 
     viewer.destroy();
   });
 
   it("recognizes PSB large document headers", async () => {
+    const { readPsd } = await import("ag-psd");
+    vi.mocked(readPsd).mockImplementationOnce(() => {
+      throw new Error("unsupported large document composite");
+    });
+
     const container = document.createElement("div");
     document.body.append(container);
 
@@ -439,9 +460,9 @@ describe("assetPlugin", () => {
 
     await waitFor(() => Boolean(container.querySelector(".ofv-psd-preview")));
 
-    expect(container.textContent).toContain("PSB 大文档");
-    expect(container.textContent).toContain("32000 x 18000px");
-    expect(container.textContent).toContain("CMYK (4)");
+    expect(container.textContent).toContain("PSD 合成图解析失败：unsupported large document composite");
+    expect(container.querySelector(".ofv-asset-summary")).toBeNull();
+    expect(container.querySelector(".ofv-asset-hex")).toBeNull();
 
     viewer.destroy();
   });

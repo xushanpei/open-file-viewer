@@ -4,6 +4,8 @@ Framework-agnostic browser file preview core for Open File Viewer.
 
 Open File Viewer renders files inside your own DOM container instead of opening a new window. It supports images, PDF, Office documents, audio, video, text/code, archives, email, drawings, CAD, 3D and GIS formats through a plugin-based pipeline.
 
+DWG/DWF are proprietary binary CAD formats. `cadPlugin()` uses a two-layer model: it tries the built-in LibreDWG WASM DWG preview by default, then falls back to embedded thumbnails or metadata; applications can use `binaryRenderer` as the highest-priority override for custom renderers or server-side CAD conversion services.
+
 - Website: https://open-file-viewer-workspace.void.app
 - GitHub: https://github.com/xushanpei/open-file-viewer
 - npm: https://www.npmjs.com/package/@open-file-viewer/core
@@ -18,6 +20,18 @@ PDF preview requires `pdfjs-dist`:
 
 ```bash
 npm install pdfjs-dist
+```
+
+DWG geometry preview uses optional LibreDWG WASM. The package can be installed by applications that want the default built-in DWG linework path:
+
+```bash
+npm install @mlightcad/libredwg-web
+```
+
+Copy `libredwg-web.wasm` to a public directory and point `cadPlugin` to it:
+
+```ts
+cadPlugin({ libreDwg: { wasmBaseUrl: "/vendor/libredwg-web" } });
 ```
 
 ## Quick Start
@@ -70,6 +84,37 @@ const viewer = createViewer({
 
 viewer.resize();
 viewer.destroy();
+```
+
+## CAD Customization
+
+`cadPlugin()` has two CAD preview layers:
+
+1. Default built-in path: DWG automatically tries LibreDWG WASM. If linework cannot be produced but the file contains an embedded preview image, the plugin shows that thumbnail. If the engine is unavailable or parsing fails, it shows DWG/DWF metadata and conversion guidance.
+2. External enhancement path: `binaryRenderer` can take over DWG/DWF completely for CADViewer, MxCAD, a custom WebGL/SVG renderer, or a backend PNG/PDF/SVG/DXF conversion service.
+
+Use the built-in DWG preview for lightweight local rendering:
+
+```ts
+cadPlugin({ libreDwg: { wasmBaseUrl: "/vendor/libredwg-web" } });
+```
+
+Disable it when you only want metadata and conversion guidance:
+
+```ts
+cadPlugin({ libreDwg: false });
+```
+
+Or let a custom renderer/service take over DWG/DWF completely. This is the recommended path for high-fidelity layouts, fonts, xrefs, print space, and production CAD workflows:
+
+```ts
+cadPlugin({
+  async binaryRenderer({ panel, fileName, bytes }) {
+    const result = await uploadToCadPreviewService(bytes, fileName);
+    panel.append(result.element);
+    return { destroy: () => result.dispose() };
+  }
+});
 ```
 
 ## Supported Inputs

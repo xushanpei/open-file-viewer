@@ -129,6 +129,61 @@ describe("officePlugin", () => {
     expect(container.querySelector(".ofv-formula-list")?.textContent).toContain("B4: =SUM(B2:B3)");
   });
 
+  it("preserves workbook merges, dimensions and basic cell styling", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    createViewer({
+      container,
+      file: await createStyledWorkbook(),
+      fileName: "styled.xlsx",
+      plugins: [officePlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-sheet-summary")));
+
+    const titleCell = container.querySelector<HTMLTableCellElement>('[data-cell="A1"]');
+    const mergedNote = container.querySelector<HTMLTableCellElement>('[data-cell="B2"]');
+    const table = container.querySelector<HTMLTableElement>(".ofv-workbook-table");
+    expect(titleCell?.colSpan).toBe(3);
+    expect(titleCell?.style.backgroundColor).toBe("rgb(217, 245, 214)");
+    expect(container.querySelector('[data-cell="B1"]')).toBeNull();
+    expect(mergedNote?.rowSpan).toBe(2);
+    expect(mergedNote?.classList.contains("ofv-cell-multiline")).toBe(true);
+    expect(mergedNote?.textContent).toBe("Multiline\nnote");
+    expect(table?.style.width).toBe("380px");
+    expect(container.querySelector<HTMLTableRowElement>("tr")?.style.height).toBe("21px");
+    expect(container.querySelector(".ofv-column-resize-handle")).not.toBeNull();
+  });
+
+  it("allows workbook columns to be resized from cell edges", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    createViewer({
+      container,
+      file: await createStyledWorkbook(),
+      fileName: "resizable.xlsx",
+      plugins: [officePlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-column-resize-handle")));
+
+    const firstCell = container.querySelector<HTMLTableCellElement>('[data-cell="A1"]');
+    const handle = firstCell?.querySelector<HTMLElement>(".ofv-column-resize-handle");
+    firstCell!.getBoundingClientRect = () =>
+      ({ width: 120, height: 24, top: 0, right: 120, bottom: 24, left: 0, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+    handle!.setPointerCapture = vi.fn();
+
+    handle!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: 100, pointerId: 1 }));
+    handle!.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 170, pointerId: 1 }));
+
+    await waitFor(() => container.querySelector<HTMLTableElement>(".ofv-workbook-table")?.style.width === "450px");
+
+    expect(container.querySelector<HTMLTableElement>(".ofv-workbook-table")?.style.width).toBe("450px");
+    expect(container.querySelector<HTMLTableColElement>('col[data-column-index="0"]')?.style.width).toBe("190px");
+  });
+
   it("decodes GBK CSV files before rendering sheet cells", async () => {
     const container = document.createElement("div");
     document.body.append(container);
@@ -852,6 +907,98 @@ async function createMinimalDocx(text: string, footerText?: string): Promise<Blo
   return zip.generateAsync({
     type: "blob",
     mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+  });
+}
+
+async function createStyledWorkbook(): Promise<Blob> {
+  const zip = new JSZip();
+  zip.file(
+    "[Content_Types].xml",
+    `<?xml version="1.0" encoding="UTF-8"?>
+      <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+        <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+        <Default Extension="xml" ContentType="application/xml"/>
+        <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+        <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+        <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+      </Types>`
+  );
+  zip.file(
+    "_rels/.rels",
+    `<?xml version="1.0" encoding="UTF-8"?>
+      <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+        <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+      </Relationships>`
+  );
+  zip.file(
+    "xl/_rels/workbook.xml.rels",
+    `<?xml version="1.0" encoding="UTF-8"?>
+      <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+        <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+        <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+      </Relationships>`
+  );
+  zip.file(
+    "xl/workbook.xml",
+    `<?xml version="1.0" encoding="UTF-8"?>
+      <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+        xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+        <sheets><sheet name="Styled" sheetId="1" r:id="rId1"/></sheets>
+      </workbook>`
+  );
+  zip.file(
+    "xl/styles.xml",
+    `<?xml version="1.0" encoding="UTF-8"?>
+      <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+        <fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts>
+        <fills count="3">
+          <fill><patternFill patternType="none"/></fill>
+          <fill><patternFill patternType="gray125"/></fill>
+          <fill><patternFill patternType="solid"><fgColor rgb="FFD9F5D6"/><bgColor indexed="64"/></patternFill></fill>
+        </fills>
+        <borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>
+        <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+        <cellXfs count="3">
+          <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+          <xf numFmtId="0" fontId="0" fillId="2" borderId="0" xfId="0" applyFill="1"/>
+          <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1">
+            <alignment vertical="top" wrapText="1"/>
+          </xf>
+        </cellXfs>
+      </styleSheet>`
+  );
+  zip.file(
+    "xl/worksheets/sheet1.xml",
+    `<?xml version="1.0" encoding="UTF-8"?>
+      <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+        <cols>
+          <col min="1" max="1" width="17.14" customWidth="1"/>
+          <col min="2" max="2" width="25.71" customWidth="1"/>
+          <col min="3" max="3" width="11.42" customWidth="1"/>
+        </cols>
+        <sheetData>
+          <row r="1" ht="21" customHeight="1">
+            <c r="A1" t="inlineStr" s="1"><is><t>Merged title</t></is></c>
+          </row>
+          <row r="2" ht="45" customHeight="1">
+            <c r="A2" t="inlineStr"><is><t>Label</t></is></c>
+            <c r="B2" t="inlineStr" s="2"><is><t>Multiline&#10;note</t></is></c>
+            <c r="C2" t="inlineStr"><is><t>Value</t></is></c>
+          </row>
+          <row r="3">
+            <c r="A3" t="inlineStr"><is><t>A</t></is></c>
+            <c r="C3"><v>42</v></c>
+          </row>
+        </sheetData>
+        <mergeCells count="2">
+          <mergeCell ref="A1:C1"/>
+          <mergeCell ref="B2:B3"/>
+        </mergeCells>
+      </worksheet>`
+  );
+  return zip.generateAsync({
+    type: "blob",
+    mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
   });
 }
 

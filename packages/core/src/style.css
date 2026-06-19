@@ -862,43 +862,65 @@
 .ofv-table-scroll table {
   border-collapse: collapse;
   min-width: 100%;
+  table-layout: fixed;
 }
 
 .ofv-table-scroll td,
 .ofv-table-scroll th {
-  max-width: min(420px, 80vw);
+  position: relative;
   border: 1px solid var(--ofv-border);
-  padding: 6px 8px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  padding: 5px 24px 5px 8px;
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  text-overflow: clip;
   font-size: 13px;
-}
-
-.ofv-table-scroll tr:first-child > th,
-.ofv-table-scroll tr:first-child > td {
-  position: sticky;
-  z-index: 2;
-  top: 0;
-  background: var(--ofv-surface-muted);
-}
-
-.ofv-table-scroll tr > th:first-child,
-.ofv-table-scroll tr > td:first-child {
-  position: sticky;
-  z-index: 1;
-  left: 0;
-  background: var(--ofv-surface-muted);
-}
-
-.ofv-table-scroll tr:first-child > th:first-child,
-.ofv-table-scroll tr:first-child > td:first-child {
-  z-index: 3;
+  line-height: 1.45;
+  vertical-align: middle;
 }
 
 .ofv-cell-formula {
   background-image: linear-gradient(135deg, #f59e0b 0 8px, transparent 8px);
   background-repeat: no-repeat;
+}
+
+.ofv-cell-merged {
+  white-space: normal;
+}
+
+.ofv-cell-multiline {
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.ofv-column-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  z-index: 2;
+  width: 7px;
+  height: 100%;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.ofv-column-resize-handle::after {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 3px;
+  width: 1px;
+  border-radius: 999px;
+  background: transparent;
+  content: "";
+}
+
+.ofv-column-resize-handle:hover::after,
+.ofv-column-resize-handle:active::after {
+  background: #2563eb;
 }
 
 .ofv-formula-list ul {
@@ -1322,18 +1344,40 @@
 
 .ofv-psd-preview {
   display: grid;
-  gap: 12px;
-  margin: 14px 0;
-}
-
-.ofv-psd-summary {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 8px 16px;
+  min-width: 0;
 }
 
 .ofv-psd-error {
   color: #b91c1c;
+}
+
+.ofv-psd-composite {
+  display: grid;
+  min-width: 0;
+}
+
+.ofv-psd-canvas {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: min(72vh, 920px);
+  margin: 0 auto;
+  border: 1px solid var(--ofv-border);
+  border-radius: 10px;
+  background:
+    linear-gradient(45deg, #e5e7eb 25%, transparent 25%),
+    linear-gradient(-45deg, #e5e7eb 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #e5e7eb 75%),
+    linear-gradient(-45deg, transparent 75%, #e5e7eb 75%);
+  background-color: #f8fafc;
+  background-position:
+    0 0,
+    0 8px,
+    8px -8px,
+    -8px 0;
+  background-size: 16px 16px;
+  object-fit: contain;
 }
 
 .ofv-sqlite-preview {
@@ -1552,21 +1596,37 @@
 }
 
 .ofv-cad-conversion {
+  display: grid;
+  gap: 8px;
   margin: 12px 0;
-  padding: 10px 10px 10px 30px;
+  padding: 12px;
   border: 1px solid var(--ofv-border);
   border-radius: 8px;
-  background: var(--ofv-surface-muted);
+  background:
+    linear-gradient(135deg, rgba(37, 99, 235, 0.1), rgba(20, 184, 166, 0.08)),
+    var(--ofv-surface-muted);
   color: var(--ofv-text);
   font-size: 13px;
   line-height: 1.6;
+}
+
+.ofv-cad-conversion h4 {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.ofv-cad-conversion ol {
+  margin: 0;
+  padding-left: 20px;
 }
 
 .ofv-cad-conversion li + li {
   margin-top: 6px;
 }
 
-.ofv-cad-binary-probe {
+.ofv-cad-binary-probe,
+.ofv-cad-raw-preview {
   margin-top: 12px;
 }
 
@@ -1581,6 +1641,131 @@
 
 .ofv-cad-entities {
   margin-top: 12px;
+}
+
+.ofv-dwg-preview {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 12px;
+  min-height: 520px;
+  padding: 14px;
+  border: 1px solid var(--ofv-border);
+  border-radius: 12px;
+  background:
+    linear-gradient(90deg, rgba(148, 163, 184, 0.09) 1px, transparent 1px),
+    linear-gradient(0deg, rgba(148, 163, 184, 0.09) 1px, transparent 1px),
+    #020617;
+  background-size: 24px 24px;
+  overflow: auto;
+}
+
+.ofv-dwg-preview-status {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  width: max-content;
+  max-width: 100%;
+  padding: 8px 10px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.9);
+  color: #e5e7eb;
+  font-size: 13px;
+  box-shadow: 0 10px 24px rgba(2, 6, 23, 0.32);
+}
+
+.ofv-dwg-preview-status span {
+  display: grid;
+  gap: 4px;
+}
+
+.ofv-dwg-preview-status small {
+  color: #94a3b8;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.ofv-dwg-thumbnail {
+  display: grid;
+  grid-template-columns: minmax(180px, 320px) minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+  width: min(100%, 640px);
+  margin: 0;
+  padding: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.78);
+}
+
+.ofv-dwg-thumbnail img,
+.ofv-dwg-thumbnail-preview img {
+  display: block;
+  height: auto;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 6px;
+  background: #020617;
+  image-rendering: auto;
+}
+
+.ofv-dwg-thumbnail img {
+  width: 100%;
+}
+
+.ofv-dwg-thumbnail figcaption {
+  color: #cbd5e1;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.ofv-dwg-thumbnail-preview {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  min-height: 420px;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 10px;
+  background: #020617;
+  overflow: auto;
+}
+
+.ofv-dwg-thumbnail-preview img {
+  width: min(100%, 1120px);
+  margin: 0 auto;
+}
+
+.ofv-dwg-thumbnail-preview figcaption {
+  max-width: 920px;
+  margin: 0 auto;
+  color: #94a3b8;
+  font-size: 12px;
+  line-height: 1.55;
+  text-align: center;
+}
+
+.ofv-dwg-preview-svg {
+  display: block;
+  max-width: none;
+  height: auto;
+}
+
+.ofv-dwg-preview-frame {
+  min-height: 420px;
+  overflow: auto;
+  background: #020617;
+}
+
+.ofv-dwg-preview-frame .ofv-dwg-preview-svg {
+  min-height: 420px;
+}
+
+@container (max-width: 720px) {
+  .ofv-dwg-thumbnail {
+    grid-template-columns: 1fr;
+  }
 }
 
 .ofv-ofd {

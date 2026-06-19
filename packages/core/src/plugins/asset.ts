@@ -1,4 +1,5 @@
 import { createObjectUrl, revokeObjectUrl } from "../dom";
+import type { Psd } from "ag-psd";
 import type { PreviewPlugin } from "../types";
 import { appendMeta, createPanel, createSection, readArrayBuffer, resolveFormat } from "./utils";
 
@@ -54,6 +55,16 @@ export function assetPlugin(): PreviewPlugin {
       const extension = resolveFormat(ctx.file, assetMimeFormatMap).toLowerCase();
       const bytes = new Uint8Array(await readArrayBuffer(ctx.file).catch(() => new ArrayBuffer(0)));
 
+      if (isPhotoshopAsset(extension)) {
+        panel.append(await createPhotoshopPreview(bytes));
+        return {
+          destroy() {
+            revokeObjectUrl(url, isExternal);
+            panel.remove();
+          }
+        };
+      }
+
       const section = createSection(assetTitle(extension));
       const summary = document.createElement("div");
       summary.className = "ofv-asset-summary";
@@ -77,9 +88,6 @@ export function assetPlugin(): PreviewPlugin {
       }
       if (extension === "wasm") {
         section.append(createWasmPreview(bytes));
-      }
-      if (extension === "psd" || extension === "psb") {
-        section.append(createPhotoshopPreview(bytes));
       }
       if (extension === "sqlite" || extension === "sqlite3" || extension === "db") {
         section.append(createSqlitePreview(bytes));
@@ -136,7 +144,7 @@ function assetGuidance(extension: string): string {
     return "字体文件已识别，当前会使用 FontFace 展示字形样张，并解析 sfnt/WOFF 表目录和 name 元信息。";
   }
   if (extension === "psd" || extension === "psb") {
-    return "PSD/PSB 已识别，当前会解析基础画布、通道、位深和颜色模式；图层缩略图可后续接入 psd.js/WASM 或服务端转换。";
+    return "PSD/PSB 已识别，当前会优先解析 Photoshop 合成图预览，并保留画布、通道、位深和颜色模式等结构信息。";
   }
   if (["ai", "eps", "ps"].includes(extension)) {
     return "PostScript/Illustrator 文件已识别，当前会解析文档头、BoundingBox 和常见 DSC 元信息；高保真图形可后续接入 Ghostscript/Illustrator 转换。";
@@ -158,6 +166,10 @@ function assetGuidance(extension: string): string {
 
 function isFontAsset(extension: string): boolean {
   return ["ttf", "otf", "woff", "woff2", "eot"].includes(extension);
+}
+
+function isPhotoshopAsset(extension: string): boolean {
+  return extension === "psd" || extension === "psb";
 }
 
 async function createFontPreview(extension: string, url: string, fileName: string, bytes: Uint8Array): Promise<HTMLElement> {
@@ -1049,12 +1061,9 @@ type PhotoshopHeader = {
   colorMode?: number;
 };
 
-function createPhotoshopPreview(bytes: Uint8Array): HTMLElement {
+async function createPhotoshopPreview(bytes: Uint8Array): Promise<HTMLElement> {
   const preview = document.createElement("div");
   preview.className = "ofv-psd-preview";
-  const heading = document.createElement("strong");
-  heading.textContent = "Photoshop 结构";
-  preview.append(heading);
 
   const header = parsePhotoshopHeader(bytes);
   if (!header.valid) {
@@ -1065,16 +1074,74 @@ function createPhotoshopPreview(bytes: Uint8Array): HTMLElement {
     return preview;
   }
 
-  const summary = document.createElement("div");
-  summary.className = "ofv-psd-summary";
-  appendMeta(summary, "版本", header.version === 2 ? "PSB 大文档" : "PSD");
-  appendMeta(summary, "画布", `${header.width} x ${header.height}px`);
-  appendMeta(summary, "通道", header.channels ?? "未知");
-  appendMeta(summary, "位深", `${header.depth ?? "未知"} bit`);
-  appendMeta(summary, "颜色模式", photoshopColorMode(header.colorMode ?? -1));
-  preview.append(summary);
+  preview.append(await createPhotoshopCompositePreview(bytes, header));
 
   return preview;
+}
+
+async function createPhotoshopCompositePreview(bytes: Uint8Array, header: PhotoshopHeader): Promise<HTMLElement> {
+  const wrapper = document.createElement("div");
+  wrapper.className = "ofv-psd-composite";
+
+  if (!canUseBrowserCanvas()) {
+    const status = document.createElement("p");
+    status.className = "ofv-psd-error";
+    status.textContent = "当前环境不支持 Canvas，无法生成 PSD 合成图预览。";
+    wrapper.append(status);
+    return wrapper;
+  }
+
+  try {
+    const { readPsd } = await import("ag-psd");
+    const psd = readPsd(toStandaloneArrayBuffer(bytes), {
+      skipLayerImageData: true,
+      skipThumbnail: true,
+      skipLinkedFilesData: true,
+      useImageData: true,
+      throwForMissingFeatures: false,
+      logMissingFeatures: false
+    });
+    const canvas = psd.canvas || createCanvasFromPsdImageData(psd);
+    if (!canvas) {
+      throw new Error("PSD 文件没有可读取的合成图像数据。请在 Photoshop 中开启“最大兼容性”保存，或接入外部转换服务。");
+    }
+
+    canvas.classList.add("ofv-psd-canvas");
+    canvas.setAttribute("role", "img");
+    canvas.setAttribute("aria-label", `Photoshop composite ${header.width} x ${header.height}`);
+    wrapper.append(canvas);
+  } catch (error) {
+    const status = document.createElement("p");
+    status.className = "ofv-psd-error";
+    status.textContent = `PSD 合成图解析失败：${error instanceof Error ? error.message : "当前文件特性暂不支持。"}`;
+    wrapper.append(status);
+  }
+
+  return wrapper;
+}
+
+function canUseBrowserCanvas(): boolean {
+  return typeof document !== "undefined" && typeof HTMLCanvasElement !== "undefined";
+}
+
+function toStandaloneArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+}
+
+function createCanvasFromPsdImageData(psd: Psd): HTMLCanvasElement | undefined {
+  const imageData = psd.imageData;
+  if (!imageData || !imageData.width || !imageData.height || !(imageData.data instanceof Uint8ClampedArray)) {
+    return undefined;
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = imageData.width;
+  canvas.height = imageData.height;
+  const context = canvas.getContext("2d");
+  if (!context) {
+    return undefined;
+  }
+  context.putImageData(new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height), 0, 0);
+  return canvas;
 }
 
 function parsePhotoshopHeader(bytes: Uint8Array): PhotoshopHeader {
@@ -1107,20 +1174,6 @@ function parsePhotoshopHeader(bytes: Uint8Array): PhotoshopHeader {
     depth: view.getUint16(22, false),
     colorMode: view.getUint16(24, false)
   };
-}
-
-function photoshopColorMode(mode: number): string {
-  const modes: Record<number, string> = {
-    0: "Bitmap",
-    1: "Grayscale",
-    2: "Indexed",
-    3: "RGB",
-    4: "CMYK",
-    7: "Multichannel",
-    8: "Duotone",
-    9: "Lab"
-  };
-  return modes[mode] ? `${modes[mode]} (${mode})` : `未知 (${mode})`;
 }
 
 type SqliteHeader = {

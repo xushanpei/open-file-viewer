@@ -494,7 +494,7 @@ export function customReportPlugin(): PreviewPlugin {
               <article><strong>archivePlugin</strong><p>zip、rar、7z、tar、gz 等压缩包目录和文件结构。</p></article>
               <article><strong>gisPlugin</strong><p>geojson、kml、kmz、gpx、topojson、shp 等地图数据。</p></article>
               <article><strong>model3dPlugin</strong><p>gltf、glb、obj、stl、fbx、dae、3mf、usdz 等 3D 模型。</p></article>
-              <article><strong>cadPlugin</strong><p>dxf、dwg、step、ifc、gds、oas 等工程图纸与芯片版图预览。</p></article>
+              <article><strong>cadPlugin</strong><p>dxf、step、ifc、gds、oas 等工程图纸与芯片版图预览；DWG 默认尝试 LibreDWG WASM，失败回缩略图/元信息，也可通过 binaryRenderer 接入 CADViewer、MxCAD 或转换服务。</p></article>
               <article><strong>emailPlugin</strong><p>eml、msg、mbox 邮件正文、头部信息和附件结构。</p></article>
             </div>
           </section>

@@ -17,6 +17,15 @@ describe("detect", () => {
     expect(file.blob).toBeInstanceOf(Blob);
   });
 
+  it("decodes file names from remote URL sources", async () => {
+    const file = await normalizeFile("https://example.com/files/%E5%88%AB%E5%A2%85%E5%9B%BE%E7%BA%B8.dwg?download=1");
+    const malformed = await normalizeFile("https://example.com/files/bad%name.dwg");
+
+    expect(file.name).toBe("别墅图纸.dwg");
+    expect(file.extension).toBe("dwg");
+    expect(malformed.name).toBe("bad%name.dwg");
+  });
+
   it("infers MIME types for common complex preview formats", async () => {
     const docx = await normalizeFile(new ArrayBuffer(1), "letter.docx");
     const docm = await normalizeFile(new ArrayBuffer(1), "macro.docm");

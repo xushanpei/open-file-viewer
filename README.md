@@ -282,6 +282,45 @@ const plugins = [
 
 复杂格式的预览质量会受浏览器能力、文件结构和依赖解析器影响。当前版本优先保证所有格式都在容器内走可控预览路径；高保真 Office、CAD、设计稿和专有二进制格式可以继续接入专用引擎或服务端转换。
 
+### DWG / DWF 两层预览模型
+
+DWG 是 AutoCAD 专有二进制格式，`cadPlugin()` 采用“两层能力”设计：默认内置能力负责尽可能本地预览，外部增强能力负责业务高保真渲染。
+
+- **默认内置能力**：`cadPlugin()` 会自动尝试 LibreDWG WASM 渲染 DWG 模型空间线稿；如果线稿不可靠但文件包含内置缩略图，会展示 DWG 缩略图；如果 LibreDWG 未安装、WASM 未配置或解析失败，则展示 DWG/DWF 元信息、版本、结构线索和转换建议。
+- **外部增强能力**：通过 `cadPlugin({ binaryRenderer })` 接入自己的前端引擎、CADViewer、MxCAD、后端转换 PNG/PDF/SVG/DXF 等。`binaryRenderer` 优先级最高，返回实例后会完全接管 DWG/DWF 预览。
+- **高保真商用链路**：复杂字体、外部参照、布局/打印空间、大图纸和专业 CAD 效果，建议接入成熟 CAD SDK 或服务端转换。
+
+启用默认 LibreDWG 线稿预览时，将 WASM 放到公开静态目录：
+
+```ts
+cadPlugin({
+  libreDwg: {
+    wasmBaseUrl: "/vendor/libredwg-web"
+  }
+});
+```
+
+```ts
+cadPlugin({
+  async binaryRenderer({ panel, extension, arrayBuffer, fileName }) {
+    if (extension !== "dwg") return;
+
+    const stage = document.createElement("div");
+    stage.className = "my-dwg-stage";
+    panel.append(stage);
+
+    // 在这里按需加载你的 DWG 引擎、worker、字体和资源包。
+    // 例如：await renderDwgWithYourEngine(stage, arrayBuffer, { fileName });
+
+    return {
+      destroy() {
+        stage.remove();
+      }
+    };
+  }
+});
+```
+
 ## 核心 API
 
 ```ts

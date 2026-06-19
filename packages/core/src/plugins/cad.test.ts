@@ -1,10 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createViewer } from "../viewer";
+import { renderLibreDwgPreview } from "./cad-dwg";
 import { cadPlugin } from "./cad";
+
+vi.mock("./cad-dwg", () => ({
+  renderLibreDwgPreview: vi.fn()
+}));
 
 describe("cadPlugin", () => {
   afterEach(() => {
     document.body.replaceChildren();
+    vi.clearAllMocks();
     vi.restoreAllMocks();
   });
 
@@ -129,7 +135,32 @@ describe("cadPlugin", () => {
     expect(container.textContent).toContain("110 Line");
   });
 
-  it("renders DWG metadata and conversion guidance", async () => {
+  it("tries built-in LibreDWG before DWG metadata fallback by default", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const bytes = new Uint8Array([..."AC1027\0\0DWGDATA"].map((char) => char.charCodeAt(0)));
+    vi.mocked(renderLibreDwgPreview).mockResolvedValueOnce(undefined);
+
+    createViewer({
+      container,
+      file: bytes.buffer,
+      fileName: "default.dwg",
+      plugins: [cadPlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-cad-conversion")));
+
+    expect(renderLibreDwgPreview).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(renderLibreDwgPreview).mock.calls[0]?.[0]).toMatchObject({
+      fileName: "default.dwg",
+      extension: "dwg"
+    });
+    expect(vi.mocked(renderLibreDwgPreview).mock.calls[0]?.[1]).toBeUndefined();
+    expect(container.textContent).toContain("DWG 文件预览");
+    expect(container.textContent).toContain("binaryRenderer");
+  });
+
+  it("renders DWG metadata and conversion guidance when LibreDWG is disabled", async () => {
     const container = document.createElement("div");
     document.body.append(container);
     const bytes = new Uint8Array(
@@ -140,11 +171,12 @@ describe("cadPlugin", () => {
       container,
       file: bytes.buffer,
       fileName: "plan.dwg",
-      plugins: [cadPlugin()]
+      plugins: [cadPlugin({ libreDwg: false })]
     });
 
     await waitFor(() => Boolean(container.querySelector(".ofv-cad-conversion")));
 
+    expect(renderLibreDwgPreview).not.toHaveBeenCalled();
     expect(container.textContent).toContain("DWG 文件预览");
     expect(container.textContent).toContain("plan.dwg");
     expect(container.textContent).toContain("AC1027");
@@ -156,9 +188,11 @@ describe("cadPlugin", () => {
     expect(container.textContent).toContain("外部引用1");
     expect(container.textContent).toContain("LAYER A-WALL");
     expect(container.textContent).toContain("XREF site.dwg");
-    expect(container.textContent).toContain("ODA File Converter");
+    expect(container.textContent).toContain("binaryRenderer");
+    expect(container.textContent).toContain("ODA Drawings SDK");
     expect(container.textContent).toContain("00000000");
     expect(container.textContent).toContain("AC1027");
+    expect(container.querySelector<HTMLDetailsElement>(".ofv-cad-raw-preview")?.open).toBe(false);
   });
 
   it("uses MIME type to render extensionless DWG blobs", async () => {
@@ -169,14 +203,48 @@ describe("cadPlugin", () => {
     createViewer({
       container,
       file: new Blob([bytes.buffer], { type: "application/acad" }),
-      plugins: [cadPlugin()]
+      plugins: [cadPlugin({ libreDwg: false })]
     });
 
     await waitFor(() => Boolean(container.querySelector(".ofv-cad-conversion")));
 
+    expect(renderLibreDwgPreview).not.toHaveBeenCalled();
     expect(container.textContent).toContain("DWG 文件预览");
     expect(container.textContent).toContain("AutoCAD 2013");
-    expect(container.textContent).toContain("ODA File Converter");
+    expect(container.textContent).toContain("binaryRenderer");
+  });
+
+  it("allows an optional binary CAD renderer to take over DWG preview", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const destroy = vi.fn();
+    const bytes = new Uint8Array([..."AC1027\0\0DWGDATA"].map((char) => char.charCodeAt(0)));
+
+    const viewer = createViewer({
+      container,
+      file: bytes.buffer,
+      fileName: "enhanced.dwg",
+      plugins: [
+        cadPlugin({
+          binaryRenderer({ panel, fileName, extension, bytes: renderBytes }) {
+            const stage = document.createElement("div");
+            stage.className = "custom-dwg-stage";
+            stage.textContent = `${extension}:${fileName}:${renderBytes.byteLength}`;
+            panel.append(stage);
+            return { destroy };
+          }
+        })
+      ]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".custom-dwg-stage")));
+
+    expect(renderLibreDwgPreview).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("dwg:enhanced.dwg");
+    expect(container.textContent).not.toContain("推荐增强路线");
+
+    viewer.destroy();
+    expect(destroy).toHaveBeenCalledTimes(1);
   });
 
   it("renders DWF container hints for compressed files", async () => {

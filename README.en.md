@@ -290,6 +290,45 @@ Preview quality for complex formats depends on browser capabilities, file struct
 
 Plugin order matters because the first matching plugin renders the file. For example, `csv` and `tsv` can match both `textPlugin()` and `officePlugin()`; place `officePlugin()` earlier if you want spreadsheet-style table preview.
 
+### DWG / DWF Two-Layer Preview Model
+
+DWG is AutoCAD's proprietary binary format. `cadPlugin()` uses a two-layer design: the default built-in path tries local preview first, while the external enhancement path lets applications provide high-fidelity rendering.
+
+- **Default built-in path**: `cadPlugin()` automatically tries LibreDWG WASM for DWG model-space linework. If the linework looks unreliable but the file contains an embedded thumbnail, it shows the DWG thumbnail. If LibreDWG is not installed, the WASM path is not configured, or parsing fails, it falls back to DWG/DWF metadata, version hints, structure probes, and conversion guidance.
+- **External enhancement path**: use `cadPlugin({ binaryRenderer })` to integrate your own frontend engine, CADViewer, MxCAD, or a backend service that converts to PNG/PDF/SVG/DXF. `binaryRenderer` has the highest priority and fully takes over DWG/DWF preview when it returns an instance.
+- **High-fidelity commercial route**: for complex fonts, external references, paper-space layouts, large drawings, and professional CAD fidelity, integrate a mature CAD SDK or server-side conversion pipeline.
+
+To enable the default LibreDWG linework path, place the WASM file in a public static directory:
+
+```ts
+cadPlugin({
+  libreDwg: {
+    wasmBaseUrl: "/vendor/libredwg-web"
+  }
+});
+```
+
+```ts
+cadPlugin({
+  async binaryRenderer({ panel, extension, arrayBuffer, fileName }) {
+    if (extension !== "dwg") return;
+
+    const stage = document.createElement("div");
+    stage.className = "my-dwg-stage";
+    panel.append(stage);
+
+    // Load your DWG engine, worker, fonts, and assets on demand here.
+    // Example: await renderDwgWithYourEngine(stage, arrayBuffer, { fileName });
+
+    return {
+      destroy() {
+        stage.remove();
+      }
+    };
+  }
+});
+```
+
 ## Core API
 
 ```ts

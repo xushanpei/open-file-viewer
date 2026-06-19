@@ -447,8 +447,14 @@ async function renderSheet(
   try {
     workbook =
       extension === "csv" || extension === "tsv"
-        ? (xlsx.read(decodeTextBuffer(arrayBuffer), { type: "string", FS: extension === "tsv" ? "\t" : "," }) as WorkBook)
-        : (xlsx.read(arrayBuffer, { type: "array" }) as WorkBook);
+        ? (xlsx.read(decodeTextBuffer(arrayBuffer), {
+            type: "string",
+            FS: extension === "tsv" ? "\t" : ",",
+            cellDates: true,
+            cellNF: true,
+            cellStyles: true
+          }) as WorkBook)
+        : (xlsx.read(arrayBuffer, { type: "array", cellDates: true, cellNF: true, cellStyles: true }) as WorkBook);
   } catch (error) {
     if (isLegacyOfficeBinary(extension)) {
       renderLegacyOfficeBinary(panel, extension, arrayBuffer, `表格解析失败：${normalizeOfficeError(error)}`);
@@ -478,7 +484,7 @@ async function renderSheet(
     const heading = document.createElement("h3");
     heading.textContent = sheetName;
     const sheet = workbook.Sheets[sheetName];
-    const range = xlsx.utils.decode_range(sheet["!ref"] || "A1:A1");
+    const range = trimWorkbookSheetRange(sheet, xlsx.utils.decode_range(sheet["!ref"] || "A1:A1"), xlsx.utils.decode_cell);
     const rowCount = range.e.r - range.s.r + 1;
     const columnCount = range.e.c - range.s.c + 1;
     const formulaRows = collectFormulaRows(sheet, range, xlsx.utils.encode_cell);
@@ -492,6 +498,7 @@ async function renderSheet(
     const tableWrapper = document.createElement("div");
     tableWrapper.className = "ofv-table-scroll";
     const viewport = createSheetViewport(rowCount, columnCount);
+    const columnSizing: SheetColumnSizing = { widths: new Map() };
     const windowControls = createSheetWindowControls(viewport, () => renderTableWindow());
     const renderTableWindow = () => {
       tableWrapper.replaceChildren(
@@ -501,7 +508,9 @@ async function renderSheet(
           sheetIndex,
           viewport,
           xlsx.utils.encode_cell,
-          xlsx.utils.format_cell
+          xlsx.utils.format_cell,
+          columnSizing,
+          renderTableWindow
         )
       );
       windowControls?.update();
@@ -639,9 +648,10 @@ function renderParsedSheets(panel: HTMLElement, sheets: ParsedSheet[], emptyMess
     const tableWrapper = document.createElement("div");
     tableWrapper.className = "ofv-table-scroll";
     const viewport = createSheetViewport(rowCount, columnCount);
+    const columnSizing: SheetColumnSizing = { widths: new Map() };
     const windowControls = createSheetWindowControls(viewport, () => renderTableWindow());
     const renderTableWindow = () => {
-      tableWrapper.replaceChildren(createParsedSheetTable(sheet, sheetIndex, viewport));
+      tableWrapper.replaceChildren(createParsedSheetTable(sheet, sheetIndex, viewport, columnSizing, renderTableWindow));
       windowControls?.update();
     };
 
@@ -934,6 +944,70 @@ type SheetWindowControls = {
   update: () => void;
 };
 
+type SheetRange = {
+  s: { r: number; c: number };
+  e: { r: number; c: number };
+};
+
+type SheetMergeRenderInfo = {
+  rowspan: number;
+  colspan: number;
+  sourceRow: number;
+  sourceColumn: number;
+};
+
+type SheetColumnSizing = {
+  widths: Map<number, number>;
+};
+
+function trimWorkbookSheetRange(
+  sheet: Record<string, any>,
+  range: SheetRange,
+  decodeCell: (address: string) => { r: number; c: number }
+): SheetRange {
+  let minRow = Number.POSITIVE_INFINITY;
+  let minColumn = Number.POSITIVE_INFINITY;
+  let maxRow = Number.NEGATIVE_INFINITY;
+  let maxColumn = Number.NEGATIVE_INFINITY;
+  const include = (row: number, column: number) => {
+    minRow = Math.min(minRow, row);
+    minColumn = Math.min(minColumn, column);
+    maxRow = Math.max(maxRow, row);
+    maxColumn = Math.max(maxColumn, column);
+  };
+
+  for (const [address, cell] of Object.entries(sheet)) {
+    if (address.startsWith("!")) {
+      continue;
+    }
+    if (!cell || (cell.v == null && !cell.f && !cell.w && !cell.h)) {
+      continue;
+    }
+    const decoded = decodeCell(address);
+    include(decoded.r, decoded.c);
+  }
+
+  for (const merge of (sheet["!merges"] || []) as SheetRange[]) {
+    include(merge.s.r, merge.s.c);
+    include(merge.e.r, merge.e.c);
+  }
+
+  if (!Number.isFinite(minRow) || !Number.isFinite(minColumn) || !Number.isFinite(maxRow) || !Number.isFinite(maxColumn)) {
+    return range;
+  }
+
+  return {
+    s: {
+      r: Math.max(range.s.r, minRow),
+      c: Math.max(range.s.c, minColumn)
+    },
+    e: {
+      r: Math.min(range.e.r, maxRow),
+      c: Math.min(range.e.c, maxColumn)
+    }
+  };
+}
+
 function createSheetViewport(rowCount: number, columnCount: number): SheetViewport {
   return {
     rowStart: 0,
@@ -1008,33 +1082,79 @@ function maxStart(total: number, size: number): number {
 
 function createWorkbookSheetTable(
   sheet: Record<string, any>,
-  range: { s: { r: number; c: number }; e: { r: number; c: number } },
+  range: SheetRange,
   sheetIndex: number,
   viewport: SheetViewport,
   encodeCell: (cell: { r: number; c: number }) => string,
-  formatCell: (cell: any) => string
+  formatCell: (cell: any) => string,
+  columnSizing: SheetColumnSizing,
+  rerender: () => void
 ): HTMLTableElement {
   const table = document.createElement("table");
   table.id = `ofv-sheet-${sheetIndex + 1}`;
+  table.className = "ofv-workbook-table";
   const rowEnd = Math.min(range.s.r + viewport.rowStart + SHEET_WINDOW_ROWS - 1, range.e.r);
   const columnEnd = Math.min(range.s.c + viewport.columnStart + SHEET_WINDOW_COLUMNS - 1, range.e.c);
+  const columnStart = range.s.c + viewport.columnStart;
+  const rowStart = range.s.r + viewport.rowStart;
+  const mergePlan = createSheetMergePlan(sheet["!merges"] || [], rowStart, rowEnd, columnStart, columnEnd);
 
-  for (let rowIndex = range.s.r + viewport.rowStart; rowIndex <= rowEnd; rowIndex += 1) {
+  const colGroup = document.createElement("colgroup");
+  let tableWidth = 0;
+  for (let columnIndex = columnStart; columnIndex <= columnEnd; columnIndex += 1) {
+    const col = document.createElement("col");
+    const width = columnSizing.widths.get(columnIndex) ?? getSheetColumnWidth(sheet["!cols"]?.[columnIndex]);
+    col.dataset.columnIndex = String(columnIndex);
+    col.style.width = `${width}px`;
+    tableWidth += width;
+    colGroup.append(col);
+  }
+  table.style.width = `${tableWidth}px`;
+  table.append(colGroup);
+
+  for (let rowIndex = rowStart; rowIndex <= rowEnd; rowIndex += 1) {
     const row = document.createElement("tr");
-    for (let columnIndex = range.s.c + viewport.columnStart; columnIndex <= columnEnd; columnIndex += 1) {
-      const cell = document.createElement(rowIndex === range.s.r ? "th" : "td");
+    const rowHeight = getSheetRowHeight(sheet["!rows"]?.[rowIndex]);
+    if (rowHeight) {
+      row.style.height = `${rowHeight}px`;
+    }
+    for (let columnIndex = columnStart; columnIndex <= columnEnd; columnIndex += 1) {
       const address = encodeCell({ r: rowIndex, c: columnIndex });
-      const sourceCell = sheet[address];
+      const coordinateKey = `${rowIndex}:${columnIndex}`;
+      if (mergePlan.covered.has(coordinateKey)) {
+        continue;
+      }
+      const merge = mergePlan.anchors.get(coordinateKey);
+      const sourceAddress = merge ? encodeCell({ r: merge.sourceRow, c: merge.sourceColumn }) : address;
+      const sourceCell = sheet[sourceAddress];
+      const cell = document.createElement(rowIndex === range.s.r ? "th" : "td");
       cell.dataset.cell = address;
+      if (sourceAddress !== address) {
+        cell.dataset.sourceCell = sourceAddress;
+      }
+      if (merge) {
+        cell.classList.add("ofv-cell-merged");
+        if (merge.rowspan > 1) {
+          cell.rowSpan = merge.rowspan;
+        }
+        if (merge.colspan > 1) {
+          cell.colSpan = merge.colspan;
+        }
+      }
       const text = sourceCell ? formatCell(sourceCell) : "";
       cell.textContent = text;
       if (text) {
         cell.title = text;
       }
+      applyWorkbookCellStyle(cell, sourceCell);
       if (sourceCell?.f) {
         cell.classList.add("ofv-cell-formula");
         cell.title = `=${sourceCell.f}`;
       }
+      if (text.includes("\n")) {
+        cell.classList.add("ofv-cell-multiline");
+      }
+      appendColumnResizeHandle(cell, columnIndex, columnSizing);
       row.append(cell);
     }
     table.append(row);
@@ -1043,15 +1163,210 @@ function createWorkbookSheetTable(
   return table;
 }
 
-function createParsedSheetTable(sheet: ParsedSheet, sheetIndex: number, viewport: SheetViewport): HTMLTableElement {
+function appendColumnResizeHandle(
+  cell: HTMLTableCellElement,
+  columnIndex: number,
+  columnSizing: SheetColumnSizing
+): void {
+  const handle = document.createElement("span");
+  handle.className = "ofv-column-resize-handle";
+  handle.setAttribute("aria-hidden", "true");
+  handle.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const startX = event.clientX;
+    const startWidth = columnSizing.widths.get(columnIndex) ?? cell.getBoundingClientRect().width;
+    handle.setPointerCapture(event.pointerId);
+    const onMove = (moveEvent: PointerEvent) => {
+      const nextWidth = Math.max(48, Math.min(720, Math.round(startWidth + moveEvent.clientX - startX)));
+      columnSizing.widths.set(columnIndex, nextWidth);
+      updateRenderedColumnWidth(cell, columnIndex, nextWidth);
+    };
+    const onEnd = () => {
+      handle.removeEventListener("pointermove", onMove);
+      handle.removeEventListener("pointerup", onEnd);
+      handle.removeEventListener("pointercancel", onEnd);
+    };
+    handle.addEventListener("pointermove", onMove);
+    handle.addEventListener("pointerup", onEnd);
+    handle.addEventListener("pointercancel", onEnd);
+  });
+  cell.append(handle);
+}
+
+function updateRenderedColumnWidth(cell: HTMLTableCellElement, columnIndex: number, width: number): void {
+  const table = cell.closest("table");
+  if (!table) {
+    return;
+  }
+
+  const column = Array.from(table.querySelectorAll<HTMLTableColElement>("col")).find(
+    (col) => col.dataset.columnIndex === String(columnIndex)
+  );
+  if (column) {
+    column.style.width = `${width}px`;
+  }
+
+  const tableWidth = Array.from(table.querySelectorAll<HTMLTableColElement>("col")).reduce((sum, col) => {
+    const parsed = Number.parseFloat(col.style.width);
+    return sum + (Number.isFinite(parsed) ? parsed : 0);
+  }, 0);
+  if (tableWidth > 0) {
+    table.style.width = `${Math.round(tableWidth)}px`;
+  }
+}
+
+function createSheetMergePlan(
+  merges: SheetRange[],
+  rowStart: number,
+  rowEnd: number,
+  columnStart: number,
+  columnEnd: number
+): { anchors: Map<string, SheetMergeRenderInfo>; covered: Set<string> } {
+  const anchors = new Map<string, SheetMergeRenderInfo>();
+  const covered = new Set<string>();
+  const encode = (row: number, column: number) => `${row}:${column}`;
+
+  for (const merge of merges) {
+    if (merge.e.r < rowStart || merge.s.r > rowEnd || merge.e.c < columnStart || merge.s.c > columnEnd) {
+      continue;
+    }
+
+    const visibleStartRow = Math.max(merge.s.r, rowStart);
+    const visibleEndRow = Math.min(merge.e.r, rowEnd);
+    const visibleStartColumn = Math.max(merge.s.c, columnStart);
+    const visibleEndColumn = Math.min(merge.e.c, columnEnd);
+    const anchor = encode(visibleStartRow, visibleStartColumn);
+    anchors.set(anchor, {
+      rowspan: visibleEndRow - visibleStartRow + 1,
+      colspan: visibleEndColumn - visibleStartColumn + 1,
+      sourceRow: merge.s.r,
+      sourceColumn: merge.s.c
+    });
+
+    for (let rowIndex = visibleStartRow; rowIndex <= visibleEndRow; rowIndex += 1) {
+      for (let columnIndex = visibleStartColumn; columnIndex <= visibleEndColumn; columnIndex += 1) {
+        const address = encode(rowIndex, columnIndex);
+        if (address !== anchor) {
+          covered.add(address);
+        }
+      }
+    }
+  }
+
+  return { anchors, covered };
+}
+
+function getSheetColumnWidth(column: { hidden?: boolean; wpx?: number; width?: number; wch?: number } | undefined): number {
+  if (column?.hidden) {
+    return 0;
+  }
+  const width = column?.wpx || (column?.wch ? column.wch * 7 + 5 : undefined) || (column?.width ? column.width * 7 : undefined) || 96;
+  return Math.max(28, Math.min(360, Math.round(width)));
+}
+
+function getSheetRowHeight(row: { hidden?: boolean; hpx?: number; hpt?: number } | undefined): number | undefined {
+  if (row?.hidden) {
+    return 0;
+  }
+  const height = row?.hpx || (row?.hpt ? row.hpt * 1.333 : undefined);
+  return height ? Math.max(18, Math.min(260, Math.round(height))) : undefined;
+}
+
+function applyWorkbookCellStyle(cell: HTMLTableCellElement, sourceCell: any): void {
+  const style = sourceCell?.s;
+  if (!style) {
+    return;
+  }
+
+  const fill = readWorkbookColor(style.fgColor || style.fill?.fgColor);
+  if (fill && style.patternType !== "none") {
+    cell.style.backgroundColor = fill;
+  }
+
+  const font = style.font;
+  if (font) {
+    if (font.bold) {
+      cell.style.fontWeight = "700";
+    }
+    if (font.italic) {
+      cell.style.fontStyle = "italic";
+    }
+    if (font.sz) {
+      cell.style.fontSize = `${Math.max(9, Math.min(24, Number(font.sz)))}pt`;
+    }
+    const fontColor = readWorkbookColor(font.color);
+    if (fontColor) {
+      cell.style.color = fontColor;
+    }
+  }
+
+  const alignment = style.alignment;
+  if (alignment) {
+    const horizontal = normalizeSheetHorizontalAlign(alignment.horizontal);
+    if (horizontal) {
+      cell.style.textAlign = horizontal;
+    }
+    const vertical = normalizeSheetVerticalAlign(alignment.vertical);
+    if (vertical) {
+      cell.style.verticalAlign = vertical;
+    }
+    if (alignment.wrapText) {
+      cell.classList.add("ofv-cell-multiline");
+    }
+  }
+}
+
+function readWorkbookColor(color: { rgb?: string; indexed?: number } | undefined): string | undefined {
+  if (!color?.rgb) {
+    return undefined;
+  }
+  const rgb = color.rgb.length === 8 ? color.rgb.slice(2) : color.rgb;
+  return /^[\da-f]{6}$/i.test(rgb) ? `#${rgb}` : undefined;
+}
+
+function normalizeSheetHorizontalAlign(value: string | undefined): string | undefined {
+  if (value === "center" || value === "right" || value === "left" || value === "justify") {
+    return value;
+  }
+  return undefined;
+}
+
+function normalizeSheetVerticalAlign(value: string | undefined): string | undefined {
+  if (value === "top" || value === "middle" || value === "bottom") {
+    return value;
+  }
+  return undefined;
+}
+
+function createParsedSheetTable(
+  sheet: ParsedSheet,
+  sheetIndex: number,
+  viewport: SheetViewport,
+  columnSizing: SheetColumnSizing,
+  rerender: () => void
+): HTMLTableElement {
   const table = document.createElement("table");
   table.id = `ofv-sheet-${sheetIndex + 1}`;
   const formulaMap = new Map(sheet.formulas.map((item) => [item.address, item.formula]));
   const rowEnd = Math.min(viewport.rowStart + SHEET_WINDOW_ROWS, sheet.rows.length);
+  const columnEnd = Math.min(viewport.columnStart + SHEET_WINDOW_COLUMNS, viewport.columnCount);
+  const colGroup = document.createElement("colgroup");
+  let tableWidth = 0;
+  for (let columnIndex = viewport.columnStart; columnIndex < columnEnd; columnIndex += 1) {
+    const width = columnSizing.widths.get(columnIndex) ?? 112;
+    const col = document.createElement("col");
+    col.dataset.columnIndex = String(columnIndex);
+    col.style.width = `${width}px`;
+    tableWidth += width;
+    colGroup.append(col);
+  }
+  table.style.width = `${tableWidth}px`;
+  table.append(colGroup);
+
   for (let rowIndex = viewport.rowStart; rowIndex < rowEnd; rowIndex += 1) {
     const sourceRow = sheet.rows[rowIndex] || [];
     const row = document.createElement("tr");
-    const columnEnd = Math.min(viewport.columnStart + SHEET_WINDOW_COLUMNS, viewport.columnCount);
     for (let columnIndex = viewport.columnStart; columnIndex < columnEnd; columnIndex += 1) {
       const value = sourceRow[columnIndex] || "";
       const cell = document.createElement(rowIndex === 0 ? "th" : "td");
@@ -1066,6 +1381,10 @@ function createParsedSheetTable(sheet: ParsedSheet, sheetIndex: number, viewport
         cell.classList.add("ofv-cell-formula");
         cell.title = formula;
       }
+      if (value.includes("\n")) {
+        cell.classList.add("ofv-cell-multiline");
+      }
+      appendColumnResizeHandle(cell, columnIndex, columnSizing);
       row.append(cell);
     }
     table.append(row);

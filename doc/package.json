@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@open-file-viewer/core": "workspace:*",
+    "@mlightcad/libredwg-web": "0.7.4",
     "pdfjs-dist": "^4.10.38",
     "prismjs": "^1.30.0"
   },

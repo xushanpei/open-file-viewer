@@ -1047,7 +1047,7 @@ function createPlugins() {
     archivePlugin(),
     emailPlugin(),
     drawingPlugin(),
-    cadPlugin(),
+    cadPlugin({ libreDwg: { wasmBaseUrl: "/vendor/libredwg-web" } }),
     model3dPlugin(),
     gisPlugin(),
     assetPlugin(),

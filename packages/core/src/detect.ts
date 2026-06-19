@@ -277,7 +277,7 @@ export async function normalizeFile(
   mimeType?: string
 ): Promise<PreviewFile> {
   if (typeof source === "string") {
-    const name = fileName || source.split("?")[0]?.split("/").pop() || "remote-file";
+    const name = fileName || getFileNameFromUrl(source) || "remote-file";
     const extension = getExtension(name);
     return {
       source,
@@ -324,6 +324,19 @@ export async function normalizeFile(
     size: blob.size,
     blob
   };
+}
+
+function getFileNameFromUrl(source: string): string {
+  const rawName = source.split(/[?#]/, 1)[0]?.split("/").filter(Boolean).pop() || "";
+  if (!rawName) {
+    return "";
+  }
+
+  try {
+    return decodeURIComponent(rawName);
+  } catch {
+    return rawName;
+  }
 }
 
 export function getExtension(name: string): string {

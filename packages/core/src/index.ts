@@ -12,6 +12,8 @@ export { archivePlugin } from "./plugins/archive";
 export { emailPlugin } from "./plugins/email";
 export { drawingPlugin } from "./plugins/drawing";
 export { cadPlugin } from "./plugins/cad";
+export type { CadBinaryPreviewContext, CadPluginOptions } from "./plugins/cad";
+export type { LibreDwgPreviewOptions } from "./plugins/cad-dwg";
 export { model3dPlugin } from "./plugins/model3d";
 export { gisPlugin } from "./plugins/gis";
 export { assetPlugin } from "./plugins/asset";

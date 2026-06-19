@@ -38,14 +38,19 @@
     "typecheck": "tsc --noEmit"
   },
   "peerDependenciesMeta": {
+    "@mlightcad/libredwg-web": {
+      "optional": true
+    },
     "pdfjs-dist": {
       "optional": true
     }
   },
   "peerDependencies": {
+    "@mlightcad/libredwg-web": ">=0.7.4",
     "pdfjs-dist": ">=4"
   },
   "devDependencies": {
+    "@mlightcad/libredwg-web": "0.7.4",
     "@types/leaflet": "^1.9.21",
     "@types/marked": "^6.0.0",
     "@types/pako": "^2.0.4",
@@ -58,6 +63,7 @@
     "@aiden0z/pptx-renderer": "^1.0.3",
     "@kenjiuno/msgreader": "^1.28.0",
     "@mapbox/togeojson": "^0.16.2",
+    "ag-psd": "^30.2.0",
     "docx-preview": "^0.3.7",
     "dompurify": "^3.4.10",
     "heic2any": "^0.0.4",

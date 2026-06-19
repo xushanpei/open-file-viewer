@@ -1,6 +1,33 @@
 import pako from "pako";
-import type { PreviewContext, PreviewPlugin } from "../types";
+import type { PreviewContext, PreviewInstance, PreviewPlugin } from "../types";
+import { renderLibreDwgPreview, type LibreDwgPreviewOptions } from "./cad-dwg";
 import { createPanel, createSection, readArrayBuffer, readTextFile, resolveFormat } from "./utils";
+
+export interface CadBinaryPreviewContext {
+  panel: HTMLElement;
+  fileName: string;
+  extension: "dwg" | "dwf";
+  arrayBuffer: ArrayBuffer;
+  bytes: Uint8Array;
+  preview: PreviewContext;
+}
+
+export interface CadPluginOptions {
+  /**
+   * Optional high-fidelity renderer for proprietary binary CAD files. When it
+   * returns a preview instance, it takes over DWG/DWF rendering completely.
+   *
+   * Use it for custom front-end engines or server-side CAD conversion services.
+   */
+  binaryRenderer?: (ctx: CadBinaryPreviewContext) => Promise<PreviewInstance | void> | PreviewInstance | void;
+  /**
+   * Built-in best-effort DWG preview powered by LibreDWG WASM.
+   *
+   * Pass `false` to keep the old metadata-only DWG behavior. Pass an object to
+   * configure the public WASM asset path.
+   */
+  libreDwg?: false | LibreDwgPreviewOptions;
+}
 
 interface LayeredValue<T> {
   layer: string;
@@ -71,7 +98,7 @@ const cadMimeFormatMap: Record<string, string> = {
   "application/x-oasis-layout": "oas"
 };
 
-export function cadPlugin(): PreviewPlugin {
+export function cadPlugin(options: CadPluginOptions = {}): PreviewPlugin {
   return {
     name: "cad",
     match(file) {
@@ -95,7 +122,64 @@ export function cadPlugin(): PreviewPlugin {
         return { destroy: () => panel.remove() };
       }
       if (extension === "dwg" || extension === "dwf") {
-        renderBinaryCad(panel, await readArrayBuffer(ctx.file), extension, ctx.file.name);
+        const arrayBuffer = await readArrayBuffer(ctx.file);
+        const bytes = new Uint8Array(arrayBuffer);
+        const enhancedInstance = await options.binaryRenderer?.({
+          panel,
+          fileName: ctx.file.name,
+          extension,
+          arrayBuffer,
+          bytes,
+          preview: ctx
+        });
+        if (enhancedInstance) {
+          return {
+            resize(size) {
+              enhancedInstance.resize?.(size);
+            },
+            canCommand(command) {
+              return enhancedInstance.canCommand?.(command) ?? false;
+            },
+            command(command) {
+              return enhancedInstance.command?.(command);
+            },
+            destroy() {
+              enhancedInstance.destroy();
+              panel.remove();
+            }
+          };
+        }
+        if (extension === "dwg" && options.libreDwg !== false) {
+          const libreDwgInstance = await renderLibreDwgPreview(
+            {
+              panel,
+              fileName: ctx.file.name,
+              extension,
+              arrayBuffer,
+              bytes,
+              preview: ctx
+            },
+            typeof options.libreDwg === "object" ? options.libreDwg : undefined
+          );
+          if (libreDwgInstance) {
+            return {
+              resize(size) {
+                libreDwgInstance.resize?.(size);
+              },
+              canCommand(command) {
+                return libreDwgInstance.canCommand?.(command) ?? false;
+              },
+              command(command) {
+                return libreDwgInstance.command?.(command);
+              },
+              destroy() {
+                libreDwgInstance.destroy();
+                panel.remove();
+              }
+            };
+          }
+        }
+        renderBinaryCad(panel, bytes, extension, ctx.file.name);
         return { destroy: () => panel.remove() };
       }
       if (extension === "gds") {
@@ -901,14 +985,13 @@ function createOasisStructureShapes(cellNames: string[], fallbackCount: number):
   return shapes;
 }
 
-function renderBinaryCad(panel: HTMLElement, arrayBuffer: ArrayBuffer, extension: string, fileName: string): void {
-  const bytes = new Uint8Array(arrayBuffer);
+function renderBinaryCad(panel: HTMLElement, bytes: Uint8Array, extension: string, fileName: string): void {
   const section = createSection(`${extension.toUpperCase()} 文件预览`);
   const note = document.createElement("p");
   note.textContent =
     extension === "dwg"
-      ? "DWG 是 AutoCAD 专有二进制格式，当前前端插件提供文件识别、版本提示和转换建议；几何渲染建议接入 ODA/LibreDWG/服务端转换。"
-      : "DWF 是发布用图纸格式，当前前端插件提供容器识别和转换建议；高保真页面渲染建议接入专用解析器或服务端转换。";
+      ? "已识别 DWG 专有二进制图纸。核心插件默认提供版本、容器、结构线索和接入建议；真实几何渲染可通过 cadPlugin({ binaryRenderer }) 接入可选前端引擎或转换服务。"
+      : "已识别 DWF 发布图纸。核心插件默认提供容器线索和接入建议；高保真页面渲染可通过 cadPlugin({ binaryRenderer }) 接入专用解析器或转换服务。";
 
   const meta = document.createElement("div");
   meta.className = "ofv-cad-summary";
@@ -919,31 +1002,40 @@ function renderBinaryCad(panel: HTMLElement, arrayBuffer: ArrayBuffer, extension
   appendMeta(meta, "版本", detectCadVersion(bytes, extension));
   appendMeta(meta, "容器", detectCadContainer(bytes));
 
-  const actions = document.createElement("ol");
+  const actions = document.createElement("div");
   actions.className = "ofv-cad-conversion";
+  const actionTitle = document.createElement("h4");
+  actionTitle.textContent = extension === "dwg" ? "推荐增强路线" : "推荐处理路线";
+  const actionList = document.createElement("ol");
   const suggestions =
     extension === "dwg"
       ? [
-          "服务端使用 ODA File Converter / Teigha 将 DWG 转为 DXF、SVG 或 PDF。",
-          "浏览器端可后续接入 LibreDWG WASM，但需处理字体、块参照、外部参照和许可证。",
-          "若业务只需预览，建议转换为 PDF/SVG 后走现有 PDF 或图像预览链路。"
+          "产品默认链路：服务端将 DWG 转为 PDF/SVG/DXF，再复用现有 PDF、图像或 DXF 预览。",
+          "纯前端增强：通过 binaryRenderer 接入 mlightcad / LibreDWG WASM 一类引擎，按需加载 worker 和字体资源。",
+          "商用高保真：接入 ODA Drawings SDK / Web SDK，适合复杂图层、字体、外部参照和大图纸。"
         ]
       : [
           "优先在服务端转换为 PDF/SVG，保留图层、页面和标注信息。",
-          "若 DWF 为压缩容器，可后续读取 manifest/descriptor 再还原页面资源。",
+          "若 DWF 为压缩容器，可通过 binaryRenderer 读取 manifest/descriptor 再还原页面资源。",
           "若业务只需下载/归档，保留当前文件元信息和转换提示即可。"
         ];
   for (const suggestion of suggestions) {
     const item = document.createElement("li");
     item.textContent = suggestion;
-    actions.append(item);
+    actionList.append(item);
   }
+  actions.append(actionTitle, actionList);
 
+  const raw = document.createElement("details");
+  raw.className = "ofv-details ofv-cad-raw-preview";
+  const rawSummary = document.createElement("summary");
+  rawSummary.textContent = "原始字节预览";
   const preview = document.createElement("pre");
   preview.className = "ofv-text-block";
   preview.textContent = hexPreview(bytes);
+  raw.append(rawSummary, preview);
 
-  section.append(note, meta, createBinaryCadProbe(bytes, extension), actions, preview);
+  section.append(note, meta, actions, createBinaryCadProbe(bytes, extension), raw);
   panel.append(section);
 }
 
@@ -951,7 +1043,6 @@ function createBinaryCadProbe(bytes: Uint8Array, extension: string): HTMLElement
   const probe = probeBinaryCad(bytes);
   const details = document.createElement("details");
   details.className = "ofv-details ofv-cad-binary-probe";
-  details.open = true;
   const summary = document.createElement("summary");
   summary.textContent = "二进制结构探测";
   const meta = document.createElement("div");
