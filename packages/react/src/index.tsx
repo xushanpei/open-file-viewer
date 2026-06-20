@@ -32,18 +32,20 @@ export function FileViewer({
     }
 
     let toolbarRoot: Root | null = null;
+    let toolbarMount: HTMLDivElement | null = null;
     const toolbar =
       renderToolbar === undefined
         ? options.toolbar
         : {
             ...(typeof options.toolbar === "object" ? options.toolbar : {}),
             render(ctx: PreviewToolbarRenderContext) {
-              toolbarRoot?.unmount();
-              const mount = document.createElement("div");
-              mount.className = "ofv-react-toolbar";
-              toolbarRoot = createRoot(mount);
-              toolbarRoot.render(renderToolbar(ctx));
-              return mount;
+              if (!toolbarMount) {
+                toolbarMount = document.createElement("div");
+                toolbarMount.className = "ofv-react-toolbar";
+                toolbarRoot = createRoot(toolbarMount);
+              }
+              toolbarRoot?.render(renderToolbar(ctx));
+              return toolbarMount;
             }
           };
 
@@ -58,10 +60,14 @@ export function FileViewer({
     });
 
     return () => {
-      toolbarRoot?.unmount();
+      const root = toolbarRoot;
       toolbarRoot = null;
+      toolbarMount = null;
       viewerRef.current?.destroy();
       viewerRef.current = null;
+      if (root) {
+        queueMicrotask(() => root.unmount());
+      }
     };
   }, [
     options.file,

@@ -1,5 +1,5 @@
 import pako from "pako";
-import type { PreviewPlugin } from "../types";
+import type { PreviewCommand, PreviewContext, PreviewPlugin } from "../types";
 import { createPanel, createSection, readTextFile, resolveFormat } from "./utils";
 
 const drawingExtensions = new Set(["drawio", "dio", "excalidraw", "tldraw"]);
@@ -22,6 +22,7 @@ export function drawingPlugin(): PreviewPlugin {
       const text = await readTextFile(ctx.file);
       const extension = resolveFormat(ctx.file, drawingMimeFormatMap);
 
+      let controller: ReturnType<typeof createSvgViewportController> | undefined;
       try {
         if (extension === "excalidraw") {
           renderExcalidraw(panel, text);
@@ -32,16 +33,112 @@ export function drawingPlugin(): PreviewPlugin {
         } else {
           renderRawDrawing(panel, extension || "drawing", text);
         }
+        controller = createSvgViewportController(panel, ctx);
       } catch (error) {
         renderDrawingParseFallback(panel, extension || "drawing", text, error);
       }
 
       return {
+        canCommand(command) {
+          return controller?.canCommand(command) ?? false;
+        },
+        command(command) {
+          return controller?.command(command) ?? false;
+        },
         destroy() {
+          controller?.destroy();
           panel.remove();
         }
       };
     }
+  };
+}
+
+function createSvgViewportController(
+  panel: HTMLElement,
+  ctx: Pick<PreviewContext, "toolbar">
+): {
+  canCommand: (command: PreviewCommand) => boolean;
+  command: (command: PreviewCommand) => boolean;
+  destroy: () => void;
+} | undefined {
+  const svg = panel.querySelector<SVGSVGElement>(".ofv-svg-stage");
+  const initialViewBox = parseSvgViewBox(svg);
+  if (!svg || !initialViewBox) {
+    return undefined;
+  }
+
+  let currentViewBox = { ...initialViewBox };
+  let rotation = 0;
+  const applyViewBox = () => {
+    svg.setAttribute(
+      "viewBox",
+      `${currentViewBox.x} ${currentViewBox.y} ${currentViewBox.width} ${currentViewBox.height}`
+    );
+    ctx.toolbar?.setZoom(initialViewBox.width / currentViewBox.width);
+  };
+  const applyRotation = () => {
+    svg.style.transformOrigin = "center center";
+    svg.style.transform = rotation === 0 ? "" : `rotate(${rotation}deg)`;
+  };
+  applyViewBox();
+
+  return {
+    canCommand(command) {
+      return (
+        command === "zoom-in" ||
+        command === "zoom-out" ||
+        command === "zoom-reset" ||
+        command === "rotate-right" ||
+        command === "rotate-left"
+      );
+    },
+    command(command) {
+      if (command === "zoom-in" || command === "zoom-out") {
+        const factor = command === "zoom-in" ? 0.82 : 1.18;
+        const centerX = currentViewBox.x + currentViewBox.width / 2;
+        const centerY = currentViewBox.y + currentViewBox.height / 2;
+        currentViewBox.width *= factor;
+        currentViewBox.height *= factor;
+        currentViewBox.x = centerX - currentViewBox.width / 2;
+        currentViewBox.y = centerY - currentViewBox.height / 2;
+        applyViewBox();
+        return true;
+      }
+      if (command === "zoom-reset") {
+        currentViewBox = { ...initialViewBox };
+        rotation = 0;
+        applyViewBox();
+        applyRotation();
+        return true;
+      }
+      if (command === "rotate-right" || command === "rotate-left") {
+        rotation += command === "rotate-right" ? 90 : -90;
+        applyRotation();
+        return true;
+      }
+      return false;
+    },
+    destroy() {
+      ctx.toolbar?.setZoom(undefined);
+    }
+  };
+}
+
+function parseSvgViewBox(svg: SVGSVGElement | null): { x: number; y: number; width: number; height: number } | undefined {
+  const parts = svg
+    ?.getAttribute("viewBox")
+    ?.trim()
+    .split(/[\s,]+/)
+    .map(Number);
+  if (!parts || parts.length !== 4 || parts.some((part) => !Number.isFinite(part)) || parts[2] <= 0 || parts[3] <= 0) {
+    return undefined;
+  }
+  return {
+    x: parts[0],
+    y: parts[1],
+    width: parts[2],
+    height: parts[3]
   };
 }
 
@@ -60,6 +157,11 @@ type DrawingSummaryItem = {
 function createDrawingSummary(items: DrawingSummaryItem[]): HTMLElement {
   const summary = document.createElement("div");
   summary.className = "ofv-drawing-summary";
+  summary.hidden = items.length > 0;
+  if (items.length > 0) {
+    summary.setAttribute("aria-hidden", "true");
+    summary.style.display = "none";
+  }
   const typeCounts = countDrawingTypes(items);
   appendDrawingSummary(summary, "对象", String(items.length));
   appendDrawingSummary(summary, "类型", formatDrawingTypes(typeCounts));
@@ -84,6 +186,19 @@ function appendDrawingSummary(parent: HTMLElement, label: string, value: string)
   content.textContent = value;
   item.append(key, content);
   parent.append(item);
+}
+
+function hideSuccessfulSectionHeading(section: HTMLElement): void {
+  const heading = section.querySelector<HTMLElement>("h3");
+  if (heading) {
+    hideSupplementalInfo(heading);
+  }
+}
+
+function hideSupplementalInfo(element: HTMLElement): void {
+  element.hidden = true;
+  element.setAttribute("aria-hidden", "true");
+  element.style.display = "none";
 }
 
 function countDrawingTypes(items: DrawingSummaryItem[]): Map<string, number> {
@@ -174,6 +289,9 @@ function renderExcalidraw(panel: HTMLElement, text: string): void {
   const files = data.files || {};
   const elements = (data.elements || []).filter((element) => !element.isDeleted);
   const section = createSection(`Excalidraw ${elements.length} elements`);
+  if (elements.length > 0) {
+    hideSuccessfulSectionHeading(section);
+  }
   section.append(createDrawingSummary(elements.map(excalidrawSummaryItem)));
   const svg = document.createElementNS(SVG_NS, "svg");
   svg.setAttribute("class", "ofv-svg-stage");
@@ -616,6 +734,9 @@ function renderTldraw(panel: HTMLElement, text: string): void {
   const data = JSON.parse(text) as unknown;
   const shapes = extractTldrawShapes(data);
   const section = createSection(`tldraw 基础预览 ${shapes.length} shapes`);
+  if (shapes.length > 0) {
+    hideSuccessfulSectionHeading(section);
+  }
   section.append(createDrawingSummary(shapes.map(tldrawSummaryItem)));
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("class", "ofv-svg-stage");
@@ -951,6 +1072,7 @@ function renderDrawio(panel: HTMLElement, text: string): void {
     const section = createSection(`Draw.io 图形预览 ${index + 1}`);
     const shapes = parseDrawioShapes(diagram);
     if (shapes.length > 0) {
+      hideSuccessfulSectionHeading(section);
       section.append(createDrawingSummary(shapes.map(drawioSummaryItem)));
       const svg = document.createElementNS(SVG_NS, "svg");
       svg.setAttribute("class", "ofv-svg-stage");
@@ -969,6 +1091,11 @@ function renderDrawio(panel: HTMLElement, text: string): void {
     pre.className = "ofv-text-block";
     pre.textContent = diagram.slice(0, 30000);
     details.append(summary, pre);
+    if (shapes.length > 0) {
+      details.hidden = true;
+      details.setAttribute("aria-hidden", "true");
+      details.style.display = "none";
+    }
     section.append(details);
     panel.append(section);
   }

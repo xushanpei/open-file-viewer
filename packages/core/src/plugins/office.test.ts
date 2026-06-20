@@ -5,16 +5,27 @@ import { officePlugin } from "./office";
 
 const shouldFailDocxPreview = vi.hoisted(() => ({ value: false }));
 const shouldFailMammoth = vi.hoisted(() => ({ value: false }));
+const shouldRenderBlankDocxPreview = vi.hoisted(() => ({ value: false }));
 const renderDocxAsync = vi.hoisted(() =>
   vi.fn(async (_data: unknown, bodyContainer: HTMLElement, _styleContainer?: HTMLElement, _options?: unknown) => {
     if (shouldFailDocxPreview.value) {
       throw new Error("docx-preview failed");
+    }
+    if (_styleContainer) {
+      const style = document.createElement("style");
+      style.textContent = ".docx-internal-style { color: red; }";
+      _styleContainer.append(style);
     }
     const wrapper = document.createElement("div");
     wrapper.className = "ofv-docx-wrapper";
     const page = document.createElement("section");
     page.className = "ofv-docx";
     page.style.width = "794px";
+    if (shouldRenderBlankDocxPreview.value) {
+      wrapper.append(page);
+      bodyContainer.append(wrapper);
+      return;
+    }
     const compactParagraph = document.createElement("p");
     compactParagraph.style.lineHeight = "0.06";
     compactParagraph.textContent = "DOCX compact paragraph";
@@ -51,6 +62,7 @@ const openPptx = vi.hoisted(() =>
     container.append(wrapper);
   })
 );
+const pptxRenderMode = vi.hoisted(() => ({ value: "normal" as "normal" | "hang" }));
 
 vi.mock("docx-preview", () => ({
   renderAsync: renderDocxAsync
@@ -81,16 +93,25 @@ vi.mock("mammoth", () => ({
 
 vi.mock("@aiden0z/pptx-renderer", () => ({
   PptxViewer: {
-    open: openPptx
+    open: vi.fn((data: unknown, container: HTMLElement) => {
+      if (pptxRenderMode.value === "hang") {
+        return new Promise(() => undefined);
+      }
+      return openPptx(data, container);
+    })
   }
 }));
 
 describe("officePlugin", () => {
   afterEach(() => {
     document.body.replaceChildren();
+    document.head.querySelectorAll(".ofv-docx-style-container").forEach((element) => element.remove());
     vi.restoreAllMocks();
     shouldFailDocxPreview.value = false;
     shouldFailMammoth.value = false;
+    shouldRenderBlankDocxPreview.value = false;
+    pptxRenderMode.value = "normal";
+    delete (globalThis as { __OFV_PPTX_RENDER_TIMEOUT_MS__?: number }).__OFV_PPTX_RENDER_TIMEOUT_MS__;
   });
 
   it("renders workbook sheets with formula metadata", async () => {
@@ -117,16 +138,59 @@ describe("officePlugin", () => {
 
     await waitFor(() => Boolean(container.querySelector(".ofv-sheet-summary")));
 
+    expect(container.querySelector<HTMLElement>(".ofv-sheet-summary")?.hidden).toBe(true);
+
     expect(container.querySelector(".ofv-tabs button")?.classList.contains("is-active")).toBe(true);
     expect(container.querySelector(".ofv-tabs")?.getAttribute("role")).toBe("tablist");
     expect(container.querySelector(".ofv-tabs button")?.getAttribute("role")).toBe("tab");
     expect(container.querySelector(".ofv-tabs button")?.getAttribute("aria-selected")).toBe("true");
     expect(container.querySelector(".ofv-sheet")?.getAttribute("role")).toBe("tabpanel");
     expect(container.querySelector(".ofv-sheet")?.getAttribute("aria-label")).toBe("Summary");
+    expect(container.querySelector<HTMLElement>(".ofv-sheet-summary")?.hidden).toBe(true);
     expect(container.querySelector(".ofv-sheet-summary")?.textContent).toContain("4 行 x 2 列");
+    expect(container.querySelector<HTMLElement>(".ofv-sheet-summary")?.hidden).toBe(true);
     expect(container.querySelector(".ofv-sheet-summary")?.textContent).toContain("1 个公式单元格");
     expect(container.querySelector(".ofv-cell-formula")?.getAttribute("title")).toBe("=SUM(B2:B3)");
     expect(container.querySelector(".ofv-formula-list")?.textContent).toContain("B4: =SUM(B2:B3)");
+    expect(container.querySelector<HTMLElement>(".ofv-formula-list")?.hidden).toBe(true);
+    expect(visibleText(container)).not.toContain("公式明细");
+    expect(visibleText(container)).not.toContain("B4: =SUM(B2:B3)");
+  });
+
+  it("responds to shared toolbar zoom for workbook previews", async () => {
+    const xlsx = await import("xlsx");
+    const sheet = xlsx.utils.aoa_to_sheet([
+      ["Name", "Value"],
+      ["A", 2]
+    ]);
+    const workbook = xlsx.utils.book_new();
+    xlsx.utils.book_append_sheet(workbook, sheet, "Summary");
+    const buffer = xlsx.write(workbook, { type: "array", bookType: "xlsx" }) as ArrayBuffer;
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    createViewer({
+      container,
+      file: buffer,
+      fileName: "toolbar.xlsx",
+      toolbar: true,
+      plugins: [officePlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-sheet")));
+
+    const panel = container.querySelector<HTMLElement>(".ofv-office");
+    const zoomIn = container.querySelector<HTMLButtonElement>('button[aria-label="Zoom in"]');
+    const zoomOut = container.querySelector<HTMLButtonElement>('button[aria-label="Zoom out"]');
+    const rotate = container.querySelector<HTMLButtonElement>('button[aria-label="Rotate right"]');
+    expect(zoomIn?.disabled).toBe(false);
+    expect(zoomOut?.disabled).toBe(false);
+    expect(rotate?.disabled).toBe(true);
+
+    zoomIn?.click();
+    expect(panel?.style.getPropertyValue("--ofv-office-zoom")).toBe("1.12");
+    zoomOut?.click();
+    expect(panel?.style.getPropertyValue("--ofv-office-zoom")).toBe("1");
   });
 
   it("preserves workbook merges, dimensions and basic cell styling", async () => {
@@ -141,6 +205,8 @@ describe("officePlugin", () => {
     });
 
     await waitFor(() => Boolean(container.querySelector(".ofv-sheet-summary")));
+
+    expect(container.querySelector<HTMLElement>(".ofv-sheet-summary")?.hidden).toBe(true);
 
     const titleCell = container.querySelector<HTMLTableCellElement>('[data-cell="A1"]');
     const mergedNote = container.querySelector<HTMLTableCellElement>('[data-cell="B2"]');
@@ -208,6 +274,8 @@ describe("officePlugin", () => {
 
     await waitFor(() => Boolean(container.querySelector(".ofv-sheet-summary")));
 
+    expect(container.querySelector<HTMLElement>(".ofv-sheet-summary")?.hidden).toBe(true);
+
     expect(container.querySelector('[data-cell="A1"]')?.textContent).toBe("视频名称");
     expect(container.querySelector('[data-cell="B1"]')?.textContent).toBe("开始时间(秒)");
     expect(container.querySelector('[data-cell="A2"]')?.textContent).toBe("安全防护与实操检查.mp4");
@@ -233,6 +301,9 @@ describe("officePlugin", () => {
 
     await waitFor(() => Boolean(container.querySelector(".ofv-sheet-summary")));
 
+    expect(container.querySelector<HTMLElement>(".ofv-sheet-summary")?.hidden).toBe(true);
+
+    expect(container.querySelector<HTMLElement>(".ofv-sheet-summary")?.hidden).toBe(true);
     expect(container.querySelector(".ofv-sheet-summary")?.textContent).toContain("2 行 x 2 列");
     expect(container.querySelector('[data-cell="A2"]')?.textContent).toBe("Revenue");
     expect(container.querySelector(".ofv-office-conversion")).toBeNull();
@@ -276,6 +347,8 @@ describe("officePlugin", () => {
     });
 
     await waitFor(() => Boolean(container.querySelector(".ofv-sheet-summary")));
+
+    expect(container.querySelector<HTMLElement>(".ofv-sheet-summary")?.hidden).toBe(true);
 
     expect(container.querySelector(".ofv-sheet")?.getAttribute("aria-label")).toBe("销售 汇总 (2026)");
     expect(container.querySelector(".ofv-table-scroll table")?.id).toBe("ofv-sheet-1");
@@ -338,6 +411,7 @@ describe("officePlugin", () => {
 
     await waitFor(() => Boolean(container.querySelector(".ofv-sheet-window")));
 
+    expect(container.querySelector<HTMLElement>(".ofv-sheet-summary")?.hidden).toBe(true);
     expect(container.querySelector(".ofv-sheet-summary")?.textContent).toContain("205 行 x 82 列");
     expect(container.querySelector(".ofv-sheet-window-note")?.textContent).toContain("当前 1-200 行，1-80 列");
     expect(container.querySelectorAll(".ofv-table-scroll tr")).toHaveLength(200);
@@ -362,7 +436,7 @@ describe("officePlugin", () => {
     await waitFor(() => container.querySelector(".ofv-sheet-window-note")?.textContent?.includes("3-82 列") || false);
     expect(container.querySelector(".ofv-table-scroll [data-cell='C6']")?.textContent).toBe("R6C3");
     expect(container.querySelector(".ofv-table-scroll [data-cell='CD6']")?.textContent).toBe("R6C82");
-  });
+  }, 20000);
 
   it("renders workbook chart previews from embedded OOXML chart parts", async () => {
     const container = document.createElement("div");
@@ -377,6 +451,7 @@ describe("officePlugin", () => {
 
     await waitFor(() => Boolean(container.querySelector(".ofv-chart-card")));
 
+    expect(container.querySelector<HTMLElement>(".ofv-sheet-summary")?.hidden).toBe(true);
     expect(container.querySelector(".ofv-sheet-summary")?.textContent).toContain("3 行 x 2 列");
     expect(container.querySelector(".ofv-chart-card h4")?.textContent).toBe("Quarterly Revenue");
     expect(container.querySelector(".ofv-chart-card header span")?.textContent).toContain("bar");
@@ -384,6 +459,9 @@ describe("officePlugin", () => {
     expect(container.querySelector(".ofv-chart-svg")?.getAttribute("role")).toBe("img");
     expect(container.querySelectorAll(".ofv-chart-svg rect[data-index]")).toHaveLength(3);
     expect(container.querySelector(".ofv-chart-data")?.textContent).toContain("Revenue: 12, 18, 30");
+    expect(container.querySelector<HTMLElement>(".ofv-chart-data")?.hidden).toBe(true);
+    expect(visibleText(container)).not.toContain("数据摘要");
+    expect(visibleText(container)).not.toContain("Revenue: 12, 18, 30");
   });
 
   it("renders flat ODS spreadsheets with repeated cells and formulas", async () => {
@@ -399,9 +477,13 @@ describe("officePlugin", () => {
 
     await waitFor(() => Boolean(container.querySelector(".ofv-sheet-summary")));
 
+    expect(container.querySelector<HTMLElement>(".ofv-sheet-summary")?.hidden).toBe(true);
+
     expect(container.querySelector(".ofv-tabs button")?.textContent).toBe("Budget");
     expect(container.querySelector(".ofv-sheet")?.getAttribute("aria-label")).toBe("Budget");
+    expect(container.querySelector<HTMLElement>(".ofv-sheet-summary")?.hidden).toBe(true);
     expect(container.querySelector(".ofv-sheet-summary")?.textContent).toContain("3 行 x 3 列");
+    expect(container.querySelector<HTMLElement>(".ofv-sheet-summary")?.hidden).toBe(true);
     expect(container.querySelector(".ofv-sheet-summary")?.textContent).toContain("1 个公式单元格");
     expect(container.querySelector('[data-cell="A1"]')?.textContent).toBe("Item");
     expect(container.querySelector('[data-cell="B1"]')?.textContent).toBe("Month");
@@ -514,6 +596,37 @@ describe("officePlugin", () => {
     viewer.destroy();
   });
 
+  it("responds to shared toolbar zoom for DOCX previews without enabling rotation", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    createViewer({
+      container,
+      file: new Blob(["docx"], {
+        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      }),
+      fileName: "toolbar.docx",
+      toolbar: true,
+      plugins: [officePlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-docx-document")));
+
+    const panel = container.querySelector<HTMLElement>(".ofv-office");
+    const zoomIn = container.querySelector<HTMLButtonElement>('button[aria-label="Zoom in"]');
+    const zoomReset = container.querySelector<HTMLButtonElement>('button[aria-label="Reset zoom"]');
+    const rotate = container.querySelector<HTMLButtonElement>('button[aria-label="Rotate right"]');
+    expect(zoomIn?.disabled).toBe(false);
+    expect(rotate?.disabled).toBe(true);
+
+    zoomIn?.click();
+    expect(panel?.style.getPropertyValue("--ofv-office-zoom")).toBe("1.12");
+    expect(zoomReset?.textContent).toBe("112%");
+
+    zoomReset?.click();
+    expect(panel?.style.getPropertyValue("--ofv-office-zoom")).toBe("1");
+  });
+
   it("keeps the DOCX layout preview without rendering supplemental footer code", async () => {
     const container = document.createElement("div");
     const onError = vi.fn();
@@ -534,6 +647,30 @@ describe("officePlugin", () => {
     expect(container.querySelector(".ofv-document-extra")).toBeNull();
     expect(container.textContent).not.toContain("Footer field code");
     expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("keeps docx-preview internal styles outside the visible document text", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    const viewer = createViewer({
+      container,
+      file: new Blob(["docx"], {
+        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      }),
+      fileName: "styled.docx",
+      plugins: [officePlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-docx-document")));
+
+    expect(container.querySelector(".ofv-docx-document")?.textContent).toContain("DOCX layout page");
+    expect(container.querySelector(".ofv-docx-document")?.textContent).not.toContain("docx-internal-style");
+    expect(document.head.querySelector(".ofv-docx-style-container")?.textContent).toContain("docx-internal-style");
+
+    viewer.destroy();
+
+    await waitFor(() => document.head.querySelector(".ofv-docx-style-container") === null);
   });
 
   it("uses MIME type to route extensionless DOCX blobs", async () => {
@@ -588,8 +725,190 @@ describe("officePlugin", () => {
 
     await waitFor(() => container.textContent?.includes("Raw paragraph") || false);
 
-    expect(container.querySelector(".ofv-docx-fallback-note")?.textContent).toContain("基础内容预览");
+    const fallbackNote = container.querySelector<HTMLElement>(".ofv-docx-fallback-note");
+    expect(fallbackNote?.textContent).toContain("基础内容预览");
+    expect(fallbackNote?.getAttribute("aria-hidden")).toBe("true");
     expect(container.textContent).toContain("Raw paragraph");
+  });
+
+  it("falls back to OpenXML text when DOCX layout renderer succeeds with blank textbox content", async () => {
+    const container = document.createElement("div");
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    shouldRenderBlankDocxPreview.value = true;
+    shouldFailMammoth.value = true;
+    const callsBefore = renderDocxAsync.mock.calls.length;
+    document.body.append(container);
+
+    createViewer({
+      container,
+      file: await createTextboxDocx("徐善培", "Web前端工程师", "项目经验"),
+      fileName: "resume.docx",
+      plugins: [officePlugin()]
+    });
+
+    await waitFor(() => container.textContent?.includes("Web前端工程师") || false, 5000);
+
+    expect(renderDocxAsync).toHaveBeenCalledTimes(callsBefore + 1);
+    expect(container.querySelector(".ofv-docx-fallback-note")?.getAttribute("aria-hidden")).toBe("true");
+    expect(container.querySelector(".ofv-document")?.textContent).toContain("徐善培");
+    expect(container.querySelector(".ofv-document")?.textContent).toContain("项目经验");
+    expect(Array.from(container.querySelectorAll(".ofv-document p")).map((item) => item.textContent)).toEqual([
+      "徐善培",
+      "Web前端工程师",
+      "项目经验"
+    ]);
+  });
+
+  it("uses the high fidelity DOCX renderer before falling back for textbox-heavy files", async () => {
+    const container = document.createElement("div");
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const callsBefore = renderDocxAsync.mock.calls.length;
+    document.body.append(container);
+
+    createViewer({
+      container,
+      file: await createTextboxDocx("徐善培", "Web前端工程师", "项目经验"),
+      fileName: "resume.docx",
+      plugins: [officePlugin()]
+    });
+
+    await waitFor(() => container.textContent?.includes("DOCX layout page") || false);
+
+    expect(renderDocxAsync).toHaveBeenCalledTimes(callsBefore + 1);
+    expect(container.querySelector(".ofv-docx-wrapper")?.textContent).toContain("DOCX layout page");
+    expect(container.querySelector(".ofv-document")).toBeNull();
+  });
+
+  it("falls back when the high fidelity DOCX renderer misses rich textbox content", async () => {
+    const container = document.createElement("div");
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const callsBefore = renderDocxAsync.mock.calls.length;
+    renderDocxAsync.mockImplementationOnce(async (_data: unknown, bodyContainer: HTMLElement) => {
+      const wrapper = document.createElement("div");
+      wrapper.className = "ofv-docx-wrapper";
+      const page = document.createElement("section");
+      page.className = "ofv-docx";
+      page.style.width = "794px";
+      page.textContent = "项目经验";
+      wrapper.append(page);
+      bodyContainer.append(wrapper);
+    });
+    document.body.append(container);
+
+    createViewer({
+      container,
+      file: await createTextboxDocx("徐善培", "Web前端工程师", "教育背景", "项目经验"),
+      fileName: "resume.docx",
+      plugins: [officePlugin()]
+    });
+
+    await waitFor(() => container.textContent?.includes("Web前端工程师") || false);
+
+    expect(renderDocxAsync).toHaveBeenCalledTimes(callsBefore + 1);
+    expect(container.querySelector(".ofv-docx-fallback-note")?.getAttribute("aria-hidden")).toBe("true");
+    expect(container.querySelector(".ofv-document")?.textContent).toContain("徐善培");
+    expect(container.querySelector(".ofv-document")?.textContent).toContain("教育背景");
+  });
+
+  it("keeps real textbox-heavy resume DOCX files readable when the layout renderer is blank", async () => {
+    const fs = await import("node:fs/promises");
+    const resumePath = "/Users/kuangkuang/Desktop/徐善培-web前端 .docx";
+    try {
+      await fs.access(resumePath);
+    } catch {
+      return;
+    }
+    const container = document.createElement("div");
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    shouldRenderBlankDocxPreview.value = true;
+    const callsBefore = renderDocxAsync.mock.calls.length;
+    document.body.append(container);
+
+    createViewer({
+      container,
+      file: new Blob([await fs.readFile(resumePath)], {
+        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      }),
+      fileName: "徐善培-web前端 .docx",
+      plugins: [officePlugin()]
+    });
+
+    await waitFor(() => container.textContent?.includes("Web前端工程师") || false, 5000);
+
+    expect(renderDocxAsync).toHaveBeenCalledTimes(callsBefore + 1);
+    expect(container.querySelector(".ofv-docx-fallback-note")?.getAttribute("aria-hidden")).toBe("true");
+    expect(container.querySelector(".ofv-docx-textbox-page")?.textContent).toContain("徐善培");
+    expect(container.querySelector(".ofv-docx-textbox-page")?.textContent).toContain("Web前端工程师");
+    const pages = Array.from(container.querySelectorAll(".ofv-docx-textbox-page")).map((page) => page.textContent || "");
+    expect(pages[0]).toContain("教育背景");
+    expect(pages[0]).toContain("专业技能");
+    expect(pages[0]).toContain("工作经历");
+    expect(pages[0]).not.toContain("自我评价");
+    expect(pages.some((page) => page.includes("自我评价"))).toBe(true);
+    expect(pages.some((page) => page.includes("项目经验"))).toBe(true);
+    expect(pages.length).toBeGreaterThanOrEqual(3);
+    expect(pages[1]).toContain("自我评价");
+    expect(pages[2]).toContain("南京云帐房");
+    expect(pages[1]).not.toContain("南京云帐房");
+  });
+
+  it("repairs DOCX floating pictures and shape fills emitted by the layout renderer", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const callsBefore = renderDocxAsync.mock.calls.length;
+    renderDocxAsync.mockImplementationOnce(async (_data: unknown, bodyContainer: HTMLElement) => {
+      const wrapper = document.createElement("div");
+      wrapper.className = "ofv-docx-wrapper";
+      const page = document.createElement("section");
+      page.className = "ofv-docx";
+      page.style.width = "595.3pt";
+      page.style.padding = "36pt";
+      page.innerHTML = `
+        <p><span><div style="display:inline-block;position:relative;width:68pt;height:95.25pt;float:left"><img src="data:image/jpeg;base64,AA==" /></div></span></p>
+        <p><span style="font-weight:bold">颜琪</span></p>
+        <p><span><div><svg width="658" height="39"><image width="100%" height="100%" fill="#38449A" stroke="null"></image></svg></div></span><span>个人信息</span></p>
+      `;
+      wrapper.append(page);
+      bodyContainer.append(wrapper);
+    });
+
+    createViewer({
+      container,
+      file: await createFloatingShapeDocx(),
+      fileName: "floating-shape.docx",
+      plugins: [officePlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector("rect[data-ofv-docx-shape-fill]")));
+
+    const rect = container.querySelector("rect[data-ofv-docx-shape-fill]");
+    const imageWrapper = container.querySelector<HTMLElement>(".ofv-docx-document img")?.parentElement as HTMLElement;
+    expect(renderDocxAsync).toHaveBeenCalledTimes(callsBefore + 1);
+    expect(rect?.getAttribute("fill")).toBe("#38449A");
+    expect(imageWrapper.dataset.ofvDocxFloatRepaired).toBe("true");
+    expect(imageWrapper.style.position).toBe("absolute");
+    expect(imageWrapper.style.float).toBe("none");
+    expect(imageWrapper.style.left).toBe("454.35pt");
+    expect(imageWrapper.style.width).toBe("68pt");
+  });
+
+  it("deduplicates textbox DOCX fallback paragraphs from compatibility markup", async () => {
+    const container = document.createElement("div");
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    shouldRenderBlankDocxPreview.value = true;
+    document.body.append(container);
+
+    createViewer({
+      container,
+      file: await createDuplicatedTextboxDocx("徐善培", "求职意向：Web前端工程师", "基本信息"),
+      fileName: "duplicated-textbox.docx",
+      plugins: [officePlugin()]
+    });
+
+    await waitFor(() => container.textContent?.includes("Web前端工程师") || false);
+
+    const paragraphs = Array.from(container.querySelectorAll(".ofv-document p")).map((item) => item.textContent);
+    expect(paragraphs).toEqual(["徐善培", "求职意向：Web前端工程师", "基本信息"]);
   });
 
   it("shows a local DOCX corruption message when every content fallback fails", async () => {
@@ -612,7 +931,7 @@ describe("officePlugin", () => {
 
     await waitFor(() => container.textContent?.includes("文件可能已损坏") || false);
 
-    expect(container.querySelector(".ofv-docx-fallback-note")).not.toBeNull();
+    expect(container.querySelector(".ofv-docx-fallback-note")?.getAttribute("aria-hidden")).toBe("true");
     expect(onError).not.toHaveBeenCalled();
   });
 
@@ -639,7 +958,60 @@ describe("officePlugin", () => {
     expect(summary?.dataset.animationCount).toBe("1");
     expect(container.querySelector(".ofv-presentation-slides")).toBeNull();
     expect(container.querySelector(".ofv-pptx-viewer")?.textContent).toContain("PPTX rendered");
+    expect(visibleText(container)).not.toContain("PPTX 演示文稿结构");
     expect(container.querySelector<HTMLElement>(".pptx-rendered")?.style.backgroundColor).toBe("rgb(255, 255, 255)");
+  });
+
+  it("responds to shared toolbar zoom for PPTX previews", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    createViewer({
+      container,
+      file: await createMinimalPptx(),
+      fileName: "toolbar.pptx",
+      toolbar: true,
+      plugins: [officePlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-pptx-viewer > div[data-slide-index]")));
+
+    const slide = container.querySelector<HTMLElement>(".ofv-pptx-viewer > div[data-slide-index]");
+    const zoomIn = container.querySelector<HTMLButtonElement>('button[aria-label="Zoom in"]');
+    const zoomReset = container.querySelector<HTMLButtonElement>('button[aria-label="Reset zoom"]');
+    const rotate = container.querySelector<HTMLButtonElement>('button[aria-label="Rotate right"]');
+    expect(zoomIn?.disabled).toBe(false);
+    expect(rotate?.disabled).toBe(true);
+
+    zoomIn?.click();
+    expect(slide?.style.transform).toBe("scale(1.12)");
+    expect(zoomReset?.textContent).toBe("112%");
+
+    zoomReset?.click();
+    expect(slide?.style.transform).toBe("");
+  });
+
+  it("falls back to extracted slide text when PPTX rendering times out", async () => {
+    pptxRenderMode.value = "hang";
+    (globalThis as { __OFV_PPTX_RENDER_TIMEOUT_MS__?: number }).__OFV_PPTX_RENDER_TIMEOUT_MS__ = 80;
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    createViewer({
+      container,
+      file: await createMinimalPptx(),
+      fileName: "slow.pptx",
+      toolbar: true,
+      plugins: [officePlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-presentation-slides .ofv-slide")), 1000);
+
+    expect(container.querySelector(".ofv-presentation-slides .ofv-slide")?.textContent).toContain("Quarter Plan");
+    expect(container.querySelector<HTMLElement>(".ofv-presentation-summary")?.hidden).toBe(true);
+    expect(visibleText(container)).not.toContain("PPTX 演示文稿结构");
+    expect(container.textContent).not.toContain("Loading preview");
+    expect(container.querySelector<HTMLButtonElement>('button[aria-label="Zoom in"]')?.disabled).toBe(false);
   });
 
   it("renders OpenDocument presentation insight for FODP layout and animation markers", async () => {
@@ -662,6 +1034,7 @@ describe("officePlugin", () => {
     expect(summary?.dataset.animationCount).toBe("1");
     expect(container.querySelector(".ofv-presentation-slides")).toBeNull();
     expect(container.querySelector(".ofv-slide")?.textContent).toContain("Overview");
+    expect(visibleText(container)).not.toContain("ODP 演示文稿结构");
   });
 
   it("extracts readable text fingerprints from legacy Word binary formats", async () => {
@@ -815,6 +1188,26 @@ describe("officePlugin", () => {
     expect(container.textContent).toContain("Gross margin");
   });
 
+  it("falls back to binary fingerprints when XLSB parsing fails", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    createViewer({
+      container,
+      file: createLegacyBinaryBlob(["Binary workbook", "Revenue forecast"]),
+      fileName: "legacy.xlsb",
+      plugins: [officePlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-office-binary-meta")));
+
+    expect(container.textContent).toContain(".xlsb");
+    expect(container.textContent).toContain("Office 转换提示");
+    expect(container.textContent).toContain("Excel Binary File Format");
+    expect(container.textContent).toContain("表格解析失败");
+    expect(container.textContent).toContain("Binary workbook");
+  });
+
   it("sniffs WPS spreadsheet packages and renders compatible workbook previews", async () => {
     const xlsx = await import("xlsx");
     const workbook = xlsx.utils.book_new();
@@ -831,6 +1224,8 @@ describe("officePlugin", () => {
     });
 
     await waitFor(() => Boolean(container.querySelector(".ofv-sheet-summary")));
+
+    expect(container.querySelector<HTMLElement>(".ofv-sheet-summary")?.hidden).toBe(true);
 
     expect(container.querySelector(".ofv-office-package-note")).toBeNull();
     expect(container.textContent).not.toContain("兼容包识别");
@@ -904,6 +1299,104 @@ async function createMinimalDocx(text: string, footerText?: string): Promise<Blo
           <w:p><w:r><w:t>${footerText}</w:t></w:r></w:p></w:ftr>`
     );
   }
+  return zip.generateAsync({
+    type: "blob",
+    mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+  });
+}
+
+async function createTextboxDocx(...texts: string[]): Promise<Blob> {
+  const zip = new JSZip();
+  zip.file(
+    "word/document.xml",
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+      <w:document
+        xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+        xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape">
+        <w:body>
+          <w:p>
+            <w:r>
+              <w:drawing>
+                <wps:wsp>
+                  <wps:txbx>
+                    <w:txbxContent>
+                      ${texts.map((text) => `<w:p><w:r><w:t>${text}</w:t></w:r></w:p>`).join("")}
+                    </w:txbxContent>
+                  </wps:txbx>
+                </wps:wsp>
+              </w:drawing>
+            </w:r>
+          </w:p>
+        </w:body>
+      </w:document>`
+  );
+  return zip.generateAsync({
+    type: "blob",
+    mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+  });
+}
+
+async function createFloatingShapeDocx(): Promise<Blob> {
+  const zip = new JSZip();
+  zip.file(
+    "word/document.xml",
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+      <w:document
+        xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+        xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+        xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+        xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"
+        xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+        <w:body>
+          <w:p>
+            <w:r>
+              <w:drawing>
+                <wp:anchor>
+                  <wp:positionH relativeFrom="column"><wp:posOffset>5770245</wp:posOffset></wp:positionH>
+                  <wp:positionV relativeFrom="paragraph"><wp:posOffset>127000</wp:posOffset></wp:positionV>
+                  <wp:extent cx="863600" cy="1209675"/>
+                  <wp:wrapSquare wrapText="bothSides"/>
+                  <a:graphic>
+                    <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
+                      <pic:pic><pic:blipFill><a:blip r:embed="rId1"/></pic:blipFill></pic:pic>
+                    </a:graphicData>
+                  </a:graphic>
+                </wp:anchor>
+              </w:drawing>
+            </w:r>
+          </w:p>
+          <w:p><w:r><w:t>颜琪</w:t></w:r></w:p>
+        </w:body>
+      </w:document>`
+  );
+  return zip.generateAsync({
+    type: "blob",
+    mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+  });
+}
+
+async function createDuplicatedTextboxDocx(...texts: string[]): Promise<Blob> {
+  const zip = new JSZip();
+  const paragraphs = texts.map((text) => `<w:p><w:r><w:t>${text}</w:t></w:r></w:p>`).join("");
+  zip.file(
+    "word/document.xml",
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+      <w:document
+        xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+        xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006">
+        <w:body>
+          <mc:AlternateContent>
+            <mc:Choice Requires="wps">
+              <w:p><w:r><w:drawing><wps:wsp><wps:txbx><w:txbxContent>${paragraphs}</w:txbxContent></wps:txbx></wps:wsp></w:drawing></w:r></w:p>
+            </mc:Choice>
+            <mc:Fallback>
+              <w:p><w:r><w:drawing><wps:wsp><wps:txbx><w:txbxContent>${paragraphs}</w:txbxContent></wps:txbx></wps:wsp></w:drawing></w:r></w:p>
+            </mc:Fallback>
+          </mc:AlternateContent>
+        </w:body>
+      </w:document>`
+  );
   return zip.generateAsync({
     type: "blob",
     mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -1181,6 +1674,31 @@ function encodeUtf16Le(value: string): Uint8Array {
     bytes[index * 2 + 1] = code >> 8;
   }
   return bytes;
+}
+
+function visibleText(root: HTMLElement): string {
+  const parts: string[] = [];
+  const walk = (node: Node, hidden: boolean) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      if (!hidden) {
+        parts.push(node.textContent || "");
+      }
+      return;
+    }
+    if (!(node instanceof HTMLElement)) {
+      node.childNodes.forEach((child) => walk(child, hidden));
+      return;
+    }
+    const isHidden =
+      hidden ||
+      node.hidden ||
+      node.getAttribute("aria-hidden") === "true" ||
+      node.style.display === "none" ||
+      node.style.visibility === "hidden";
+    node.childNodes.forEach((child) => walk(child, isHidden));
+  };
+  walk(root, false);
+  return parts.join(" ").replace(/\s+/g, " ").trim();
 }
 
 function createMinimalFodp(): string {

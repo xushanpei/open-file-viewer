@@ -90,8 +90,10 @@ export function createViewer(options: PreviewOptions): FileViewer {
 
   const resizeObserver = observeResize(container, resize);
 
-  const renderFile = async (file: PreviewFile) => {
-    const token = (renderToken += 1);
+  const renderFile = async (file: PreviewFile, token = ++renderToken) => {
+    if (destroyed || token !== renderToken) {
+      return;
+    }
     currentInstance?.destroy();
     currentInstance = undefined;
     viewport.replaceChildren();
@@ -131,6 +133,7 @@ export function createViewer(options: PreviewOptions): FileViewer {
         return;
       }
       const normalizedError = error instanceof Error ? error : new Error(String(error));
+      viewport.replaceChildren();
       setLoading(false);
       setError(normalizedError);
       options.onError?.(normalizedError, file);
@@ -138,9 +141,13 @@ export function createViewer(options: PreviewOptions): FileViewer {
   };
 
   async function renderQueueItem(index: number) {
+    const token = ++renderToken;
     const item = queue[index];
     const file = await normalizeFile(item.file, item.fileName, item.mimeType);
-    await renderFile(file);
+    if (destroyed || token !== renderToken) {
+      return;
+    }
+    await renderFile(file, token);
   }
 
   void goTo(currentIndex);
@@ -364,6 +371,7 @@ function createToolbar(
       element,
       search,
       canCommand: canRunCommand,
+      refreshCommandSupport,
       zoom: currentZoom,
       setZoom
     });
@@ -579,6 +587,14 @@ function createToolbar(
     );
   }
 
+  function refreshCommandSupport() {
+    commandButtons.forEach(({ button, command }) => {
+      button.disabled = !canRunCommand(command);
+    });
+    updateCustomButtons();
+    refreshCustomRender();
+  }
+
   const refreshCustomRender = () => {
     if (!options.render) {
       return;
@@ -616,11 +632,11 @@ function createToolbar(
     },
     setCommandSupport(isSupported) {
       canRunCommand = isSupported;
-      commandButtons.forEach(({ button, command }) => {
-        button.disabled = !isSupported(command);
-      });
-      updateCustomButtons();
-      refreshCustomRender();
+      if (!canRunCommand("zoom-in") && !canRunCommand("zoom-out") && !canRunCommand("zoom-reset")) {
+        currentZoom = undefined;
+        updateZoomLabel();
+      }
+      refreshCommandSupport();
     },
     getContext,
     setZoom,
@@ -643,6 +659,7 @@ function createToolbarContext({
   element,
   search,
   canCommand,
+  refreshCommandSupport,
   zoom,
   setZoom
 }: {
@@ -658,6 +675,7 @@ function createToolbarContext({
   element: HTMLElement;
   search: ReturnType<typeof createSearchController>;
   canCommand: (command: PreviewCommand) => boolean;
+  refreshCommandSupport: () => void;
   zoom?: number;
   setZoom: (zoom?: number) => void;
 }) {
@@ -678,6 +696,7 @@ function createToolbarContext({
     },
     command: queue.command,
     canCommand,
+    refreshCommandSupport,
     setZoom,
     download() {
       if (file) {

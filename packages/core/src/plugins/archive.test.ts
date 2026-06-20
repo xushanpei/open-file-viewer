@@ -1,8 +1,10 @@
 import JSZip from "jszip";
+import pako from "pako";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createViewer } from "../viewer";
 import { archivePlugin } from "./archive";
-import type { PreviewPlugin } from "../types";
+import { textPlugin } from "./text";
+import type { PreviewCommand, PreviewPlugin } from "../types";
 
 describe("archivePlugin", () => {
   afterEach(() => {
@@ -97,7 +99,7 @@ describe("archivePlugin", () => {
     expect(container.querySelector(".metadata-preview")?.textContent).toBe("plan.dwg:dwg:application/acad:true");
   });
 
-  it("uses MIME type to parse extensionless zip blobs", async () => {
+  it("uses MIME type to parse extensionless zip blobs without exposing the default archive summary", async () => {
     const zip = new JSZip();
     zip.file("readme.txt", "hello");
     const buffer = await zip.generateAsync({ type: "arraybuffer" });
@@ -114,7 +116,13 @@ describe("archivePlugin", () => {
     await waitFor(() => Boolean(container.querySelector(".ofv-archive-item")));
 
     expect(container.textContent).toContain("readme.txt");
-    expect(container.textContent).toContain("格式类型：.ZIP 压缩文件");
+    expect(visibleText(container)).not.toContain("格式类型：.ZIP 压缩文件");
+    const info = container.querySelector<HTMLElement>(".ofv-archive-info");
+    if (info) {
+      expect(info.hidden).toBe(true);
+      expect(info.getAttribute("aria-hidden")).toBe("true");
+      expect(info.style.display).toBe("none");
+    }
   });
 
   it("decodes Windows GBK encoded zip entry names", async () => {
@@ -154,14 +162,21 @@ describe("archivePlugin", () => {
       plugins: [archivePlugin()]
     });
 
-    await waitFor(() => Boolean(container.querySelector(".ofv-archive-summary")));
+    await waitFor(() => Boolean(container.querySelector(".ofv-archive-item.is-active")));
 
-    const summary = container.querySelector(".ofv-archive-summary");
-    expect(summary?.textContent).toContain("总解压大小17 B");
-    expect(summary?.textContent).toContain("最大文件assets/photo.png · 9 B");
-    expect(summary?.textContent).toContain("类型分布png 1, sh 1, txt 1");
-    expect(summary?.textContent).toContain("可预览条目3");
-    expect(summary?.textContent).toContain("风险路径1");
+    const info = container.querySelector<HTMLElement>(".ofv-archive-info");
+    if (info) {
+      expect(info.hidden).toBe(true);
+      expect(info.getAttribute("aria-hidden")).toBe("true");
+      expect(info.style.display).toBe("none");
+      const summary = info.querySelector(".ofv-archive-summary");
+      expect(summary?.textContent).toContain("总解压大小17 B");
+      expect(summary?.textContent).toContain("最大文件assets/photo.png · 9 B");
+      expect(summary?.textContent).toContain("类型分布png 1, sh 1, txt 1");
+      expect(summary?.textContent).toContain("可预览条目3");
+      expect(summary?.textContent).toContain("风险路径1");
+    }
+    expect(visibleText(container)).not.toContain("总解压大小17 B");
   });
 
   it("keeps archive sidebar collapsible and auto-collapses after selecting files in narrow containers", async () => {
@@ -185,17 +200,15 @@ describe("archivePlugin", () => {
       plugins: [archivePlugin()]
     });
 
-    await waitFor(() => Boolean(container.querySelector(".ofv-archive-item")));
+    await waitFor(() => Boolean(container.querySelector(".ofv-archive-item.is-active")));
 
     const layout = container.querySelector(".ofv-archive-layout");
     const toggle = container.querySelector<HTMLButtonElement>(".ofv-archive-sidebar-toggle");
-    expect(layout?.classList.contains("is-sidebar-collapsed")).toBe(false);
-    expect(toggle?.getAttribute("aria-expanded")).toBe("true");
-    toggle?.click();
     expect(layout?.classList.contains("is-sidebar-collapsed")).toBe(true);
     expect(toggle?.getAttribute("aria-expanded")).toBe("false");
     toggle?.click();
     expect(layout?.classList.contains("is-sidebar-collapsed")).toBe(false);
+    expect(toggle?.getAttribute("aria-expanded")).toBe("true");
 
     container.querySelector<HTMLButtonElement>(".ofv-archive-item")?.click();
     await waitFor(() => Boolean(container.querySelector(".ofv-archive-item.is-active")));
@@ -207,6 +220,73 @@ describe("archivePlugin", () => {
     expect(container.querySelector<HTMLElement>(".ofv-archive-item-name")?.textContent).toContain(
       "Visual Studio Code"
     );
+  });
+
+  it("forwards shared toolbar commands to the selected inner preview", async () => {
+    const zip = new JSZip();
+    zip.file("preview.inner", "content");
+    const buffer = await zip.generateAsync({ type: "arraybuffer" });
+    const commandState = {
+      zoom: 0,
+      rotate: 0
+    };
+    const commandPlugin: PreviewPlugin = {
+      name: "command-child",
+      match: (file) => file.extension === "inner",
+      render(ctx) {
+        const result = document.createElement("div");
+        result.className = "command-preview";
+        const update = () => {
+          result.textContent = `zoom:${commandState.zoom};rotate:${commandState.rotate}`;
+        };
+        update();
+        ctx.viewport.append(result);
+        return {
+          canCommand(command: PreviewCommand) {
+            return command === "zoom-in" || command === "rotate-right";
+          },
+          command(command: PreviewCommand) {
+            if (command === "zoom-in") {
+              commandState.zoom += 1;
+              update();
+              return true;
+            }
+            if (command === "rotate-right") {
+              commandState.rotate += 90;
+              update();
+              return true;
+            }
+            return false;
+          },
+          destroy: vi.fn()
+        };
+      }
+    };
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    createViewer({
+      container,
+      file: buffer,
+      fileName: "bundle.zip",
+      toolbar: true,
+      plugins: [archivePlugin(), commandPlugin]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-archive-item")) && Boolean(container.querySelector(".command-preview")));
+
+    const zoomIn = container.querySelector<HTMLButtonElement>('[aria-label="Zoom in"]');
+    const zoomOut = container.querySelector<HTMLButtonElement>('[aria-label="Zoom out"]');
+    const rotate = container.querySelector<HTMLButtonElement>('[aria-label="Rotate right"]');
+    expect(zoomIn?.disabled).toBe(false);
+    expect(rotate?.disabled).toBe(false);
+    expect(zoomOut?.disabled).toBe(true);
+    expect(container.querySelector(".ofv-archive-item")?.getAttribute("aria-current")).toBe("true");
+
+    zoomIn?.click();
+    rotate?.click();
+
+    expect(container.querySelector(".command-preview")?.textContent).toBe("zoom:1;rotate:90");
   });
 
   it("keeps the archive sidebar toggle effective in wide containers", async () => {
@@ -302,34 +382,60 @@ describe("archivePlugin", () => {
     expect(container.querySelector(".ofv-fallback")).toBeNull();
   });
 
-  it("renders bzip2 and xz stream signatures", async () => {
+  it("decompresses bzip2 streams into previewable single-file entries", async () => {
     const bzContainer = document.createElement("div");
     document.body.append(bzContainer);
 
     createViewer({
       container: bzContainer,
-      file: new Uint8Array([0x42, 0x5a, 0x68, 0x39, 0x31, 0x41, 0x59]).buffer,
-      fileName: "data.bz2",
-      plugins: [archivePlugin()]
+      file: sampleBzip2Text(),
+      fileName: "readme.txt.bz2",
+      plugins: [archivePlugin(), textPlugin()]
     });
 
-    await waitFor(() => bzContainer.textContent?.includes("BZIP2 结构预览") || false);
-    expect(bzContainer.textContent).toContain("块大小：900 KB");
+    await waitFor(() => bzContainer.textContent?.includes("hello from bz2") === true);
+    expect(bzContainer.textContent).toContain("readme.txt");
+    expect(visibleText(bzContainer)).not.toContain("包含文件数：1 个");
     expect(bzContainer.querySelector(".ofv-fallback")).toBeNull();
+  });
 
+  it("decompresses xz streams into previewable single-file entries", async () => {
     const xzContainer = document.createElement("div");
     document.body.append(xzContainer);
 
     createViewer({
       container: xzContainer,
-      file: new Uint8Array([0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00, 0x00, 0x04]).buffer,
-      fileName: "data.xz",
-      plugins: [archivePlugin()]
+      file: sampleXzText(),
+      fileName: "readme.txt.xz",
+      plugins: [archivePlugin(), textPlugin()]
     });
 
-    await waitFor(() => xzContainer.textContent?.includes("XZ 结构预览") || false);
-    expect(xzContainer.textContent).toContain("Stream flags：0x00 0x04");
+    await waitFor(() => xzContainer.textContent?.includes("hello from xz") === true, 1000, () => xzContainer.textContent || "");
+    expect(xzContainer.textContent).toContain("readme.txt");
+    expect(visibleText(xzContainer)).not.toContain("包含文件数：1 个");
     expect(xzContainer.querySelector(".ofv-fallback")).toBeNull();
+  });
+
+  it("decompresses tgz streams into previewable tar entries", async () => {
+    const tgzContainer = document.createElement("div");
+    document.body.append(tgzContainer);
+
+    createViewer({
+      container: tgzContainer,
+      file: minimalTgz(),
+      fileName: "bundle.tgz",
+      plugins: [archivePlugin(), textPlugin()]
+    });
+
+    await waitFor(
+      () => tgzContainer.textContent?.includes("hello from tgz") === true && !tgzContainer.querySelector(".ofv-fallback"),
+      1000,
+      () => tgzContainer.textContent || ""
+    );
+    expect(tgzContainer.textContent).toContain("readme.txt");
+    expect(visibleText(tgzContainer)).not.toContain("包含文件数：1 个");
+    expect(tgzContainer.textContent).toContain("hello from tgz");
+    expect(tgzContainer.querySelector(".ofv-fallback")).toBeNull();
   });
 
   it("renders archive entries as accessible buttons", async () => {
@@ -620,11 +726,92 @@ function minimal7z(): ArrayBuffer {
   return bytes.buffer;
 }
 
-async function waitFor(predicate: () => boolean, timeout = 1000): Promise<void> {
+function sampleBzip2Text(): ArrayBuffer {
+  return new Uint8Array([
+    0x42, 0x5a, 0x68, 0x39, 0x31, 0x41, 0x59, 0x26, 0x53, 0x59, 0x91, 0x38,
+    0x45, 0x8f, 0x00, 0x00, 0x03, 0xd9, 0x80, 0x00, 0x10, 0x40, 0x00, 0x10,
+    0x00, 0x13, 0x46, 0x90, 0x10, 0x20, 0x00, 0x22, 0x1a, 0x00, 0x68, 0x40,
+    0xd0, 0x34, 0x1b, 0x34, 0xce, 0x8a, 0xce, 0xa0, 0x49, 0xf1, 0x77, 0x24,
+    0x53, 0x85, 0x09, 0x09, 0x13, 0x84, 0x58, 0xf0
+  ]).buffer;
+}
+
+function sampleXzText(): ArrayBuffer {
+  return new Uint8Array([
+    253, 55, 122, 88, 90, 0, 0, 4, 230, 214, 180, 70, 2, 0, 33, 1, 22, 0,
+    0, 0, 116, 47, 229, 163, 1, 0, 13, 104, 101, 108, 108, 111, 32, 102, 114,
+    111, 109, 32, 120, 122, 10, 0, 0, 0, 91, 249, 134, 221, 230, 39, 122,
+    230, 0, 1, 38, 14, 8, 27, 224, 4, 31, 182, 243, 125, 1, 0, 0, 0, 0, 4,
+    89, 90
+  ]).buffer;
+}
+
+function minimalTgz(): ArrayBuffer {
+  return toExactArrayBuffer(pako.gzip(new Uint8Array(minimalTar("readme.txt", "hello from tgz"))));
+}
+
+function minimalTar(fileName: string, contentText: string): ArrayBuffer {
+  const content = new TextEncoder().encode(contentText);
+  const header = new Uint8Array(512);
+  header.set(ascii(fileName), 0);
+  header.set(ascii("0000644\0"), 100);
+  header.set(ascii("0000000\0"), 108);
+  header.set(ascii("0000000\0"), 116);
+  header.set(ascii(content.length.toString(8).padStart(11, "0") + "\0"), 124);
+  header.set(ascii("00000000000\0"), 136);
+  header.fill(0x20, 148, 156);
+  header[156] = "0".charCodeAt(0);
+  header.set(ascii("ustar\0"), 257);
+  header.set(ascii("00"), 263);
+  const checksum = header.reduce((sum, byte) => sum + byte, 0);
+  header.set(ascii(checksum.toString(8).padStart(6, "0") + "\0 "), 148);
+  const paddedSize = Math.ceil(content.length / 512) * 512;
+  const fileBlock = new Uint8Array(paddedSize);
+  fileBlock.set(content);
+  return new Uint8Array([...header, ...fileBlock, ...new Uint8Array(1024)]).buffer;
+}
+
+function ascii(value: string): Uint8Array {
+  return Uint8Array.from(value, (char) => char.charCodeAt(0));
+}
+
+function toExactArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
+}
+
+function visibleText(root: HTMLElement): string {
+  const parts: string[] = [];
+  const walk = (node: Node, hidden: boolean) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const text = node.textContent?.trim();
+      if (text && !hidden) {
+        parts.push(text);
+      }
+      return;
+    }
+    if (node instanceof HTMLElement) {
+      const isHidden =
+        hidden ||
+        node.hidden ||
+        node.getAttribute("aria-hidden") === "true" ||
+        node.style.display === "none" ||
+        node.style.visibility === "hidden";
+      node.childNodes.forEach((child) => walk(child, isHidden));
+      return;
+    }
+    node.childNodes.forEach((child) => walk(child, hidden));
+  };
+  walk(root, false);
+  return parts.join(" ").replace(/\s+/g, " ").trim();
+}
+
+async function waitFor(predicate: () => boolean, timeout = 1000, describe?: () => string): Promise<void> {
   const start = Date.now();
   while (!predicate()) {
     if (Date.now() - start > timeout) {
-      throw new Error("Timed out waiting for condition.");
+      throw new Error(`Timed out waiting for condition.${describe ? ` ${describe()}` : ""}`);
     }
     await new Promise((resolve) => setTimeout(resolve, 0));
   }

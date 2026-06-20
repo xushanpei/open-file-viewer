@@ -85,6 +85,7 @@ export interface PreviewToolbarRenderContext {
   next: () => Promise<void>;
   command: (command: PreviewCommand) => void | boolean | undefined;
   canCommand: (command: PreviewCommand) => boolean;
+  refreshCommandSupport: () => void;
   setZoom: (zoom?: number) => void;
   download: () => void;
   fullscreen: () => void;

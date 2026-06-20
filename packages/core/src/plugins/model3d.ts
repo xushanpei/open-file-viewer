@@ -101,7 +101,8 @@ export function model3dPlugin(): PreviewPlugin {
       scene.add(new THREE.GridHelper(10, 10, 0xcbd5e1, 0xe5e7eb));
 
       const extension = resolveFormat(ctx.file, modelMimeFormatMap);
-      const loaded = await loadModel(extension, url, THREE).catch(() => undefined);
+      const modelUrl = resolveModelUrl(extension, url, ctx.file.url);
+      const loaded = await loadModel(extension, modelUrl, THREE).catch(() => undefined);
       if (!loaded) {
         controls.dispose();
         renderer.dispose();
@@ -115,6 +116,11 @@ export function model3dPlugin(): PreviewPlugin {
         stage.append(message);
       }
       const object = loaded.object;
+      const initialRotation = {
+        x: object.rotation?.x ?? 0,
+        y: object.rotation?.y ?? 0,
+        z: object.rotation?.z ?? 0
+      };
       scene.add(object);
       const initialFrame = frameObject(object, camera, controls, THREE);
       const measurement = measureObject(object, THREE);
@@ -166,6 +172,12 @@ export function model3dPlugin(): PreviewPlugin {
           if (command === "zoom-reset") {
             camera.position.copy(initialFrame.cameraPosition);
             controls.target.copy(initialFrame.target);
+            if (object.rotation) {
+              object.rotation.set?.(initialRotation.x, initialRotation.y, initialRotation.z);
+              object.rotation.x = initialRotation.x;
+              object.rotation.y = initialRotation.y;
+              object.rotation.z = initialRotation.z;
+            }
             camera.near = initialFrame.near;
             camera.far = initialFrame.far;
             camera.updateProjectionMatrix();
@@ -238,6 +250,13 @@ function renderModelFallback(
       revokeObjectUrl(url, isExternal);
     }
   };
+}
+
+function resolveModelUrl(extension: string, objectUrl: string, sourceUrl?: string): string {
+  if (extension === "gltf" && sourceUrl) {
+    return sourceUrl;
+  }
+  return objectUrl;
 }
 
 async function loadModel(
@@ -367,6 +386,9 @@ function measureObject(object: import("three").Object3D, THREE: typeof import("t
 function createMeasurementPanel(measurement: ModelMeasurement): HTMLElement {
   const panel = document.createElement("div");
   panel.className = "ofv-model-measure";
+  panel.hidden = true;
+  panel.setAttribute("aria-hidden", "true");
+  panel.style.display = "none";
   const title = document.createElement("strong");
   title.textContent = "模型测量";
   const list = document.createElement("dl");
@@ -439,6 +461,9 @@ function collectMaterialStats(object: import("three").Object3D): MaterialStats {
 function createMaterialPanel(stats: MaterialStats): HTMLElement {
   const panel = document.createElement("div");
   panel.className = "ofv-model-materials";
+  panel.hidden = true;
+  panel.setAttribute("aria-hidden", "true");
+  panel.style.display = "none";
   const title = document.createElement("strong");
   title.textContent = "材质贴图";
 

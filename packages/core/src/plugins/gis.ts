@@ -40,7 +40,7 @@ export function gisPlugin(): PreviewPlugin {
   return {
     name: "gis",
     match(file) {
-      return gisExtensions.has(file.extension) || Boolean(gisMimeFormatMap[file.mimeType]);
+      return gisExtensions.has(resolveGisFormat(file)) || Boolean(gisMimeFormatMap[file.mimeType]);
     },
     async render(ctx) {
       // 1. Load Leaflet CSS and dynamic imports
@@ -105,29 +105,6 @@ export function gisPlugin(): PreviewPlugin {
         };
       }
 
-      // Handle raw unzipped shapefile warning UI
-      if (geojson === null && resolveFormat(ctx.file, gisMimeFormatMap) === "shp") {
-        const fallback = document.createElement("div");
-        fallback.className = "ofv-fallback";
-
-        const title = document.createElement("strong");
-        title.textContent = "无法直接预览单个 .shp 文件";
-
-        const desc = document.createElement("span");
-        desc.textContent = "Shapefile 格式需要包含配套的 .dbf 和 .shx 数据文件。请将它们打包为 .zip 文件后上传预览，或在压缩包列表中直接查看。";
-
-        fallback.append(title, desc);
-        ctx.viewport.classList.add("ofv-center");
-        ctx.viewport.append(fallback);
-
-        return {
-          destroy() {
-            ctx.viewport.classList.remove("ofv-center");
-            fallback.remove();
-          }
-        };
-      }
-
       // 3. Render Leaflet Map
       const wrapper = document.createElement("div");
       wrapper.className = "ofv-gis-viewer";
@@ -140,11 +117,14 @@ export function gisPlugin(): PreviewPlugin {
       wrapper.appendChild(mapContainer);
       if (summary.features === 0) {
         mapContainer.append(createEmptyMapState());
-      } else {
-        mapContainer.append(createMapLegend(summary));
       }
 
       const map = Leaflet.map(mapContainer).setView([0, 0], 2);
+      let toolbarZoom = 1;
+      const updateToolbarZoom = () => {
+        ctx.toolbar?.setZoom(toolbarZoom);
+      };
+      updateToolbarZoom();
 
       Leaflet.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
@@ -246,14 +226,50 @@ export function gisPlugin(): PreviewPlugin {
 
       const resizeTimers = [0, 80, 240].map((delay) => window.setTimeout(() => {
         map.invalidateSize();
+        updateToolbarZoom();
       }, delay));
 
       return {
+        canCommand(command) {
+          return command === "zoom-in" || command === "zoom-out" || command === "zoom-reset";
+        },
+        command(command) {
+          if (command === "zoom-in") {
+            map.zoomIn?.();
+            toolbarZoom = Math.min(3, Number((toolbarZoom + 0.25).toFixed(2)));
+            updateToolbarZoom();
+            return true;
+          }
+          if (command === "zoom-out") {
+            map.zoomOut?.();
+            toolbarZoom = Math.max(0.25, Number((toolbarZoom - 0.25).toFixed(2)));
+            updateToolbarZoom();
+            return true;
+          }
+          if (command === "zoom-reset") {
+            toolbarZoom = 1;
+            map.setView([0, 0], 2);
+            try {
+              const bounds = geojsonLayer.getBounds();
+              if (bounds.isValid()) {
+                map.fitBounds(bounds, { padding: [20, 20] });
+              }
+            } catch {
+              // Keep the neutral world view when bounds are unavailable.
+            }
+            map.invalidateSize();
+            updateToolbarZoom();
+            return true;
+          }
+          return false;
+        },
         resize() {
           map.invalidateSize();
+          updateToolbarZoom();
         },
         destroy() {
           resizeTimers.forEach((timer) => window.clearTimeout(timer));
+          ctx.toolbar?.setZoom(undefined);
           map.remove();
           wrapper.remove();
         }
@@ -292,6 +308,11 @@ type GisSummary = {
 function createGisSummary(summary: GisSummary): HTMLElement {
   const bar = document.createElement("div");
   bar.className = "ofv-gis-summary";
+  bar.hidden = summary.features > 0;
+  if (summary.features > 0) {
+    bar.setAttribute("aria-hidden", "true");
+    bar.style.display = "none";
+  }
   appendSummaryItem(bar, "要素", String(summary.features));
   appendSummaryItem(bar, "几何", formatGeometryCounts(summary.geometryCounts));
   appendSummaryItem(bar, "属性字段", String(summary.propertyKeys.size));
@@ -313,17 +334,6 @@ function createEmptyMapState(): HTMLElement {
   detail.textContent = "GeoJSON 已识别，但 features 为空。";
   empty.append(title, detail);
   return empty;
-}
-
-function createMapLegend(summary: GisSummary): HTMLElement {
-  const legend = document.createElement("div");
-  legend.className = "ofv-map-legend";
-  const title = document.createElement("strong");
-  title.textContent = "GeoJSON";
-  const detail = document.createElement("span");
-  detail.textContent = `${summary.features} 个要素 · ${formatGeometryCounts(summary.geometryCounts)}`;
-  legend.append(title, detail);
-  return legend;
 }
 
 function appendSummaryItem(parent: HTMLElement, label: string, value: string): void {
@@ -427,7 +437,7 @@ async function parseToGeoJson(
   shpLib: any,
   JSZipLib: any
 ): Promise<any> {
-  const ext = resolveFormat(file, gisMimeFormatMap).toLowerCase();
+  const ext = resolveGisFormat(file);
 
   if (ext === "geojson") {
     const text = new TextDecoder().decode(buffer);
@@ -478,10 +488,14 @@ async function parseToGeoJson(
   if (ext === "shp") {
     const u8 = new Uint8Array(buffer);
     const isZip = u8[0] === 0x50 && u8[1] === 0x4b && u8[2] === 0x03 && u8[3] === 0x04;
-    if (!isZip) {
-      return null; // Signals raw shapefile
-    }
-    const parsed = await shpLib(buffer);
+    const parsed = await shpLib(isZip ? buffer : { shp: buffer }).catch((error: unknown) => {
+      if (!isZip) {
+        throw new Error(
+          `单个 .shp 几何解析失败：${error instanceof Error ? error.message : "文件内容异常"}。如需属性字段，请同时提供 .dbf/.shx 或上传 zip。`
+        );
+      }
+      throw error;
+    });
     if (Array.isArray(parsed)) {
       const features: any[] = [];
       for (const item of parsed) {
@@ -506,4 +520,15 @@ async function parseToGeoJson(
   } catch {
     throw new Error(`Unsupported GIS format: ${ext}`);
   }
+}
+
+function resolveGisFormat(file: PreviewFile): string {
+  const name = file.name.toLowerCase().split("?")[0]?.split("#")[0] || "";
+  if (name.endsWith(".geo.json")) {
+    return "geojson";
+  }
+  if (name.endsWith(".topo.json")) {
+    return "topojson";
+  }
+  return resolveFormat(file, gisMimeFormatMap).toLowerCase();
 }

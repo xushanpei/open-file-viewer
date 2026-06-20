@@ -13,6 +13,13 @@ const bindPopup = vi.hoisted(() => vi.fn());
 const layerOn = vi.hoisted(() => vi.fn());
 const pointToLayer = vi.hoisted(() => vi.fn());
 const geoJsonStyle = vi.hoisted(() => vi.fn());
+const shpMock = vi.hoisted(() => vi.fn());
+const topojsonFeatureMock = vi.hoisted(() => vi.fn());
+const kmlMock = vi.hoisted(() => vi.fn());
+const gpxMock = vi.hoisted(() => vi.fn());
+const zoomIn = vi.hoisted(() => vi.fn());
+const zoomOut = vi.hoisted(() => vi.fn());
+const getZoom = vi.hoisted(() => vi.fn(() => 2));
 
 vi.mock("leaflet", () => ({
   default: {
@@ -22,6 +29,9 @@ vi.mock("leaflet", () => ({
       setView: vi.fn().mockReturnThis(),
       fitBounds,
       invalidateSize,
+      zoomIn,
+      zoomOut,
+      getZoom,
       remove: removeMap
     })),
     tileLayer: vi.fn(() => ({ addTo: addTileLayer })),
@@ -59,18 +69,18 @@ vi.mock("leaflet", () => ({
 }));
 
 vi.mock("topojson-client", () => ({
-  default: { feature: vi.fn() }
+  default: { feature: topojsonFeatureMock }
 }));
 
 vi.mock("@mapbox/togeojson", () => ({
   default: {
-    kml: vi.fn(),
-    gpx: vi.fn()
+    kml: kmlMock,
+    gpx: gpxMock
   }
 }));
 
 vi.mock("shpjs", () => ({
-  default: vi.fn()
+  default: shpMock
 }));
 
 describe("gisPlugin", () => {
@@ -116,13 +126,15 @@ describe("gisPlugin", () => {
 
     await waitFor(() => Boolean(container.querySelector(".ofv-map-stage")));
 
-    expect(container.querySelector(".ofv-gis-summary")?.textContent).toContain("要素3");
-    expect(container.querySelector(".ofv-gis-summary")?.textContent).toContain("Point 1");
-    expect(container.querySelector(".ofv-gis-summary")?.textContent).toContain("LineString 1");
-    expect(container.querySelector(".ofv-gis-summary")?.textContent).toContain("属性字段3");
-    expect(container.querySelector(".ofv-gis-summary")?.textContent).toContain("name, kind, area");
-    expect(container.querySelector(".ofv-gis-summary")?.textContent).toContain("119, 29, 121, 31");
-    expect(container.querySelector(".ofv-map-legend")?.textContent).toContain("3 个要素");
+    const gisSummary = container.querySelector<HTMLElement>(".ofv-gis-summary");
+    expect(gisSummary?.hidden).toBe(true);
+    expect(gisSummary?.textContent).toContain("要素3");
+    expect(gisSummary?.textContent).toContain("Point 1");
+    expect(gisSummary?.textContent).toContain("LineString 1");
+    expect(gisSummary?.textContent).toContain("属性字段3");
+    expect(gisSummary?.textContent).toContain("name, kind, area");
+    expect(gisSummary?.textContent).toContain("119, 29, 121, 31");
+    expect(container.querySelector(".ofv-map-legend")).toBeNull();
     expect(geoJsonStyle).toHaveBeenCalledWith(expect.objectContaining({ className: "ofv-map-feature", weight: 2 }));
     expect(pointToLayer).toHaveBeenCalledWith(expect.objectContaining({ className: "ofv-map-feature ofv-map-point" }));
     expect(bindTooltip).toHaveBeenCalledWith("Point", expect.objectContaining({ className: "ofv-map-tooltip" }));
@@ -136,6 +148,46 @@ describe("gisPlugin", () => {
 
     viewer.destroy();
     expect(removeMap).toHaveBeenCalledTimes(1);
+  });
+
+  it("supports shared toolbar zoom commands on maps", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    const viewer = createViewer({
+      container,
+      file: new Blob([JSON.stringify({ type: "FeatureCollection", features: [] })], { type: "application/geo+json" }),
+      fileName: "map.geojson",
+      toolbar: true,
+      plugins: [gisPlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-map-stage")));
+
+    const gisSummary = container.querySelector<HTMLElement>(".ofv-gis-summary");
+    expect(gisSummary?.hidden).toBe(false);
+    const zoomInButton = container.querySelector<HTMLButtonElement>('button[aria-label="Zoom in"]');
+    const zoomOutButton = container.querySelector<HTMLButtonElement>('button[aria-label="Zoom out"]');
+    const zoomResetButton = container.querySelector<HTMLButtonElement>('button[aria-label="Reset zoom"]');
+
+    expect(zoomInButton?.disabled).toBe(false);
+    expect(zoomOutButton?.disabled).toBe(false);
+    expect(zoomResetButton?.textContent).toBe("100%");
+
+    zoomInButton?.click();
+    expect(zoomIn).toHaveBeenCalledTimes(1);
+    expect(zoomResetButton?.textContent).toBe("125%");
+
+    zoomOutButton?.click();
+    expect(zoomOut).toHaveBeenCalledTimes(1);
+    expect(zoomResetButton?.textContent).toBe("100%");
+
+    zoomResetButton?.click();
+    expect(fitBounds).toHaveBeenCalled();
+    expect(invalidateSize).toHaveBeenCalled();
+    expect(zoomResetButton?.textContent).toBe("100%");
+
+    viewer.destroy();
   });
 
   it("uses MIME type to parse extensionless GeoJSON blobs", async () => {
@@ -154,10 +206,77 @@ describe("gisPlugin", () => {
 
     await waitFor(() => Boolean(container.querySelector(".ofv-map-stage")));
 
+    const gisSummary = container.querySelector<HTMLElement>(".ofv-gis-summary");
+    expect(gisSummary?.hidden).toBe(false);
     expect(addTileLayer).toHaveBeenCalled();
     expect(addGeoJsonLayer).toHaveBeenCalled();
     expect(container.querySelector(".ofv-map-empty")?.textContent).toContain("暂无可展示的地图要素");
     await waitFor(() => invalidateSize.mock.calls.length > 0);
+  });
+
+  it("routes .geo.json files to the GIS renderer even with plain text MIME", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const geojson = {
+      type: "FeatureCollection",
+      features: [
+        {
+          type: "Feature",
+          properties: { name: "Plain MIME GeoJSON" },
+          geometry: { type: "Point", coordinates: [118, 32] }
+        }
+      ]
+    };
+
+    createViewer({
+      container,
+      file: new Blob([JSON.stringify(geojson)], { type: "text/plain" }),
+      fileName: "USA.geo.json",
+      plugins: [gisPlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-map-stage")));
+
+    expect(container.querySelector(".ofv-code-container")).toBeNull();
+    expect(addGeoJsonLayer).toHaveBeenCalled();
+    const gisSummary = container.querySelector<HTMLElement>(".ofv-gis-summary");
+    expect(gisSummary?.hidden).toBe(true);
+    expect(gisSummary?.textContent).toContain("要素1");
+  });
+
+  it("routes .topo.json files to the TopoJSON renderer", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    topojsonFeatureMock.mockReturnValueOnce({
+      type: "FeatureCollection",
+      features: [
+        {
+          type: "Feature",
+          properties: { name: "TopoJSON place" },
+          geometry: { type: "Point", coordinates: [118, 32] }
+        }
+      ]
+    });
+    const topology = {
+      type: "Topology",
+      objects: {
+        place: { type: "GeometryCollection", geometries: [] }
+      },
+      arcs: []
+    };
+
+    createViewer({
+      container,
+      file: new Blob([JSON.stringify(topology)], { type: "text/plain" }),
+      fileName: "map.topo.json",
+      plugins: [gisPlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-map-stage")));
+
+    expect(topojsonFeatureMock).toHaveBeenCalled();
+    expect(addGeoJsonLayer).toHaveBeenCalled();
+    expect(container.querySelector(".ofv-code-container")).toBeNull();
   });
 
   it("matches GIS MIME types beyond GeoJSON", async () => {
@@ -167,9 +286,157 @@ describe("gisPlugin", () => {
     expect(await gisPlugin().match(file("application/topo+json"))).toBe(true);
   });
 
-  it("shows a helpful message for a raw .shp file", async () => {
+  it("converts KML into map features in the browser", async () => {
     const container = document.createElement("div");
     document.body.append(container);
+    kmlMock.mockReturnValueOnce(featureCollection("KML Place", [121.5, 31.2]));
+
+    const viewer = createViewer({
+      container,
+      file: new Blob(["<kml><Placemark><name>KML Place</name></Placemark></kml>"], {
+        type: "application/vnd.google-earth.kml+xml"
+      }),
+      fileName: "place.kml",
+      plugins: [gisPlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-map-stage")));
+
+    const gisSummary = container.querySelector<HTMLElement>(".ofv-gis-summary");
+    expect(gisSummary?.hidden).toBe(true);
+    expect(kmlMock).toHaveBeenCalledWith(expect.any(Document));
+    expect(gisSummary?.textContent).toContain("要素1");
+    expect(bindTooltip).toHaveBeenCalledWith("KML Place", expect.objectContaining({ className: "ofv-map-tooltip" }));
+
+    viewer.destroy();
+  });
+
+  it("converts GPX tracks into map features in the browser", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    gpxMock.mockReturnValueOnce(featureCollection("Morning Ride", [120.2, 30.1]));
+
+    const viewer = createViewer({
+      container,
+      file: new Blob(["<gpx><trk><name>Morning Ride</name></trk></gpx>"], { type: "application/gpx+xml" }),
+      fileName: "ride.gpx",
+      plugins: [gisPlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-map-stage")));
+
+    const gisSummary = container.querySelector<HTMLElement>(".ofv-gis-summary");
+    expect(gisSummary?.hidden).toBe(true);
+    expect(gpxMock).toHaveBeenCalledWith(expect.any(Document));
+    expect(gisSummary?.textContent).toContain("Point 1");
+    expect(bindTooltip).toHaveBeenCalledWith("Morning Ride", expect.objectContaining({ className: "ofv-map-tooltip" }));
+
+    viewer.destroy();
+  });
+
+  it("extracts KML from KMZ archives and renders it as map features", async () => {
+    const container = document.createElement("div");
+    const zip = new JSZip();
+    zip.file("doc.kml", "<kml><Placemark><name>KMZ Place</name></Placemark></kml>");
+    const buffer = await zip.generateAsync({ type: "arraybuffer" });
+    document.body.append(container);
+    kmlMock.mockReturnValueOnce(featureCollection("KMZ Place", [114.1, 22.3]));
+
+    const viewer = createViewer({
+      container,
+      file: buffer,
+      fileName: "place.kmz",
+      plugins: [gisPlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-map-stage")));
+
+    const gisSummary = container.querySelector<HTMLElement>(".ofv-gis-summary");
+    expect(gisSummary?.hidden).toBe(true);
+    expect(kmlMock).toHaveBeenCalledWith(expect.any(Document));
+    expect(gisSummary?.textContent).toContain("要素1");
+    expect(bindTooltip).toHaveBeenCalledWith("KMZ Place", expect.objectContaining({ className: "ofv-map-tooltip" }));
+
+    viewer.destroy();
+  });
+
+  it("converts every TopoJSON object into a map FeatureCollection", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    topojsonFeatureMock
+      .mockReturnValueOnce(featureCollection("Boundary", [118, 32]))
+      .mockReturnValueOnce({
+        type: "Feature",
+        properties: { name: "Center" },
+        geometry: { type: "Point", coordinates: [118.2, 32.1] }
+      });
+
+    const topology = {
+      type: "Topology",
+      objects: {
+        areas: { type: "GeometryCollection", geometries: [] },
+        center: { type: "Point", coordinates: [0, 0] }
+      },
+      arcs: []
+    };
+
+    const viewer = createViewer({
+      container,
+      file: new Blob([JSON.stringify(topology)], { type: "application/topo+json" }),
+      fileName: "map.topojson",
+      plugins: [gisPlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-map-stage")));
+
+    const gisSummary = container.querySelector<HTMLElement>(".ofv-gis-summary");
+    expect(gisSummary?.hidden).toBe(true);
+    expect(topojsonFeatureMock).toHaveBeenCalledTimes(2);
+    expect(gisSummary?.textContent).toContain("要素2");
+    expect(bindTooltip).toHaveBeenCalledWith("Boundary", expect.objectContaining({ className: "ofv-map-tooltip" }));
+    expect(bindTooltip).toHaveBeenCalledWith("Center", expect.objectContaining({ className: "ofv-map-tooltip" }));
+
+    viewer.destroy();
+  });
+
+  it("renders raw .shp geometry without requiring DBF/SHX sidecars", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    shpMock.mockResolvedValueOnce({
+      type: "FeatureCollection",
+      features: [
+        {
+          type: "Feature",
+          properties: {},
+          geometry: { type: "Point", coordinates: [116.4, 39.9] }
+        }
+      ]
+    });
+
+    const viewer = createViewer({
+      container,
+      file: new Blob([new Uint8Array([0, 1, 2, 3])], { type: "application/octet-stream" }),
+      fileName: "roads.shp",
+      plugins: [gisPlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-map-stage")));
+
+    const gisSummary = container.querySelector<HTMLElement>(".ofv-gis-summary");
+    expect(gisSummary?.hidden).toBe(true);
+    expect(shpMock).toHaveBeenCalledWith(expect.objectContaining({ shp: expect.any(ArrayBuffer) }));
+    expect(gisSummary?.textContent).toContain("要素1");
+    expect(gisSummary?.textContent).toContain("Point 1");
+    expect(container.querySelector(".ofv-viewport")?.classList.contains("ofv-center")).toBe(false);
+
+    viewer.destroy();
+    expect(container.childElementCount).toBe(0);
+  });
+
+  it("shows a helpful message when raw .shp geometry parsing fails", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    shpMock.mockRejectedValueOnce(new Error("bad shape header"));
 
     const viewer = createViewer({
       container,
@@ -180,11 +447,11 @@ describe("gisPlugin", () => {
 
     await waitFor(() => Boolean(container.querySelector(".ofv-fallback")));
 
-    expect(container.textContent).toContain("无法直接预览单个 .shp 文件");
-    expect(container.querySelector(".ofv-viewport")?.classList.contains("ofv-center")).toBe(true);
+    expect(container.textContent).toContain("GIS 数据解析失败");
+    expect(container.textContent).toContain("单个 .shp 几何解析失败：bad shape header");
+    expect(container.textContent).toContain("如需属性字段");
 
     viewer.destroy();
-    expect(container.childElementCount).toBe(0);
   });
 
   it("shows a local fallback when GeoJSON parsing fails", async () => {
@@ -244,6 +511,19 @@ function file(mimeType: string) {
     mimeType,
     size: 1,
     blob: new Blob(["x"], { type: mimeType })
+  };
+}
+
+function featureCollection(name: string, coordinates: [number, number]) {
+  return {
+    type: "FeatureCollection",
+    features: [
+      {
+        type: "Feature",
+        properties: { name },
+        geometry: { type: "Point", coordinates }
+      }
+    ]
   };
 }
 

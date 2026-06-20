@@ -1,7 +1,7 @@
 import JSZip from "jszip";
 import DOMPurify from "dompurify";
 import type { WorkBook } from "xlsx";
-import type { PreviewPlugin } from "../types";
+import type { PreviewCommand, PreviewContext, PreviewPlugin } from "../types";
 import { createPanel, createSection, decodeTextBuffer, readArrayBuffer, resolveFormat } from "./utils";
 
 const wordExtensions = new Set(["docx", "docm", "doc", "dotx", "dotm", "dot", "rtf", "odt", "fodt", "wps"]);
@@ -10,6 +10,7 @@ const presentationExtensions = new Set(["pptx", "pptm", "ppt", "pps", "ppsx", "p
 const packagedOfficeCandidates = new Set(["wps", "et", "dps", "numbers", "key"]);
 const SHEET_WINDOW_ROWS = 200;
 const SHEET_WINDOW_COLUMNS = 80;
+const DEFAULT_PPTX_RENDER_TIMEOUT_MS = 12000;
 const PPTX_REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships";
 const officeMimeTypes = new Set([
   "application/msword",
@@ -156,13 +157,77 @@ export function officePlugin(): PreviewPlugin {
       } else {
         renderUnsupportedOffice(panel, extension || ctx.file.extension || "office");
       }
+      const controller = createOfficeZoomController(panel, ctx);
+      ctx.toolbar?.refreshCommandSupport();
 
       return {
+        canCommand(command) {
+          return controller?.canCommand(command) ?? false;
+        },
+        command(command) {
+          return controller?.command(command) ?? false;
+        },
         destroy() {
+          controller?.destroy();
           disposeDocxFit?.();
           panel.remove();
         }
       };
+    }
+  };
+}
+
+function createOfficeZoomController(
+  panel: HTMLElement,
+  ctx: Pick<PreviewContext, "toolbar">
+): {
+  canCommand: (command: PreviewCommand) => boolean;
+  command: (command: PreviewCommand) => boolean;
+  destroy: () => void;
+} | undefined {
+  const canZoom = Boolean(
+    panel.querySelector(".ofv-docx-document, .ofv-sheet, .ofv-pptx-viewer > div, .ofv-document, .ofv-text-block, .ofv-slide")
+  );
+  if (!canZoom) {
+    return undefined;
+  }
+
+  let zoom = 1;
+  const apply = () => {
+    panel.style.setProperty("--ofv-office-zoom", String(zoom));
+    panel.dispatchEvent(new CustomEvent("ofv-office-zoom"));
+    for (const slide of panel.querySelectorAll<HTMLElement>(".ofv-pptx-viewer > div[data-slide-index]")) {
+      slide.style.transformOrigin = "top left";
+      slide.style.transform = zoom === 1 ? "" : `scale(${zoom})`;
+    }
+    ctx.toolbar?.setZoom(zoom);
+  };
+  apply();
+
+  return {
+    canCommand(command) {
+      return command === "zoom-in" || command === "zoom-out" || command === "zoom-reset";
+    },
+    command(command) {
+      if (command === "zoom-in") {
+        zoom = Math.min(3, Number((zoom + 0.12).toFixed(2)));
+        apply();
+        return true;
+      }
+      if (command === "zoom-out") {
+        zoom = Math.max(0.5, Number((zoom - 0.12).toFixed(2)));
+        apply();
+        return true;
+      }
+      if (command === "zoom-reset") {
+        zoom = 1;
+        apply();
+        return true;
+      }
+      return false;
+    },
+    destroy() {
+      ctx.toolbar?.setZoom(undefined);
     }
   };
 }
@@ -198,11 +263,14 @@ async function detectPackagedOfficeFormat(arrayBuffer: ArrayBuffer): Promise<"do
 async function renderDocx(panel: HTMLElement, arrayBuffer: ArrayBuffer): Promise<() => void> {
   const content = document.createElement("div");
   content.className = "ofv-docx-document";
-  panel.append(content);
+  const styleContainer = document.createElement("div");
+  styleContainer.className = "ofv-docx-style-container";
+  document.head.append(styleContainer);
+  let disposeFit: (() => void) | undefined;
 
   try {
     const docxPreview = await import("docx-preview");
-    await docxPreview.renderAsync(arrayBuffer, content, content, {
+    await docxPreview.renderAsync(arrayBuffer, content, styleContainer, {
       className: "ofv-docx",
       inWrapper: true,
       breakPages: true,
@@ -218,28 +286,594 @@ async function renderDocx(panel: HTMLElement, arrayBuffer: ArrayBuffer): Promise
       experimental: true,
       useBase64URL: true
     });
-    normalizeDocxLayout(content);
-    return fitDocxPages(content);
-  } catch (error) {
-    content.replaceChildren();
-    const fallbackNote = document.createElement("div");
-    fallbackNote.className = "ofv-docx-fallback-note";
-    fallbackNote.textContent = "高保真 DOCX 渲染失败，已切换为基础内容预览。";
-    content.append(fallbackNote);
-    try {
-      await renderDocxWithMammoth(content, arrayBuffer);
-    } catch (fallbackError) {
-      await renderDocxTextFallback(content, arrayBuffer);
-      console.warn("DOCX content fallback failed, used raw OpenXML text extraction:", fallbackError);
+    await normalizeDocxLayout(content, arrayBuffer);
+    const shouldUseTextboxFallback =
+      await docxPreviewLooksBlank(content, arrayBuffer) || (await docxPreviewMissesRichTextboxContent(content, arrayBuffer));
+    if (shouldUseTextboxFallback) {
+      disposeFit?.();
+      styleContainer.remove();
+      content.replaceChildren();
+      await renderDocxContentFallback(content, arrayBuffer, {
+        preferOpenXml: await docxHasRichTextboxContent(arrayBuffer)
+      });
+      panel.append(content);
+      console.warn("DOCX layout preview missed readable textbox content, fell back to text extraction.");
+      return () => undefined;
     }
+    panel.append(content);
+    disposeFit = fitDocxPages(content);
+    return () => {
+      disposeFit?.();
+      styleContainer.remove();
+    };
+  } catch (error) {
+    disposeFit?.();
+    styleContainer.remove();
+    content.replaceChildren();
+    await renderDocxContentFallback(content, arrayBuffer);
+    panel.append(content);
     console.warn("DOCX layout preview failed, fell back to Mammoth:", error);
   }
   return () => undefined;
 }
 
-function normalizeDocxLayout(container: HTMLElement): void {
+async function docxPreviewLooksBlank(container: HTMLElement, arrayBuffer: ArrayBuffer): Promise<boolean> {
+  if (container.querySelector("img, svg, canvas, table")) {
+    return false;
+  }
+  const renderedText = normalizePreviewText(container.textContent || "");
+  if (renderedText.length >= 24) {
+    return false;
+  }
+
+  try {
+    const paragraphs = await extractDocxParagraphs(arrayBuffer);
+    const sourceText = normalizePreviewText(paragraphs.join(""));
+    return sourceText.length >= 24 && sourceText.length > renderedText.length * 4;
+  } catch {
+    return false;
+  }
+}
+
+async function docxPreviewMissesRichTextboxContent(container: HTMLElement, arrayBuffer: ArrayBuffer): Promise<boolean> {
+  try {
+    if (!(await docxHasRichTextboxContent(arrayBuffer))) {
+      return false;
+    }
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    const documentXml = await zip.file("word/document.xml")?.async("text");
+    if (!documentXml) {
+      return false;
+    }
+    const sourceParagraphs = dedupeParagraphs(extractWordTextboxParagraphs(documentXml))
+      .map((paragraph) => normalizePreviewText(paragraph))
+      .filter((paragraph) => paragraph.length >= 3);
+    if (sourceParagraphs.length < 4) {
+      return false;
+    }
+
+    const renderedText = normalizePreviewText(container.textContent || "");
+    const firstImportantParagraphs = sourceParagraphs.slice(0, Math.min(4, sourceParagraphs.length));
+    const firstCoverage = firstImportantParagraphs.filter((paragraph) => renderedText.includes(paragraph)).length / firstImportantParagraphs.length;
+    const totalCoverage = sourceParagraphs.filter((paragraph) => renderedText.includes(paragraph)).length / sourceParagraphs.length;
+    return firstCoverage < 0.5 || totalCoverage < 0.45;
+  } catch {
+    return false;
+  }
+}
+
+async function docxHasRichTextboxContent(arrayBuffer: ArrayBuffer): Promise<boolean> {
+  try {
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    const documentXml = await zip.file("word/document.xml")?.async("text");
+    if (!documentXml || !/\btxbxContent\b/.test(documentXml)) {
+      return false;
+    }
+    const textboxCount = (documentXml.match(/\btxbxContent\b/g) || []).length;
+    const textboxParagraphs = extractWordTextboxParagraphs(documentXml);
+    const textboxTextLength = normalizePreviewText(textboxParagraphs.join("")).length;
+    const documentTextLength = normalizePreviewText(extractOpenXmlText(documentXml).join("")).length;
+    return (
+      (textboxCount >= 3 || textboxParagraphs.length >= 3 || textboxTextLength >= 160) &&
+      textboxTextLength >= 8 &&
+      textboxTextLength >= documentTextLength * 0.4
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function renderDocxContentFallback(
+  container: HTMLElement,
+  arrayBuffer: ArrayBuffer,
+  options: { preferOpenXml?: boolean; showNote?: boolean } = {}
+): Promise<void> {
+  if (options.showNote !== false) {
+    const fallbackNote = document.createElement("div");
+    fallbackNote.className = "ofv-docx-fallback-note";
+    fallbackNote.textContent = "高保真 DOCX 渲染不可用，已切换为基础内容预览。";
+    hideSupplementalInfo(fallbackNote);
+    container.append(fallbackNote);
+  }
+  if (options.preferOpenXml) {
+    if (await renderDocxTextboxLayoutFallback(container, arrayBuffer)) {
+      return;
+    }
+    await renderDocxTextFallback(container, arrayBuffer);
+    return;
+  }
+  try {
+    await renderDocxWithMammoth(container, arrayBuffer);
+    const renderedText = normalizePreviewText(container.querySelector(".ofv-document")?.textContent || "");
+    if (renderedText.length >= 24) {
+      return;
+    }
+    container.querySelector(".ofv-document")?.remove();
+    await renderDocxTextFallback(container, arrayBuffer);
+  } catch (fallbackError) {
+    await renderDocxTextFallback(container, arrayBuffer);
+    console.warn("DOCX content fallback failed, used raw OpenXML text extraction:", fallbackError);
+  }
+}
+
+type DocxTextboxBlock = {
+  order: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  relativeV: string;
+  fill?: string;
+  paragraphs: string[];
+};
+
+type DocxTextboxColumnLayout = {
+  sidebar: Set<number>;
+  main: Set<number>;
+  sidebarLeft: number;
+  mainLeft: number;
+  sidebarWidth: number;
+  mainWidth: number;
+};
+
+async function renderDocxTextboxLayoutFallback(container: HTMLElement, arrayBuffer: ArrayBuffer): Promise<boolean> {
+  try {
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    const documentXml = await zip.file("word/document.xml")?.async("text");
+    if (!documentXml) {
+      return false;
+    }
+    const blocks = extractDocxTextboxBlocks(documentXml);
+    const meaningfulBlocks = blocks.filter((block) => block.paragraphs.length > 0);
+    if (meaningfulBlocks.length < 4) {
+      return false;
+    }
+    if (renderDocxAnchoredTextboxFallback(container, meaningfulBlocks, blocks)) {
+      return true;
+    }
+    const page = document.createElement("article");
+    page.className = "ofv-document ofv-docx-textbox-layout";
+    const sidebar = document.createElement("section");
+    sidebar.className = "ofv-docx-textbox-sidebar";
+    const main = document.createElement("section");
+    main.className = "ofv-docx-textbox-main";
+
+    const ordered = [...meaningfulBlocks].sort((a, b) => a.order - b.order);
+    const leftThreshold = ordered.some((block) => block.x < 0) ? 0 : Math.min(...ordered.map((block) => block.x)) + 72;
+    for (const block of ordered) {
+      const card = createDocxTextboxBlockElement(block);
+      if (block.x < leftThreshold && block.width < 260) {
+        card.classList.add("ofv-docx-textbox-sidebar-block");
+        sidebar.append(card);
+      } else {
+        card.classList.add("ofv-docx-textbox-main-block");
+        main.append(card);
+      }
+    }
+
+    if (sidebar.childElementCount === 0 || main.childElementCount === 0) {
+      for (const block of ordered) {
+        page.append(createDocxTextboxBlockElement(block));
+      }
+    } else {
+      page.append(sidebar, main);
+    }
+    container.append(page);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function extractDocxTextboxBlocks(xml: string): DocxTextboxBlock[] {
+  const blocks: DocxTextboxBlock[] = [];
+  let order = 0;
+  for (const match of xml.matchAll(/<wp:anchor\b[\s\S]*?<\/wp:anchor>/g)) {
+    const anchor = match[0];
+    const textboxMatches = [...anchor.matchAll(/<w:txbxContent\b[\s\S]*?<\/w:txbxContent>/g)];
+    const extent = /<wp:extent\b[^>]*\bcx="(\d+)"[^>]*\bcy="(\d+)"/.exec(anchor);
+    const offsets = [...anchor.matchAll(/<wp:posOffset>(-?\d+)<\/wp:posOffset>/g)].map((item) => Number(item[1]));
+    const fill = /<a:solidFill>[\s\S]*?<a:srgbClr\b[^>]*\bval="([A-Fa-f0-9]+)"/.exec(anchor)?.[1];
+    if (textboxMatches.length === 0 && !fill) {
+      continue;
+    }
+    const block: DocxTextboxBlock = {
+      order,
+      x: emuToPt(offsets[0] || 0),
+      y: emuToPt(offsets[1] || 0),
+      relativeV: /<wp:positionV\b[^>]*\brelativeFrom="([^"]+)"/.exec(anchor)?.[1] || "",
+      width: emuToPt(Number(extent?.[1] || 0)),
+      height: emuToPt(Number(extent?.[2] || 0)),
+      fill,
+      paragraphs:
+        textboxMatches.length > 0
+          ? dedupeParagraphs(
+              textboxMatches
+                .flatMap((textbox) => extractWordTextboxParagraphs(textbox[0]))
+                .map((text) => text.replace(/\s+/g, " ").trim())
+            )
+          : []
+    };
+    if (block.width > 0 && block.height > 0) {
+      blocks.push(block);
+    }
+    order += 1;
+  }
+  return blocks;
+}
+
+function renderDocxAnchoredTextboxFallback(container: HTMLElement, blocks: DocxTextboxBlock[], sourceBlocks = blocks): boolean {
+  const pageBlocks = blocks.filter((block) => block.relativeV === "page");
+  const paragraphBlocks = blocks.filter((block) => block.relativeV !== "page");
+  if (pageBlocks.length < 3 || paragraphBlocks.length < 4) {
+    return false;
+  }
+
+  const continuationMarkers = findDocxTextboxContinuationMarkers(sourceBlocks);
+  const continuationMarkerOrder = continuationMarkers[0]?.order ?? Number.POSITIVE_INFINITY;
+  const firstPageBlocks = pageBlocks.filter(
+    (block) => block.order < continuationMarkerOrder && !isDocxTextboxLargeBackground(block)
+  );
+  const firstPageParagraphBlocks = paragraphBlocks.filter(
+    (block) => block.order < continuationMarkerOrder && isDocxTextboxFirstPageFlowBlock(block)
+  );
+  const continuationBlocks = blocks.filter(
+    (block) => block.order >= continuationMarkerOrder || (block.relativeV !== "page" && !isDocxTextboxFirstPageFlowBlock(block))
+  );
+  const continuationGroups = groupDocxTextboxContinuationBlocks(blocks, continuationMarkers, continuationMarkerOrder);
+  if (firstPageBlocks.length < 3) {
+    return false;
+  }
+
+  const page = document.createElement("article");
+  page.className = "ofv-document ofv-docx-textbox-page";
+  page.style.setProperty("--ofv-docx-textbox-page-width", "595pt");
+
+  const contentLeft = Math.min(...firstPageBlocks.map((block) => block.x));
+  const contentRight = Math.max(...firstPageBlocks.map((block) => block.x + Math.max(block.width, 24)));
+  const normalizedWidth = Math.max(420, contentRight - contentLeft + 36);
+  const pageWidth = Math.max(595, normalizedWidth);
+  const normalizeX = (block: DocxTextboxBlock) => block.x - contentLeft + (pageWidth - normalizedWidth) / 2;
+  const normalizeY = (block: DocxTextboxBlock) => Math.max(0, block.y + 24);
+  const columns = classifyDocxTextboxColumns([...firstPageBlocks, ...firstPageParagraphBlocks, ...continuationBlocks], normalizeX);
+  const sidebarBackground = findDocxTextboxSidebarBackground(sourceBlocks);
+  if (sidebarBackground?.fill) {
+    page.classList.add("ofv-docx-textbox-page-has-sidebar");
+    page.style.setProperty("--ofv-docx-textbox-sidebar-bg", `#${sidebarBackground.fill}`);
+    page.style.setProperty("--ofv-docx-textbox-sidebar-width", `${formatCssNumber(inferDocxTextboxSidebarBackgroundWidth(columns))}pt`);
+  }
+
+  for (const block of firstPageBlocks) {
+    const element = createDocxPositionedTextboxBlockElement(block);
+    element.classList.add(columns.sidebar.has(block.order) ? "ofv-docx-textbox-page-sidebar-block" : "ofv-docx-textbox-page-main-block");
+    if (columns.main.has(block.order)) {
+      element.classList.remove("ofv-docx-textbox-page-filled-block");
+    }
+    element.style.left = `${formatCssNumber(normalizeX(block))}pt`;
+    element.style.top = `${formatCssNumber(normalizeY(block))}pt`;
+    element.style.width = `${formatCssNumber(Math.max(24, block.width))}pt`;
+    if (block.height > 0) {
+      element.style.minHeight = `${formatCssNumber(block.height)}pt`;
+    }
+    page.append(element);
+  }
+
+  const sidebarFlowBlocks = firstPageParagraphBlocks.filter((block) => columns.sidebar.has(block.order));
+  const mainFlowBlocks = firstPageParagraphBlocks.filter((block) => columns.main.has(block.order));
+  const pageAnchorsBottom = Math.max(
+    ...firstPageBlocks.map((block) => normalizeY(block) + Math.max(block.height, estimateDocxTextboxBlockHeight(block)))
+  );
+  const sidebarFlowTop = estimateDocxTextboxColumnFlowStart(firstPageBlocks, columns.sidebar, normalizeY, pageAnchorsBottom);
+  const mainFlowTop = estimateDocxTextboxColumnFlowStart(firstPageBlocks, columns.main, normalizeY, pageAnchorsBottom);
+  const sidebarFlowBottom = appendDocxTextboxFlowColumn(page, sidebarFlowBlocks, {
+    className: "ofv-docx-textbox-page-sidebar-flow",
+    leftPt: columns.sidebarLeft,
+    topPt: sidebarFlowTop,
+    widthPt: columns.sidebarWidth
+  });
+  const mainFlowBottom = appendDocxTextboxFlowColumn(page, mainFlowBlocks, {
+    className: "ofv-docx-textbox-page-main-flow",
+    leftPt: columns.mainLeft,
+    topPt: mainFlowTop,
+    widthPt: columns.mainWidth
+  });
+  page.style.minHeight = `${formatCssNumber(Math.max(842, pageAnchorsBottom + 36, sidebarFlowBottom + 36, mainFlowBottom + 36))}pt`;
+
+  container.append(page);
+  appendDocxTextboxContinuationPages(
+    container,
+    continuationGroups.length > 0 ? continuationGroups : [continuationBlocks],
+    columns,
+    sidebarBackground
+  );
+  return true;
+}
+
+function findDocxTextboxContinuationMarkers(blocks: DocxTextboxBlock[]): DocxTextboxBlock[] {
+  return blocks
+    .filter(isDocxTextboxLargeBackground)
+    .sort((a, b) => a.order - b.order)
+    .slice(1);
+}
+
+function isDocxTextboxLargeBackground(block: DocxTextboxBlock): boolean {
+  return block.paragraphs.length === 0 && Boolean(block.fill) && block.relativeV === "page" && block.width >= 120 && block.height >= 500;
+}
+
+function isDocxTextboxFirstPageFlowBlock(block: DocxTextboxBlock): boolean {
+  return block.y >= -5;
+}
+
+function groupDocxTextboxContinuationBlocks(
+  blocks: DocxTextboxBlock[],
+  markers: DocxTextboxBlock[],
+  firstMarkerOrder: number
+): DocxTextboxBlock[][] {
+  if (markers.length === 0) {
+    return [];
+  }
+  return markers
+    .map((marker, index) => {
+      const nextMarkerOrder = markers[index + 1]?.order ?? Number.POSITIVE_INFINITY;
+      const preMarkerParagraphBlocks =
+        index === 0
+          ? blocks.filter(
+              (block) =>
+                block.relativeV !== "page" && block.order < firstMarkerOrder && !isDocxTextboxFirstPageFlowBlock(block)
+            )
+          : [];
+      const markerPageBlocks = blocks.filter((block) => block.order >= marker.order && block.order < nextMarkerOrder);
+      return [...preMarkerParagraphBlocks, ...markerPageBlocks]
+        .filter((block) => block.paragraphs.length > 0)
+        .sort((a, b) => a.order - b.order);
+    })
+    .filter((group) => group.length > 0);
+}
+
+function appendDocxTextboxContinuationPages(
+  container: HTMLElement,
+  groups: DocxTextboxBlock[][],
+  columns: DocxTextboxColumnLayout,
+  sidebarBackground?: DocxTextboxBlock
+): void {
+  for (const blocks of groups) {
+    appendDocxTextboxContinuationPage(container, blocks, columns, sidebarBackground);
+  }
+}
+
+function appendDocxTextboxContinuationPage(
+  container: HTMLElement,
+  contentBlocks: DocxTextboxBlock[],
+  columns: DocxTextboxColumnLayout,
+  sidebarBackground?: DocxTextboxBlock
+): void {
+  if (contentBlocks.length === 0) {
+    return;
+  }
+  const page = document.createElement("article");
+  page.className = "ofv-document ofv-docx-textbox-page";
+  page.style.setProperty("--ofv-docx-textbox-page-width", "595pt");
+  if (sidebarBackground?.fill) {
+    page.classList.add("ofv-docx-textbox-page-has-sidebar");
+    page.style.setProperty("--ofv-docx-textbox-sidebar-bg", `#${sidebarBackground.fill}`);
+    page.style.setProperty("--ofv-docx-textbox-sidebar-width", `${formatCssNumber(inferDocxTextboxSidebarBackgroundWidth(columns))}pt`);
+  }
+
+  const sidebarFlowBottom = appendDocxTextboxFlowColumn(page, contentBlocks.filter((block) => columns.sidebar.has(block.order)), {
+    className: "ofv-docx-textbox-page-sidebar-flow",
+    leftPt: columns.sidebarLeft,
+    topPt: 42,
+    widthPt: columns.sidebarWidth
+  });
+  const mainFlowBottom = appendDocxTextboxFlowColumn(page, contentBlocks.filter((block) => columns.main.has(block.order)), {
+    className: "ofv-docx-textbox-page-main-flow",
+    leftPt: columns.mainLeft,
+    topPt: 42,
+    widthPt: columns.mainWidth
+  });
+  page.style.minHeight = `${formatCssNumber(Math.max(842, sidebarFlowBottom + 36, mainFlowBottom + 36))}pt`;
+  container.append(page);
+}
+
+function findDocxTextboxSidebarBackground(blocks: DocxTextboxBlock[]): DocxTextboxBlock | undefined {
+  return blocks
+    .filter((block) => block.paragraphs.length === 0 && block.fill && block.relativeV === "page" && block.x < 0 && block.width >= 120 && block.height >= 500)
+    .sort((a, b) => b.height * b.width - a.height * a.width)[0];
+}
+
+function inferDocxTextboxSidebarBackgroundWidth(columns: DocxTextboxColumnLayout): number {
+  const contentRight = columns.sidebarLeft + columns.sidebarWidth + 4;
+  const beforeMain = columns.mainLeft - 36;
+  return Math.max(96, Math.min(contentRight, beforeMain));
+}
+
+function classifyDocxTextboxColumns(
+  blocks: DocxTextboxBlock[],
+  normalizeX: (block: DocxTextboxBlock) => number
+): DocxTextboxColumnLayout {
+  const columnThreshold = inferDocxTextboxColumnThreshold(blocks);
+  const leftBlocks = blocks.filter((block) => block.x < columnThreshold);
+  const rightBlocks = blocks.filter((block) => !leftBlocks.includes(block));
+  const sidebar = new Set(leftBlocks.map((block) => block.order));
+  const main = new Set(rightBlocks.map((block) => block.order));
+  const sidebarLeft = Math.max(28, Math.min(...leftBlocks.map((block) => normalizeX(block))));
+  const mainLeft = Math.max(210, Math.min(...rightBlocks.map((block) => normalizeX(block))));
+  const sidebarWidth = Math.min(180, Math.max(120, Math.max(...leftBlocks.map((block) => block.width))));
+  const mainWidth = Math.min(380, Math.max(280, Math.max(...rightBlocks.map((block) => block.width))));
+  return { sidebar, main, sidebarLeft, mainLeft, sidebarWidth, mainWidth };
+}
+
+function estimateDocxTextboxColumnFlowStart(
+  pageBlocks: DocxTextboxBlock[],
+  columnOrders: Set<number>,
+  normalizeY: (block: DocxTextboxBlock) => number,
+  fallbackTop: number
+): number {
+  const sameColumnAnchors = pageBlocks.filter((block) => columnOrders.has(block.order));
+  const anchorBottom = Math.max(
+    0,
+    ...sameColumnAnchors.map((block) => normalizeY(block) + Math.max(block.height, estimateDocxTextboxBlockHeight(block)))
+  );
+  if (anchorBottom > 0) {
+    return anchorBottom + 14;
+  }
+  return fallbackTop + 18;
+}
+
+function inferDocxTextboxColumnThreshold(blocks: DocxTextboxBlock[]): number {
+  const xs = [...new Set(blocks.map((block) => Math.round(block.x * 10) / 10))].sort((a, b) => a - b);
+  if (xs.length < 2) {
+    return xs[0] ?? 0;
+  }
+  let splitIndex = 0;
+  let largestGap = -Infinity;
+  for (let index = 0; index < xs.length - 1; index += 1) {
+    const gap = xs[index + 1] - xs[index];
+    if (gap > largestGap) {
+      largestGap = gap;
+      splitIndex = index;
+    }
+  }
+  return (xs[splitIndex] + xs[splitIndex + 1]) / 2;
+}
+
+function appendDocxTextboxFlowColumn(
+  page: HTMLElement,
+  blocks: DocxTextboxBlock[],
+  options: { className: string; leftPt: number; topPt: number; widthPt: number }
+): number {
+  if (blocks.length === 0) {
+    return options.topPt;
+  }
+  const column = document.createElement("div");
+  column.className = `ofv-docx-textbox-page-flow ${options.className}`;
+  column.style.left = `${formatCssNumber(options.leftPt)}pt`;
+  column.style.top = `${formatCssNumber(options.topPt)}pt`;
+  column.style.width = `${formatCssNumber(options.widthPt)}pt`;
+
+  let flowBottom = options.topPt;
+  for (const block of orderDocxTextboxFlowBlocks(blocks)) {
+    const element = createDocxTextboxBlockElement(block);
+    element.classList.add("ofv-docx-textbox-flow-block");
+    column.append(element);
+    flowBottom += estimateDocxTextboxBlockHeight(block) + 10;
+  }
+  page.append(column);
+  return flowBottom;
+}
+
+function orderDocxTextboxFlowBlocks(blocks: DocxTextboxBlock[]): DocxTextboxBlock[] {
+  const ordered = [...blocks].sort((a, b) => a.order - b.order);
+  const result: DocxTextboxBlock[] = [];
+  for (const block of ordered) {
+    const previous = result[result.length - 1];
+    const previousPrevious = result[result.length - 2];
+    if (
+      previous &&
+      isStandaloneDocxTextboxHeadingBlock(block) &&
+      !isStandaloneDocxTextboxHeadingBlock(previous) &&
+      !isStandaloneDocxTextboxHeadingBlock(previousPrevious)
+    ) {
+      result.splice(result.length - 1, 0, block);
+    } else {
+      result.push(block);
+    }
+  }
+  return result;
+}
+
+function isStandaloneDocxTextboxHeadingBlock(block?: DocxTextboxBlock): boolean {
+  if (!block || block.paragraphs.length !== 1) {
+    return false;
+  }
+  return looksLikeDocxTextboxHeading(block.paragraphs[0]);
+}
+
+function createDocxPositionedTextboxBlockElement(block: DocxTextboxBlock): HTMLElement {
+  const section = createDocxTextboxBlockElement(block);
+  section.classList.add("ofv-docx-textbox-page-block");
+  if (block.fill) {
+    section.classList.add("ofv-docx-textbox-page-filled-block");
+  }
+  if (block.paragraphs.length <= 2 && !block.fill) {
+    section.classList.add("ofv-docx-textbox-page-title-block");
+  }
+  return section;
+}
+
+function createDocxTextboxBlockElement(block: DocxTextboxBlock): HTMLElement {
+  const section = document.createElement("section");
+  section.className = "ofv-docx-textbox-block";
+  if (block.fill) {
+    section.classList.add("ofv-docx-textbox-block-filled");
+    section.style.setProperty("--ofv-docx-textbox-fill", `#${block.fill}`);
+  }
+  const paragraphs = normalizeDocxTextboxParagraphOrder(block);
+  const [first, ...rest] = paragraphs;
+  if (first) {
+    const heading = document.createElement("h3");
+    heading.textContent = first;
+    section.append(heading);
+  }
+  const body = rest.length > 0 ? rest : [];
+  for (const paragraphText of body) {
+    const paragraph = document.createElement("p");
+    paragraph.textContent = paragraphText;
+    section.append(paragraph);
+  }
+  return section;
+}
+
+function estimateDocxTextboxBlockHeight(block: DocxTextboxBlock): number {
+  return Math.max(block.height, 18 + block.paragraphs.length * 14);
+}
+
+function estimateDocxTextboxFlowHeight(blocks: DocxTextboxBlock[]): number {
+  return blocks.reduce((total, block) => total + estimateDocxTextboxBlockHeight(block) + 10, 0);
+}
+
+function normalizeDocxTextboxParagraphOrder(block: DocxTextboxBlock): string[] {
+  if (!block.fill || block.paragraphs.length < 2) {
+    return block.paragraphs;
+  }
+  const last = block.paragraphs[block.paragraphs.length - 1];
+  if (looksLikeDocxTextboxHeading(last)) {
+    return [last, ...block.paragraphs.slice(0, -1)];
+  }
+  return block.paragraphs;
+}
+
+function looksLikeDocxTextboxHeading(value: string): boolean {
+  const text = normalizePreviewText(value);
+  return text.length > 0 && text.length <= 12 && !/[0-9@.:：]/.test(text);
+}
+
+async function normalizeDocxLayout(container: HTMLElement, arrayBuffer: ArrayBuffer): Promise<void> {
+  const hints = await readDocxLayoutHints(arrayBuffer);
   const pages = container.querySelectorAll<HTMLElement>("section.ofv-docx");
   for (const page of pages) {
+    repairDocxShapeFills(page);
+    repairDocxFloatingPictures(page, hints);
     for (const element of page.querySelectorAll<HTMLElement>("[style*='line-height']")) {
       const lineHeight = parseCssLineHeight(element.style.lineHeight);
       if (lineHeight > 0 && lineHeight < 1) {
@@ -247,6 +881,127 @@ function normalizeDocxLayout(container: HTMLElement): void {
       }
     }
   }
+}
+
+type DocxLayoutHints = {
+  floatingPictures: Array<{
+    widthPt: number;
+    heightPt: number;
+    offsetXPt: number;
+    offsetYPt: number;
+    relativeFrom: string;
+    relativeToParagraph: boolean;
+    wrap: string;
+  }>;
+};
+
+async function readDocxLayoutHints(arrayBuffer: ArrayBuffer): Promise<DocxLayoutHints> {
+  try {
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    const documentXml = await zip.file("word/document.xml")?.async("text");
+    if (!documentXml) {
+      return { floatingPictures: [] };
+    }
+    return { floatingPictures: extractFloatingPictureHints(documentXml) };
+  } catch {
+    return { floatingPictures: [] };
+  }
+}
+
+function extractFloatingPictureHints(xml: string): DocxLayoutHints["floatingPictures"] {
+  return [...xml.matchAll(/<wp:anchor\b[\s\S]*?<\/wp:anchor>/g)]
+    .filter((match) => /<a:graphicData\b[^>]*uri="http:\/\/schemas\.openxmlformats\.org\/drawingml\/2006\/picture"/.test(match[0]))
+    .map((match) => {
+      const anchor = match[0];
+      const extent = /<wp:extent\b[^>]*\bcx="(\d+)"[^>]*\bcy="(\d+)"/.exec(anchor);
+      const offsetX = /<wp:positionH\b[^>]*\brelativeFrom="([^"]+)"[\s\S]*?<wp:posOffset>(-?\d+)<\/wp:posOffset>/.exec(anchor);
+      const offsetY = /<wp:positionV\b[^>]*\brelativeFrom="([^"]+)"[\s\S]*?<wp:posOffset>(-?\d+)<\/wp:posOffset>/.exec(anchor);
+      return {
+        widthPt: emuToPt(Number(extent?.[1] || 0)),
+        heightPt: emuToPt(Number(extent?.[2] || 0)),
+        offsetXPt: emuToPt(Number(offsetX?.[2] || 0)),
+        offsetYPt: emuToPt(Number(offsetY?.[2] || 0)),
+        relativeFrom: offsetX?.[1] || "",
+        relativeToParagraph: offsetY?.[1] === "paragraph",
+        wrap: /<wp:wrapSquare\b/.test(anchor) ? "square" : /<wp:wrapNone\b/.test(anchor) ? "none" : ""
+      };
+    })
+    .filter((hint) => hint.widthPt > 0 && hint.heightPt > 0);
+}
+
+function emuToPt(value: number): number {
+  return value / 12700;
+}
+
+function repairDocxShapeFills(page: HTMLElement): void {
+  for (const svg of page.querySelectorAll<SVGSVGElement>("svg")) {
+    const image = svg.querySelector<SVGElement>("image[fill]");
+    if (!image) {
+      continue;
+    }
+    const fill = image.getAttribute("fill");
+    if (!fill || svg.querySelector("rect[data-ofv-docx-shape-fill]")) {
+      continue;
+    }
+    const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    rect.setAttribute("data-ofv-docx-shape-fill", "true");
+    rect.setAttribute("x", "0");
+    rect.setAttribute("y", "0");
+    rect.setAttribute("width", "100%");
+    rect.setAttribute("height", "100%");
+    rect.setAttribute("fill", fill);
+    const stroke = image.getAttribute("stroke");
+    if (stroke && stroke !== "null") {
+      rect.setAttribute("stroke", stroke);
+      rect.setAttribute("stroke-width", image.getAttribute("stroke-width") || "1");
+    }
+    svg.insertBefore(rect, svg.firstChild);
+  }
+}
+
+function repairDocxFloatingPictures(page: HTMLElement, hints: DocxLayoutHints): void {
+  const hint = hints.floatingPictures.find((item) => item.relativeFrom === "column" && item.wrap === "square");
+  if (!hint) {
+    return;
+  }
+  const image = page.querySelector<HTMLImageElement>("img");
+  if (!image) {
+    return;
+  }
+  const wrapper = image.parentElement as HTMLElement | null;
+  if (!wrapper || wrapper.dataset.ofvDocxFloatRepaired === "true") {
+    return;
+  }
+  const pageWidth = parseCssPixelValue(page.style.width) || page.getBoundingClientRect().width;
+  const pagePaddingRight = parseCssPixelValue(page.style.paddingRight || page.style.padding) || 0;
+  const width = hint.widthPt;
+  const left = Math.max(0, Math.min(pageWidth - pagePaddingRight - width, hint.offsetXPt));
+  const paragraph = wrapper.closest<HTMLElement>("p");
+  const paragraphTop = paragraph ? getElementTopInPt(paragraph, page) : getPagePaddingTopInPt(page);
+  const top = hint.relativeToParagraph ? paragraphTop + hint.offsetYPt : hint.offsetYPt;
+  wrapper.dataset.ofvDocxFloatRepaired = "true";
+  wrapper.style.position = "absolute";
+  wrapper.style.float = "none";
+  wrapper.style.left = `${formatCssNumber(left)}pt`;
+  wrapper.style.top = `${formatCssNumber(Math.max(0, top))}pt`;
+  wrapper.style.width = `${formatCssNumber(width)}pt`;
+  wrapper.style.height = `${formatCssNumber(hint.heightPt)}pt`;
+  wrapper.style.zIndex = "1";
+  image.style.width = "100%";
+  image.style.height = "100%";
+  image.style.objectFit = "cover";
+}
+
+function getElementTopInPt(element: HTMLElement, page: HTMLElement): number {
+  const pageRect = page.getBoundingClientRect();
+  const elementRect = element.getBoundingClientRect();
+  const pageWidthPt = parseCssPixelValue(page.style.width) || 595.3;
+  const pxPerPt = pageRect.width > 0 && pageWidthPt > 0 ? pageRect.width / pageWidthPt : 4 / 3;
+  return (elementRect.top - pageRect.top) / pxPerPt;
+}
+
+function getPagePaddingTopInPt(page: HTMLElement): number {
+  return parseCssPixelValue(page.style.paddingTop || page.style.padding) || 0;
 }
 
 function parseCssLineHeight(value: string): number {
@@ -267,6 +1022,7 @@ function fitDocxPages(container: HTMLElement): () => void {
   if (!wrapper) {
     return () => undefined;
   }
+  const panel = container.closest<HTMLElement>(".ofv-office");
 
   const update = () => {
     const frames = ensureDocxPageFrames(wrapper);
@@ -284,13 +1040,14 @@ function fitDocxPages(container: HTMLElement): () => void {
       })
     );
     const scale = Math.min(1, Math.max(0.35, availableWidth / pageWidth));
+    const userZoom = parseCssPixelValue(panel?.style.getPropertyValue("--ofv-office-zoom") || "1") || 1;
     wrapper.style.setProperty("--ofv-docx-scale", formatCssNumber(scale));
     wrapper.style.setProperty("--ofv-docx-page-width", `${pageWidth}px`);
 
     for (const { frame, page } of frames) {
       const pageHeight = page.offsetHeight || page.getBoundingClientRect().height || parseCssPixelValue(page.style.height);
       if (pageHeight > 0) {
-        frame.style.height = `${Math.ceil(pageHeight * scale)}px`;
+        frame.style.height = `${Math.ceil(pageHeight * scale * userZoom)}px`;
       }
     }
   };
@@ -300,17 +1057,21 @@ function fitDocxPages(container: HTMLElement): () => void {
 
   if (typeof ResizeObserver === "undefined") {
     window.addEventListener("resize", update);
+    panel?.addEventListener("ofv-office-zoom", update);
     return () => {
       timers.forEach((timer) => window.clearTimeout(timer));
       window.removeEventListener("resize", update);
+      panel?.removeEventListener("ofv-office-zoom", update);
     };
   }
 
   const observer = new ResizeObserver(update);
   observer.observe(container);
   observer.observe(wrapper);
+  panel?.addEventListener("ofv-office-zoom", update);
   return () => {
     timers.forEach((timer) => window.clearTimeout(timer));
+    panel?.removeEventListener("ofv-office-zoom", update);
     observer.disconnect();
   };
 }
@@ -339,14 +1100,16 @@ function formatCssNumber(value: number): string {
   return Number.isFinite(value) ? value.toFixed(4).replace(/0+$/, "").replace(/\.$/, "") : "1";
 }
 
+function normalizePreviewText(value: string): string {
+  return value.replace(/\s+/g, "").trim();
+}
+
 async function renderDocxTextFallback(container: HTMLElement, arrayBuffer: ArrayBuffer): Promise<void> {
   const article = document.createElement("article");
   article.className = "ofv-document";
 
   try {
-    const zip = await JSZip.loadAsync(arrayBuffer);
-    const documentXml = await zip.file("word/document.xml")?.async("text");
-    const paragraphs = documentXml ? extractWordParagraphs(documentXml) : [];
+    const paragraphs = dedupeParagraphs(await extractDocxReadableParagraphs(arrayBuffer));
     if (paragraphs.length > 0) {
       for (const paragraphText of paragraphs) {
         const paragraph = document.createElement("p");
@@ -367,6 +1130,35 @@ async function renderDocxTextFallback(container: HTMLElement, arrayBuffer: Array
   container.append(article);
 }
 
+async function extractDocxParagraphs(arrayBuffer: ArrayBuffer): Promise<string[]> {
+  const zip = await JSZip.loadAsync(arrayBuffer);
+  const documentXml = await zip.file("word/document.xml")?.async("text");
+  return documentXml ? extractWordParagraphs(documentXml) : [];
+}
+
+async function extractDocxReadableParagraphs(arrayBuffer: ArrayBuffer): Promise<string[]> {
+  const zip = await JSZip.loadAsync(arrayBuffer);
+  const documentXml = await zip.file("word/document.xml")?.async("text");
+  if (!documentXml) {
+    return [];
+  }
+  const textboxParagraphs = extractWordTextboxParagraphs(documentXml);
+  const documentParagraphs = extractWordParagraphs(documentXml);
+  if (textboxParagraphs.length === 0) {
+    return documentParagraphs;
+  }
+  const uniqueTextboxParagraphs = dedupeParagraphs(textboxParagraphs);
+  const textboxTextLength = normalizePreviewText(uniqueTextboxParagraphs.join("")).length;
+  const documentTextLength = normalizePreviewText(documentParagraphs.join("")).length;
+  if (documentTextLength > textboxTextLength * 1.5) {
+    const filteredDocumentParagraphs = filterCombinedTextboxParagraphs(documentParagraphs, uniqueTextboxParagraphs);
+    return filteredDocumentParagraphs.length > 0
+      ? [...filteredDocumentParagraphs, ...uniqueTextboxParagraphs]
+      : uniqueTextboxParagraphs;
+  }
+  return uniqueTextboxParagraphs;
+}
+
 async function renderDocxWithMammoth(container: HTMLElement, arrayBuffer: ArrayBuffer): Promise<void> {
   const mammoth = await import("mammoth");
   const result = await mammoth.convertToHtml(
@@ -385,6 +1177,7 @@ async function renderDocxWithMammoth(container: HTMLElement, arrayBuffer: ArrayB
   if (result.messages.length > 0) {
     const notes = document.createElement("details");
     notes.className = "ofv-details";
+    hideSupplementalInfo(notes);
     const summary = document.createElement("summary");
     summary.textContent = `解析提示 ${result.messages.length}`;
     const list = document.createElement("ul");
@@ -414,6 +1207,7 @@ function renderOpenDocumentXml(panel: HTMLElement, title: string, xml: string): 
   article.className = "ofv-document";
   const blocks = extractOpenDocumentBlocks(xml);
   if (blocks.length > 0) {
+    hideSuccessfulSectionHeading(section);
     for (const block of blocks) {
       const paragraph = document.createElement("p");
       paragraph.textContent = block;
@@ -430,6 +1224,9 @@ function renderOpenDocumentXml(panel: HTMLElement, title: string, xml: string): 
 
 function renderPlainDocument(panel: HTMLElement, title: string, text: string): void {
   const section = createSection(title);
+  if (text.trim()) {
+    hideSuccessfulSectionHeading(section);
+  }
   const pre = document.createElement("pre");
   pre.className = "ofv-text-block";
   pre.textContent = text || "未提取到可展示文本。";
@@ -491,6 +1288,9 @@ async function renderSheet(
 
     const summary = document.createElement("div");
     summary.className = "ofv-sheet-summary";
+    summary.hidden = true;
+    summary.setAttribute("aria-hidden", "true");
+    summary.style.display = "none";
     summary.textContent = `${rowCount} 行 x ${columnCount} 列${
       formulaRows.length > 0 ? `，包含 ${formulaRows.length} 个公式单元格` : ""
     }`;
@@ -526,6 +1326,7 @@ async function renderSheet(
     if (formulaRows.length > 0) {
       const details = document.createElement("details");
       details.className = "ofv-details ofv-formula-list";
+      hideSupplementalInfo(details);
       const detailsSummary = document.createElement("summary");
       detailsSummary.textContent = "公式明细";
       const list = document.createElement("ul");
@@ -639,6 +1440,9 @@ function renderParsedSheets(panel: HTMLElement, sheets: ParsedSheet[], emptyMess
     heading.textContent = sheet.name;
     const summary = document.createElement("div");
     summary.className = "ofv-sheet-summary";
+    summary.hidden = true;
+    summary.setAttribute("aria-hidden", "true");
+    summary.style.display = "none";
     const rowCount = sheet.rows.length;
     const columnCount = Math.max(0, ...sheet.rows.map((row) => row.length));
     summary.textContent = `${rowCount} 行 x ${columnCount} 列${
@@ -665,6 +1469,7 @@ function renderParsedSheets(panel: HTMLElement, sheets: ParsedSheet[], emptyMess
     if (sheet.formulas.length > 0) {
       const details = document.createElement("details");
       details.className = "ofv-details ofv-formula-list";
+      hideSupplementalInfo(details);
       const detailsSummary = document.createElement("summary");
       detailsSummary.textContent = "公式明细";
       const list = document.createElement("ul");
@@ -793,6 +1598,7 @@ function renderChartCard(chart: ChartPreview): HTMLElement {
   const svg = renderChartSvg(chart);
   const details = document.createElement("details");
   details.className = "ofv-details ofv-chart-data";
+  hideSupplementalInfo(details);
   const summary = document.createElement("summary");
   summary.textContent = "数据摘要";
   const list = document.createElement("ul");
@@ -1555,10 +2361,13 @@ function encodeA1(rowIndex: number, columnIndex: number): string {
 async function renderPptx(panel: HTMLElement, arrayBuffer: ArrayBuffer): Promise<void> {
   const container = document.createElement("div");
   container.className = "ofv-pptx-viewer";
+  let insight: PresentationInsight | undefined;
+  let zip: JSZip | undefined;
 
   try {
-    const zip = await JSZip.loadAsync(arrayBuffer);
-    await renderPresentationInsight(panel, await inspectPptxPresentation(zip));
+    zip = await JSZip.loadAsync(arrayBuffer);
+    insight = await inspectPptxPresentation(zip);
+    await renderPresentationInsight(panel, insight);
   } catch (error) {
     console.warn("PPTX structure insight extraction failed:", error);
   }
@@ -1566,11 +2375,64 @@ async function renderPptx(panel: HTMLElement, arrayBuffer: ArrayBuffer): Promise
   panel.append(container);
   try {
     const { PptxViewer } = await import("@aiden0z/pptx-renderer");
-    await PptxViewer.open(arrayBuffer, container);
+    await withTimeout(PptxViewer.open(arrayBuffer, container), pptxRenderTimeoutMs());
     normalizePptxLayout(container);
-  } catch {
-    container.textContent = "PPTX 渲染失败，请检查文件是否损坏。";
+  } catch (error) {
+    container.replaceChildren();
+    if (insight) {
+      renderPptxTextFallback(container, insight);
+      return;
+    }
+    if (zip) {
+      renderPptxTextFallback(container, await inspectPptxPresentation(zip));
+      return;
+    }
+    container.textContent =
+      error instanceof Error && error.message.includes("timed out")
+        ? "PPTX 渲染超时，请稍后重试或转换为 PDF 后预览。"
+        : "PPTX 渲染失败，请检查文件是否损坏。";
   }
+}
+
+function renderPptxTextFallback(container: HTMLElement, insight: PresentationInsight): void {
+  container.classList.add("ofv-presentation-slides");
+  const slides = insight.slides.length > 0 ? insight.slides : [{ title: "PPTX", textCount: 0, imageCount: 0, notesCount: 0, hasTransition: false, animationCount: 0, sampleTexts: [] }];
+  for (const [index, slide] of slides.entries()) {
+    const article = document.createElement("article");
+    article.className = "ofv-slide";
+    article.dataset.slideIndex = String(index);
+    const title = document.createElement("h4");
+    title.textContent = slide.title || `Slide ${index + 1}`;
+    article.append(title);
+    const bodyTexts = slide.sampleTexts.length > 0 ? slide.sampleTexts : ["该页没有可提取文本。"];
+    for (const text of bodyTexts) {
+      const paragraph = document.createElement("p");
+      paragraph.textContent = text;
+      article.append(paragraph);
+    }
+    container.append(article);
+  }
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  let timeoutId: number | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_resolve, reject) => {
+        timeoutId = window.setTimeout(() => reject(new Error(`PPTX rendering timed out after ${timeoutMs}ms.`)), timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timeoutId !== undefined) {
+      window.clearTimeout(timeoutId);
+    }
+  }
+}
+
+function pptxRenderTimeoutMs(): number {
+  const override = (globalThis as { __OFV_PPTX_RENDER_TIMEOUT_MS__?: unknown }).__OFV_PPTX_RENDER_TIMEOUT_MS__;
+  return typeof override === "number" && override > 0 ? override : DEFAULT_PPTX_RENDER_TIMEOUT_MS;
 }
 
 function normalizePptxLayout(container: HTMLElement): void {
@@ -1866,6 +2728,7 @@ function renderOpenDocumentPresentation(
     body.className = "ofv-slide";
     const texts = extractOpenDocumentBlocks(pageXml);
     if (texts.length > 0) {
+      hideSuccessfulSectionHeading(section);
       for (const text of texts) {
         const paragraph = document.createElement("p");
         paragraph.textContent = text;
@@ -1990,6 +2853,7 @@ async function renderPresentationInsight(panel: HTMLElement, insight: Presentati
   summary.className = "ofv-presentation-summary";
   summary.hidden = true;
   summary.setAttribute("aria-hidden", "true");
+  summary.style.display = "none";
   summary.dataset.slideCount = String(insight.slideCount);
   summary.dataset.imageCount = String(insight.imageCount);
   summary.dataset.notesCount = String(insight.notesCount);
@@ -2108,15 +2972,21 @@ function titleFromOdf(xml: string, fallback: string): string {
 }
 
 function isLegacyOfficeBinary(extension: string): boolean {
-  return ["doc", "dot", "xls", "xlt", "ppt", "pps"].includes(extension);
+  return ["doc", "dot", "wps", "xls", "xlt", "xlsb", "et", "ppt", "pps", "key", "dps"].includes(extension);
 }
 
 function legacyOfficeFormatLabel(extension: string): string {
-  if (extension === "doc" || extension === "dot") {
+  if (extension === "doc" || extension === "dot" || extension === "wps") {
     return "Word Binary File Format";
   }
-  if (extension === "xls" || extension === "xlt") {
+  if (extension === "xls" || extension === "xlt" || extension === "xlsb" || extension === "et") {
     return "Excel Binary File Format";
+  }
+  if (extension === "key") {
+    return "Apple Keynote / legacy presentation package";
+  }
+  if (extension === "dps") {
+    return "WPS Presentation legacy format";
   }
   return "PowerPoint Binary File Format";
 }
@@ -2403,16 +3273,158 @@ async function extractZipImages(
 }
 
 function extractOpenXmlText(xml: string): string[] {
-  return [...xml.matchAll(/<a:t>([\s\S]*?)<\/a:t>|<w:t[^>]*>([\s\S]*?)<\/w:t>/g)]
+  return [...xml.matchAll(/<a:t\b[^>]*>([\s\S]*?)<\/a:t>|<w:t\b[^>]*>([\s\S]*?)<\/w:t>/g)]
     .map((match) => decodeXml(match[1] || match[2] || "").trim())
     .filter(Boolean);
 }
 
 function extractWordParagraphs(xml: string): string[] {
+  const documentXml = parseWordXml(xml);
+  if (documentXml) {
+    const paragraphs = Array.from(documentXml.getElementsByTagName("*"))
+      .filter((element) => element.localName === "p")
+      .map((paragraph) => extractOpenXmlTextFromElement(paragraph).join(""))
+      .map((text) => text.trim())
+      .filter(Boolean);
+    if (paragraphs.length > 0) {
+      return paragraphs;
+    }
+  }
+  return extractWordParagraphsByRegex(xml);
+}
+
+function extractWordTextboxText(xml: string): string[] {
+  return [...xml.matchAll(/<w:txbxContent\b[\s\S]*?<\/w:txbxContent>/g)]
+    .map((match) => extractOpenXmlText(match[0]).join(""))
+    .map((text) => text.trim())
+    .filter(Boolean);
+}
+
+function extractWordTextboxParagraphs(xml: string): string[] {
+  const paragraphs = extractWordTextboxParagraphsByRegex(xml);
+  if (paragraphs.length > 0) {
+    return paragraphs;
+  }
+  const documentXml = parseWordXml(xml);
+  return documentXml
+    ? Array.from(documentXml.getElementsByTagName("*"))
+        .filter((element) => element.localName === "txbxContent")
+        .flatMap((textbox) =>
+          Array.from(textbox.getElementsByTagName("*"))
+            .filter((element) => element.localName === "p")
+            .map((paragraph) => extractOpenXmlTextFromElement(paragraph).join(""))
+            .map((text) => text.trim())
+            .filter(Boolean)
+        )
+    : [];
+}
+
+function parseWordXml(xml: string): Document | undefined {
+  if (typeof DOMParser === "undefined") {
+    return undefined;
+  }
+  try {
+    const documentXml = new DOMParser().parseFromString(xml, "application/xml");
+    if (documentXml.getElementsByTagName("parsererror").length > 0) {
+      return undefined;
+    }
+    return documentXml;
+  } catch {
+    return undefined;
+  }
+}
+
+function extractWordParagraphsByRegex(xml: string): string[] {
   return [...xml.matchAll(/<w:p\b[\s\S]*?<\/w:p>/g)]
     .map((match) => extractOpenXmlText(match[0]).join(""))
     .map((text) => text.trim())
     .filter(Boolean);
+}
+
+function extractWordTextboxParagraphsByRegex(xml: string): string[] {
+  return [...xml.matchAll(/<w:txbxContent\b[\s\S]*?<\/w:txbxContent>/g)].flatMap((match) => {
+    const textboxXml = ensureWordXmlWrapper(match[0]);
+    const textboxDocument = parseWordXml(textboxXml);
+    if (textboxDocument) {
+      const paragraphs = Array.from(textboxDocument.getElementsByTagName("*"))
+        .filter((element) => element.localName === "p")
+        .map((paragraph) => extractOpenXmlTextFromElement(paragraph).join(""))
+        .map((text) => text.trim())
+        .filter(Boolean);
+      if (paragraphs.length > 0) {
+        return paragraphs;
+      }
+    }
+    return extractWordParagraphsByRegex(match[0]);
+  });
+}
+
+function ensureWordXmlWrapper(xml: string): string {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+    <ofv:root
+      xmlns:ofv="urn:open-file-viewer"
+      xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+      xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml"
+      xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape"
+      xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+      xmlns:v="urn:schemas-microsoft-com:vml">
+      ${xml}
+    </ofv:root>`;
+}
+
+function extractOpenXmlTextFromElement(element: Element): string[] {
+  return Array.from(element.getElementsByTagName("*"))
+    .filter((child) => child.localName === "t")
+    .map((child) => child.textContent?.trim() || "")
+    .filter(Boolean);
+}
+
+function dedupeParagraphs(paragraphs: string[]): string[] {
+  const result: string[] = [];
+  const seen = new Set<string>();
+  for (const paragraph of paragraphs) {
+    const key = normalizePreviewText(paragraph);
+    if (!key || key === normalizePreviewText(result[result.length - 1] || "") || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push(paragraph);
+  }
+  return result;
+}
+
+function filterCombinedTextboxParagraphs(documentParagraphs: string[], textboxParagraphs: string[]): string[] {
+  const textboxKeys = textboxParagraphs.map((paragraph) => normalizePreviewText(paragraph)).filter(Boolean);
+  if (textboxKeys.length < 2) {
+    return documentParagraphs;
+  }
+  const combinedTextboxKey = textboxKeys.join("");
+  const sortedTextboxKeys = [...textboxKeys].sort((a, b) => b.length - a.length);
+  return documentParagraphs.filter((paragraph) => {
+    const key = normalizePreviewText(paragraph);
+    return (
+      key &&
+      key !== combinedTextboxKey &&
+      key !== `${combinedTextboxKey}${combinedTextboxKey}` &&
+      !isComposedOfTextboxParagraphs(key, sortedTextboxKeys)
+    );
+  });
+}
+
+function isComposedOfTextboxParagraphs(value: string, textboxKeys: string[]): boolean {
+  let remaining = value;
+  let matchedCount = 0;
+  for (const key of textboxKeys) {
+    if (!key || !remaining.includes(key)) {
+      continue;
+    }
+    const before = remaining.length;
+    remaining = remaining.split(key).join("");
+    if (remaining.length !== before) {
+      matchedCount += Math.floor((before - remaining.length) / key.length);
+    }
+  }
+  return matchedCount >= 2 && remaining.length === 0;
 }
 
 function extractOpenDocumentBlocks(xml: string): string[] {
@@ -2444,6 +3456,18 @@ async function readTextFromBuffer(arrayBuffer: ArrayBuffer): Promise<string> {
   return decodeTextBuffer(arrayBuffer);
 }
 
+function hideSupplementalInfo(element: HTMLElement): void {
+  element.hidden = true;
+  element.setAttribute("aria-hidden", "true");
+  element.style.display = "none";
+}
+
+function hideSuccessfulSectionHeading(section: HTMLElement): void {
+  const heading = section.querySelector<HTMLElement>("h3");
+  if (heading) {
+    hideSupplementalInfo(heading);
+  }
+}
 
 function mimeTypeFromPath(path: string): string {
   const extension = path.split(".").pop()?.toLowerCase();

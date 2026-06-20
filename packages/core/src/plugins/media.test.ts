@@ -91,6 +91,7 @@ describe("media plugins", () => {
 
     await waitFor(() => Boolean(container.querySelector(".ofv-media-info")));
 
+    expect(container.querySelector<HTMLElement>(".ofv-media-info")?.hidden).toBe(true);
     expect(container.textContent).toContain("格式WAV");
     expect(container.textContent).toContain("编码PCM");
     expect(container.textContent).toContain("采样率44100 Hz");
@@ -119,11 +120,38 @@ describe("media plugins", () => {
 
     await waitFor(() => Boolean(container.querySelector(".ofv-media-info")));
 
+    expect(container.querySelector<HTMLElement>(".ofv-media-info")?.hidden).toBe(true);
     expect(container.textContent).toContain("格式MP3");
     expect(container.textContent).toContain("MPEG-1 Layer III");
     expect(container.textContent).toContain("采样率44100 Hz");
     expect(container.textContent).toContain("码率128 kbps");
     expect(container.textContent).toContain("标签ID3v2.4.0");
+
+    viewer.destroy();
+  });
+
+  it("renders AAC ADTS metadata before trying the MP3 frame parser", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    vi.stubGlobal("URL", {
+      ...URL,
+      createObjectURL: vi.fn(() => "blob:aac-info"),
+      revokeObjectURL: vi.fn()
+    });
+
+    const viewer = createViewer({
+      container,
+      file: minimalAac(),
+      fileName: "tone.aac",
+      plugins: [audioPlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-media-info")));
+
+    expect(container.textContent).toContain("格式AAC");
+    expect(container.textContent).toContain("AAC ADTS");
+    expect(container.textContent).toContain("采样率44100 Hz");
+    expect(container.textContent).not.toContain("格式MP3");
 
     viewer.destroy();
   });
@@ -146,6 +174,7 @@ describe("media plugins", () => {
 
     await waitFor(() => Boolean(container.querySelector(".ofv-media-info")));
 
+    expect(container.querySelector<HTMLElement>(".ofv-media-info")?.hidden).toBe(true);
     expect(container.textContent).toContain("格式FLAC");
     expect(container.textContent).toContain("采样率48000 Hz");
     expect(container.textContent).toContain("声道2");
@@ -172,6 +201,7 @@ describe("media plugins", () => {
 
     await waitFor(() => Boolean(container.querySelector(".ofv-media-info")));
 
+    expect(container.querySelector<HTMLElement>(".ofv-media-info")?.hidden).toBe(true);
     expect(container.textContent).toContain("格式Ogg");
     expect(container.textContent).toContain("编码Opus");
     expect(container.textContent).toContain("采样率48000 Hz");
@@ -200,6 +230,7 @@ describe("media plugins", () => {
 
     await waitFor(() => Boolean(container.querySelector(".ofv-media-info")));
 
+    expect(container.querySelector<HTMLElement>(".ofv-media-info")?.hidden).toBe(true);
     expect(container.textContent).toContain("格式AU/SND");
     expect(container.textContent).toContain("8-bit μ-law");
     expect(container.textContent).toContain("采样率8000 Hz");
@@ -264,6 +295,32 @@ describe("media plugins", () => {
     viewer.destroy();
   });
 
+  it("keeps shared zoom and rotate commands disabled for audio previews", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    vi.stubGlobal("URL", {
+      ...URL,
+      createObjectURL: vi.fn(() => "blob:ofv-audio-toolbar"),
+      revokeObjectURL: vi.fn()
+    });
+
+    const viewer = createViewer({
+      container,
+      file: minimalWav(),
+      fileName: "tone.wav",
+      toolbar: true,
+      plugins: [audioPlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector("audio")));
+
+    expect(container.querySelector<HTMLButtonElement>('button[aria-label="Zoom in"]')?.disabled).toBe(true);
+    expect(container.querySelector<HTMLButtonElement>('button[aria-label="Zoom out"]')?.disabled).toBe(true);
+    expect(container.querySelector<HTMLButtonElement>('button[aria-label="Rotate right"]')?.disabled).toBe(true);
+
+    viewer.destroy();
+  });
+
   it("shows a download fallback when video playback errors", async () => {
     const container = document.createElement("div");
     document.body.append(container);
@@ -287,6 +344,7 @@ describe("media plugins", () => {
     await waitFor(() => Boolean(container.querySelector(".ofv-fallback")));
     expect(container.querySelector(".ofv-fallback")?.textContent).toContain("AVI");
     expect(container.querySelector(".ofv-fallback a")?.getAttribute("href")).toBe(objectUrl);
+    expect(container.querySelector("video")).toBeNull();
 
     viewer.destroy();
     expect(URL.revokeObjectURL).toHaveBeenCalledWith(objectUrl);
@@ -310,11 +368,68 @@ describe("media plugins", () => {
 
     await waitFor(() => Boolean(container.querySelector(".ofv-media-info")));
 
+    expect(container.querySelector<HTMLElement>(".ofv-media-info")?.hidden).toBe(true);
     expect(container.textContent).toContain("格式MP4");
     expect(container.textContent).toContain("编码isom");
     expect(container.textContent).toContain("尺寸1920 x 1080px");
     expect(container.textContent).toContain("时长0:12");
     expect(container.textContent).toContain("轨道1");
+
+    viewer.destroy();
+  });
+
+  it("supports shared zoom and rotate commands for video previews inside narrow containers", async () => {
+    const container = document.createElement("div");
+    container.style.width = "260px";
+    container.style.height = "220px";
+    document.body.append(container);
+    vi.stubGlobal("URL", {
+      ...URL,
+      createObjectURL: vi.fn(() => "blob:video-toolbar"),
+      revokeObjectURL: vi.fn()
+    });
+
+    const viewer = createViewer({
+      container,
+      file: minimalMp4(),
+      fileName: "narrow.mp4",
+      width: "260px",
+      height: "220px",
+      toolbar: true,
+      plugins: [videoPlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector("video")));
+    const video = container.querySelector<HTMLVideoElement>("video");
+    const zoomIn = container.querySelector<HTMLButtonElement>('button[aria-label="Zoom in"]');
+    const zoomReset = container.querySelector<HTMLButtonElement>('button[aria-label="Reset zoom"]');
+    const rotate = container.querySelector<HTMLButtonElement>('button[aria-label="Rotate right"]');
+
+    expect(zoomIn?.disabled).toBe(false);
+    expect(container.querySelector<HTMLButtonElement>('button[aria-label="Zoom out"]')?.disabled).toBe(false);
+    expect(rotate?.disabled).toBe(false);
+    expect(container.scrollWidth).toBeLessThanOrEqual(container.clientWidth + 1);
+    expect(container.querySelector<HTMLElement>(".ofv-video-container")?.clientWidth).toBeLessThanOrEqual(
+      container.clientWidth
+    );
+
+    zoomIn?.click();
+    expect(video?.style.transform).toBe("scale(1.25) rotate(0deg)");
+    expect(zoomReset?.textContent).toBe("125%");
+
+    rotate?.click();
+    expect(container.scrollWidth).toBeLessThanOrEqual(container.clientWidth + 1);
+    const stage = container.querySelector<HTMLElement>(".ofv-video-stage");
+    expect(stage?.scrollWidth).toBeLessThanOrEqual((stage?.clientWidth || 0) + 1);
+    rotate?.click();
+    rotate?.click();
+    rotate?.click();
+    rotate?.click();
+    expect(video?.style.transform).toBe("scale(1.25) rotate(450deg)");
+
+    zoomReset?.click();
+    expect(video?.style.transform).toBe("scale(1) rotate(0deg)");
+    expect(zoomReset?.textContent).toBe("100%");
 
     viewer.destroy();
   });
@@ -351,6 +466,7 @@ describe("media plugins", () => {
 
     await waitFor(() => hlsLoadSource.mock.calls.length > 0 && Boolean(container.querySelector(".ofv-media-info")));
 
+    expect(container.querySelector<HTMLElement>(".ofv-media-info")?.hidden).toBe(true);
     expect(container.textContent).toContain("格式HLS");
     expect(container.textContent).toContain("码率2500 kbps");
     expect(container.textContent).toContain("变体1");
@@ -378,6 +494,7 @@ describe("media plugins", () => {
 
     await waitFor(() => Boolean(container.querySelector(".ofv-media-info")));
 
+    expect(container.querySelector<HTMLElement>(".ofv-media-info")?.hidden).toBe(true);
     expect(container.textContent).toContain("格式AVI");
     expect(container.textContent).toContain("尺寸640 x 360px");
     expect(container.textContent).toContain("轨道2");
@@ -404,6 +521,7 @@ describe("media plugins", () => {
 
     await waitFor(() => Boolean(container.querySelector(".ofv-media-info")));
 
+    expect(container.querySelector<HTMLElement>(".ofv-media-info")?.hidden).toBe(true);
     expect(container.textContent).toContain("格式WebM");
     expect(container.textContent).toContain("编码V_VP9");
     expect(container.textContent).toContain("尺寸1280 x 720px");
@@ -544,12 +662,16 @@ describe("media plugins", () => {
     const viewer = createViewer({
       container,
       file: new Blob(["<MPD />"], { type: "application/dash+xml" }),
+      toolbar: true,
       plugins: [videoPlugin()]
     });
 
     await waitFor(() => Boolean(container.querySelector(".ofv-fallback")));
 
     expect(container.querySelector(".ofv-fallback")?.textContent).toContain("APPLICATION/DASH+XML");
+    expect(container.querySelector<HTMLButtonElement>('button[aria-label="Zoom in"]')?.disabled).toBe(true);
+    expect(container.querySelector<HTMLButtonElement>('button[aria-label="Zoom out"]')?.disabled).toBe(true);
+    expect(container.querySelector<HTMLButtonElement>('button[aria-label="Rotate right"]')?.disabled).toBe(true);
     expect(hlsLoadSource).not.toHaveBeenCalled();
     expect(mpegtsCreatePlayer).not.toHaveBeenCalled();
 
@@ -588,6 +710,10 @@ function minimalMp3(): Blob {
       0xff, 0xfb, 0x90, 0x64
     ])
   ], { type: "audio/mpeg" });
+}
+
+function minimalAac(): Blob {
+  return new Blob([new Uint8Array([0xff, 0xf1, 0x50, 0x80, 0x01, 0x1f, 0xfc])], { type: "audio/aac" });
 }
 
 function minimalFlac(): Blob {

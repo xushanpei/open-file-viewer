@@ -43,6 +43,29 @@ describe("pdfPlugin", () => {
     viewer.destroy();
   });
 
+  it("eagerly renders first pages when IntersectionObserver does not fire", async () => {
+    class IdleIntersectionObserver {
+      observe = vi.fn();
+      disconnect = vi.fn();
+    }
+    vi.stubGlobal("IntersectionObserver", IdleIntersectionObserver);
+
+    const container = createSizedContainer();
+    const pdfjs = createPdfJsMock();
+    const viewer = createViewer({
+      container,
+      file: new Blob(["pdf"], { type: "application/pdf" }),
+      fileName: "embedded.pdf",
+      plugins: [pdfPlugin({ pdfjs })]
+    });
+
+    await waitFor(() => container.querySelectorAll("canvas.ofv-pdf-page").length === 2);
+
+    expect(container.querySelector(".ofv-pdf-skeleton")).toBeNull();
+
+    viewer.destroy();
+  });
+
   it("lays out PDF pages and responds to zoom commands", async () => {
     const container = createSizedContainer();
     const objectUrl = "blob:ofv-pdf";
@@ -64,6 +87,7 @@ describe("pdfPlugin", () => {
     await waitFor(() => container.querySelectorAll(".ofv-pdf-page-wrapper").length === 2);
 
     const summary = container.querySelector(".ofv-pdf-summary");
+    expect((summary as HTMLElement | null)?.hidden).toBe(true);
     expect(summary?.textContent).toContain("页数2");
     expect(summary?.textContent).toContain("页面尺寸400 x 600 (2)");
     expect(summary?.textContent).toContain("适配适合宽度");
@@ -74,7 +98,7 @@ describe("pdfPlugin", () => {
     const rotate = container.querySelector<HTMLButtonElement>('button[aria-label="Rotate right"]');
 
     expect(zoomIn?.disabled).toBe(false);
-    expect(rotate?.disabled).toBe(true);
+    expect(rotate?.disabled).toBe(false);
     expect(zoomReset?.textContent).toBe("100%");
 
     zoomIn?.click();
@@ -84,6 +108,22 @@ describe("pdfPlugin", () => {
     expect(container.querySelector(".ofv-pdf-summary")?.textContent).toContain("缩放115%");
     expect(zoomReset?.textContent).toBe("115%");
     expect(container.querySelectorAll(".ofv-pdf-page-wrapper")).toHaveLength(2);
+    const zoomedWrapper = container.querySelector<HTMLElement>(".ofv-pdf-page-wrapper");
+    const zoomedWidth = parseCssPx(zoomedWrapper?.style.width);
+    const zoomedHeight = parseCssPx(zoomedWrapper?.style.height);
+    expect(zoomedHeight).toBeGreaterThan(zoomedWidth);
+
+    rotate?.click();
+    await waitFor(() => container.querySelector<HTMLElement>(".ofv-pdf-page-wrapper") !== zoomedWrapper);
+    const rotatedWrapper = container.querySelector<HTMLElement>(".ofv-pdf-page-wrapper");
+    expect(parseCssPx(rotatedWrapper?.style.width)).toBeGreaterThan(parseCssPx(rotatedWrapper?.style.height));
+    await waitFor(() => pdfjs.__page.getViewport.mock.calls.some(([args]: any[]) => args?.rotation === 90));
+
+    zoomReset?.click();
+    await waitFor(() => container.querySelector<HTMLElement>(".ofv-pdf-page-wrapper") !== rotatedWrapper);
+    const resetWrapper = container.querySelector<HTMLElement>(".ofv-pdf-page-wrapper");
+    expect(parseCssPx(resetWrapper?.style.height)).toBeGreaterThan(parseCssPx(resetWrapper?.style.width));
+    expect(zoomReset?.textContent).toBe("100%");
     expect(pdfjs.GlobalWorkerOptions.workerSrc).toContain("pdf.worker.mjs");
     expect(pdfjs.getDocument).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -159,6 +199,31 @@ describe("pdfPlugin", () => {
     viewer.destroy();
   });
 
+  it("shows a page hint when a PDF-compatible page renders visually blank", async () => {
+    vi.stubGlobal("IntersectionObserver", undefined);
+    const container = createSizedContainer();
+    const context = {
+      getImageData: vi.fn(() => ({
+        data: new Uint8ClampedArray([255, 255, 255, 255])
+      }))
+    } as unknown as CanvasRenderingContext2D;
+    vi.mocked(HTMLCanvasElement.prototype.getContext).mockReturnValue(context);
+
+    const viewer = createViewer({
+      container,
+      file: new Blob(["pdf"], { type: "application/pdf" }),
+      fileName: "blank-ai.pdf",
+      plugins: [pdfPlugin({ pdfjs: createPdfJsMock() })]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-pdf-empty")));
+
+    expect(container.querySelector(".ofv-pdf-empty")?.textContent).toContain("没有检测到可显示的 PDF 兼容内容");
+    expect(container.querySelector(".ofv-pdf-empty")?.textContent).toContain("Illustrator/AI");
+
+    viewer.destroy();
+  });
+
   it("shows a local fallback when the PDF document cannot be loaded", async () => {
     const container = createSizedContainer();
     const objectUrl = "blob:ofv-bad-pdf";
@@ -229,6 +294,8 @@ describe("pdfPlugin", () => {
 
     expect(container.querySelectorAll(".ofv-pdf-page-wrapper")).toHaveLength(2);
     expect(container.querySelector(".ofv-pdf-error")?.textContent).toContain("无法渲染该页面");
+    expect(container.querySelector(".ofv-pdf-error")?.textContent).toContain("图形、字体或压缩特性");
+    expect(container.querySelector(".ofv-pdf-error")?.textContent).not.toContain("Illustrator/PostScript");
 
     viewer.destroy();
   });
@@ -253,13 +320,14 @@ function createPdfJsMock(): any {
 
 function createPdfPageMock(): any {
   return {
-    getViewport({ scale }: { scale: number }) {
+    getViewport: vi.fn(({ scale, rotation = 0 }: { scale: number; rotation?: number }) => {
+      const sideways = rotation === 90 || rotation === 270;
       return {
-        width: 400 * scale,
-        height: 600 * scale,
+        width: (sideways ? 600 : 400) * scale,
+        height: (sideways ? 400 : 600) * scale,
         transform: [scale, 0, 0, scale, 0, 0]
       };
-    },
+    }),
     render: vi.fn(() => {
       return {
         promise: Promise.resolve(),
@@ -305,6 +373,10 @@ function mockViewportSize(container: HTMLElement, width: number, height: number)
     height,
     toJSON: () => ({})
   } as DOMRect);
+}
+
+function parseCssPx(value: string | undefined): number {
+  return Number.parseFloat(value || "0");
 }
 
 async function waitFor(predicate: () => boolean, timeout = 1000): Promise<void> {

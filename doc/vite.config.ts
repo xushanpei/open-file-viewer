@@ -8,7 +8,8 @@ export default defineConfig({
       input: {
         main: fileURLToPath(new URL("./index.html", import.meta.url)),
         api: fileURLToPath(new URL("./api.html", import.meta.url)),
-        about: fileURLToPath(new URL("./about.html", import.meta.url))
+        about: fileURLToPath(new URL("./about.html", import.meta.url)),
+        remoteHarness: fileURLToPath(new URL("./remote-harness.html", import.meta.url))
       }
     }
   },

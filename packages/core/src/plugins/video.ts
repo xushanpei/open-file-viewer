@@ -1,5 +1,5 @@
 import { createObjectUrl, revokeObjectUrl } from "../dom";
-import type { PreviewPlugin } from "../types";
+import type { PreviewCommand, PreviewContext, PreviewPlugin } from "../types";
 
 const videoExtensions = new Set([
   "mp4",
@@ -54,6 +54,9 @@ export function videoPlugin(): PreviewPlugin {
       
       const ext = ctx.file.extension.toLowerCase();
       const infoBar = createVideoInfo(parseVideoInfo(bytes, ext, mimeType, ctx.file.name));
+      infoBar.hidden = true;
+      infoBar.setAttribute("aria-hidden", "true");
+      infoBar.style.display = "none";
       stage.append(video);
       container.append(stage, infoBar);
       ctx.viewport.classList.add("ofv-center");
@@ -66,10 +69,16 @@ export function videoPlugin(): PreviewPlugin {
       const isDash = mimeType === "application/dash+xml";
       const isFlv = ext === "flv" || mimeType === "video/x-flv";
       const formatLabel = (ctx.file.extension || ctx.file.mimeType || "video").toUpperCase();
+      const controller = createVideoTransformController(video, ctx);
 
       const showTranscodeFallback = () => {
-        video.style.display = "none";
         video.pause();
+        video.remove();
+        controller.setAvailable(false);
+        ctx.toolbar?.refreshCommandSupport();
+        infoBar.hidden = false;
+        infoBar.removeAttribute("aria-hidden");
+        infoBar.style.removeProperty("display");
         
         // Remove any existing fallback UI first
         const oldFallback = stage.querySelector(".ofv-fallback");
@@ -100,6 +109,7 @@ export function videoPlugin(): PreviewPlugin {
       };
 
       video.addEventListener("error", onVideoError);
+      ctx.toolbar?.refreshCommandSupport();
 
       try {
         if (isDash) {
@@ -144,13 +154,22 @@ export function videoPlugin(): PreviewPlugin {
       }
 
       return {
+        canCommand(command) {
+          return controller.canCommand(command);
+        },
+        command(command) {
+          return controller.command(command);
+        },
         resize() {
           video.style.width = "100%";
           video.style.height = "100%";
         },
         destroy() {
           video.removeEventListener("error", onVideoError);
-          video.pause();
+          if (video.isConnected) {
+            video.pause();
+          }
+          controller.destroy();
           
           if (hlsInstance) {
             hlsInstance.destroy();
@@ -165,6 +184,75 @@ export function videoPlugin(): PreviewPlugin {
           container.remove();
         }
       };
+    }
+  };
+}
+
+function createVideoTransformController(video: HTMLVideoElement, ctx: Pick<PreviewContext, "toolbar">) {
+  let scale = 1;
+  let rotation = 0;
+  let available = true;
+  const apply = () => {
+    video.style.transform = `scale(${scale}) rotate(${rotation}deg)`;
+    video.style.transformOrigin = "center";
+    ctx.toolbar?.setZoom(available ? scale : undefined);
+  };
+  apply();
+
+  const canTransform = (command: PreviewCommand) =>
+    available &&
+    (command === "zoom-in" ||
+      command === "zoom-out" ||
+      command === "zoom-reset" ||
+      command === "rotate-right" ||
+      command === "rotate-left");
+
+  return {
+    setAvailable(nextAvailable: boolean) {
+      available = nextAvailable;
+      if (available) {
+        apply();
+      } else {
+        ctx.toolbar?.setZoom(undefined);
+      }
+    },
+    canCommand(command: PreviewCommand) {
+      return canTransform(command);
+    },
+    command(command: PreviewCommand) {
+      if (!canTransform(command)) {
+        return false;
+      }
+      if (command === "zoom-in") {
+        scale = Math.min(4, Number((scale + 0.25).toFixed(2)));
+        apply();
+        return true;
+      }
+      if (command === "zoom-out") {
+        scale = Math.max(0.25, Number((scale - 0.25).toFixed(2)));
+        apply();
+        return true;
+      }
+      if (command === "zoom-reset") {
+        scale = 1;
+        rotation = 0;
+        apply();
+        return true;
+      }
+      if (command === "rotate-right") {
+        rotation += 90;
+        apply();
+        return true;
+      }
+      if (command === "rotate-left") {
+        rotation -= 90;
+        apply();
+        return true;
+      }
+      return false;
+    },
+    destroy() {
+      ctx.toolbar?.setZoom(undefined);
     }
   };
 }

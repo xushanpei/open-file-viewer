@@ -258,8 +258,8 @@ const plugins = [
 | 本地 `File` / `Blob` / URL / `ArrayBuffer` | 已支持 |
 | 插件协议和自定义 fallback | 已支持 |
 | PDF、图片、音视频、文本/代码 | 已支持 |
-| Office、OFD、EPUB、XPS、邮件、压缩包 | 基础到增强预览 |
-| CAD、3D、GIS、绘图白板、设计资产 | 识别、基础预览和增强中 |
+| Office、OFD、EPUB、XPS、邮件、压缩包 | 基础到增强预览，XPS 含轻量 FixedPage SVG 版式 |
+| CAD、3D、GIS、绘图白板、设计资产、数据文件 | 识别、基础预览和增强中，SQLite/PSD/PDF-compatible AI 已内置前端内容预览 |
 
 ## 格式覆盖
 
@@ -273,6 +273,7 @@ const plugins = [
 | Office | `officePlugin()` | `docx`, `rtf`, `odt`, `xlsx`, `csv`, `pptx`, `odp`, `wps`, `et`, `dps` |
 | OFD | `ofdPlugin()` | `ofd` |
 | 压缩包 | `archivePlugin()` | `zip`, `rar`, `7z`, `tar`, `gz`, `tgz`, `bz2`, `xz` |
+| 数据 / 资产 | `assetPlugin()` | `sqlite`, `db`, `parquet`, `avro`, `wasm`, `psd`, `psb`, `ai`, `eps`, `ps`, `webarchive`, `ttf`, `otf`, `woff`, `woff2` |
 | 邮件 | `emailPlugin()` | `eml`, `msg`, `mbox` |
 | 绘图 / 白板 | `drawingPlugin()` | `drawio`, `dio`, `excalidraw`, `tldraw` |
 | CAD / 工程 / 芯片版图 | `cadPlugin()` | `dxf`, `dwg`, `dwf`, `step`, `stp`, `iges`, `igs`, `ifc`, `skp`, `sldprt`, `gds`, `oas`, `oasis` |

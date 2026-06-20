@@ -29,6 +29,7 @@ describe("drawingPlugin", () => {
     await waitFor(() => Boolean(container.querySelector(".ofv-svg-stage")));
 
     const summary = container.querySelector(".ofv-drawing-summary");
+    expect((summary as HTMLElement | null)?.hidden).toBe(true);
     expect(summary?.textContent).toContain("对象3");
     expect(summary?.textContent).toContain("rectangle 1");
     expect(summary?.textContent).toContain("ellipse 1");
@@ -38,6 +39,48 @@ describe("drawingPlugin", () => {
     expect(svg?.querySelectorAll("rect")).toHaveLength(1);
     expect(svg?.querySelectorAll("ellipse")).toHaveLength(1);
     expect(svg?.querySelector("text")?.textContent).toBe("Hello");
+  });
+
+  it("responds to shared toolbar zoom and rotate commands", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const data = {
+      elements: [{ type: "rectangle", x: 10, y: 20, width: 120, height: 60, strokeColor: "#111111" }]
+    };
+
+    createViewer({
+      container,
+      file: new Blob([JSON.stringify(data)], { type: "application/json" }),
+      fileName: "toolbar.excalidraw",
+      toolbar: true,
+      plugins: [drawingPlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-svg-stage")));
+
+    const svg = container.querySelector<SVGSVGElement>(".ofv-svg-stage");
+    const initialViewBox = svg?.getAttribute("viewBox");
+    const zoomIn = container.querySelector<HTMLButtonElement>('button[aria-label="Zoom in"]');
+    const zoomReset = container.querySelector<HTMLButtonElement>('button[aria-label="Reset zoom"]');
+    const rotate = container.querySelector<HTMLButtonElement>('button[aria-label="Rotate right"]');
+    expect(zoomIn?.disabled).toBe(false);
+    expect(rotate?.disabled).toBe(false);
+
+    zoomIn?.click();
+    expect(svg?.getAttribute("viewBox")).not.toBe(initialViewBox);
+    expect(zoomReset?.textContent).toBe("122%");
+
+    rotate?.click();
+    rotate?.click();
+    rotate?.click();
+    rotate?.click();
+    rotate?.click();
+    expect(svg?.style.transform).toBe("rotate(450deg)");
+
+    zoomReset?.click();
+    expect(svg?.getAttribute("viewBox")).toBe(initialViewBox);
+    expect(svg?.style.transform).toBe("");
+    expect(zoomReset?.textContent).toBe("100%");
   });
 
   it("uses alternate Excalidraw MIME type to render extensionless blobs", async () => {
@@ -281,7 +324,7 @@ describe("drawingPlugin", () => {
     await waitFor(() => Boolean(container.querySelector(".ofv-svg-stage")));
 
     const svg = container.querySelector(".ofv-svg-stage");
-    expect(container.textContent).toContain("Excalidraw 4 elements");
+    expect(visibleText(container)).not.toContain("Excalidraw 4 elements");
     expect(svg?.querySelector("image")?.getAttribute("href")).toBe("data:image/png;base64,AAAA");
     expect(svg?.querySelectorAll("rect")).toHaveLength(3);
     expect(svg?.querySelector("rect")?.getAttribute("stroke-dasharray")).toBe("8 6");
@@ -341,6 +384,7 @@ describe("drawingPlugin", () => {
     await waitFor(() => Boolean(container.querySelector(".ofv-svg-stage")));
 
     const summary = container.querySelector(".ofv-drawing-summary");
+    expect((summary as HTMLElement | null)?.hidden).toBe(true);
     expect(summary?.textContent).toContain("对象4");
     expect(summary?.textContent).toContain("rectangle 1");
     expect(summary?.textContent).toContain("ellipse 1");
@@ -348,8 +392,10 @@ describe("drawingPlugin", () => {
     expect(summary?.textContent).toContain("edge 1");
     expect(summary?.textContent).toContain("文本3");
     const svg = container.querySelector(".ofv-svg-stage");
-    expect(container.textContent).toContain("Draw.io 图形预览 1");
-    expect(container.textContent).toContain("原始 XML 摘要");
+    expect(visibleText(container)).not.toContain("Draw.io 图形预览 1");
+    const rawDetails = container.querySelector<HTMLElement>(".ofv-details");
+    expect(rawDetails?.hidden).toBe(true);
+    expect(visibleText(container)).not.toContain("原始 XML 摘要");
     expect(svg?.querySelectorAll("rect")).toHaveLength(1);
     expect(svg?.querySelector("rect")?.getAttribute("rx")).toBe("12");
     expect(svg?.querySelectorAll("ellipse")).toHaveLength(1);
@@ -461,13 +507,14 @@ describe("drawingPlugin", () => {
     await waitFor(() => Boolean(container.querySelector(".ofv-svg-stage")));
 
     const summary = container.querySelector(".ofv-drawing-summary");
+    expect((summary as HTMLElement | null)?.hidden).toBe(true);
     expect(summary?.textContent).toContain("对象3");
     expect(summary?.textContent).toContain("geo 1");
     expect(summary?.textContent).toContain("arrow 1");
     expect(summary?.textContent).toContain("note 1");
     expect(summary?.textContent).toContain("连线1");
     const svg = container.querySelector(".ofv-svg-stage");
-    expect(container.textContent).toContain("tldraw 基础预览 3 shapes");
+    expect(visibleText(container)).not.toContain("tldraw 基础预览 3 shapes");
     expect(svg?.querySelectorAll("rect")).toHaveLength(2);
     expect(svg?.querySelectorAll("line")).toHaveLength(1);
     expect(svg?.querySelectorAll("polygon")).toHaveLength(1);
@@ -644,4 +691,29 @@ async function waitFor(predicate: () => boolean, timeout = 1000): Promise<void> 
     }
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
+}
+
+function visibleText(root: HTMLElement): string {
+  const parts: string[] = [];
+  const walk = (node: Node, hidden: boolean) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      if (!hidden) {
+        parts.push(node.textContent || "");
+      }
+      return;
+    }
+    if (!(node instanceof HTMLElement)) {
+      node.childNodes.forEach((child) => walk(child, hidden));
+      return;
+    }
+    const isHidden =
+      hidden ||
+      node.hidden ||
+      node.getAttribute("aria-hidden") === "true" ||
+      node.style.display === "none" ||
+      node.style.visibility === "hidden";
+    node.childNodes.forEach((child) => walk(child, isHidden));
+  };
+  walk(root, false);
+  return parts.join(" ").replace(/\s+/g, " ").trim();
 }

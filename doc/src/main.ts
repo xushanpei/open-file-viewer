@@ -81,7 +81,7 @@ const translations: Record<Language, Record<string, string>> = {
     "integration.desc": "选择 Vanilla JS、React、Vue 或 Svelte。底层插件一致，UI 可以先用默认组件，再逐步定制。",
     "playground.eyebrow": "Try it live",
     "playground.title": "Drop files and preview them instantly.",
-    "playground.desc": "本地文件只在浏览器内读取，不会上传。你也可以用内置示例体验 Markdown、JSON、Word、Excel、PowerPoint、SVG 和 DXF。",
+    "playground.desc": "本地文件只在浏览器内读取，不会上传。你也可以用内置示例体验 Markdown、JSON、Office、SVG、DXF、3D、GDSII、OASIS 和 DWG。",
     "playground.dropTitle": "Choose or drop files",
     "playground.dropDesc": "Multi-file preview queue supported",
     "playground.chooseFile": "选择文件",
@@ -160,7 +160,7 @@ const translations: Record<Language, Record<string, string>> = {
     "integration.desc": "Pick Vanilla JS, React, Vue or Svelte. The plugin capability stays consistent, while the UI can start default and evolve later.",
     "playground.eyebrow": "Try it live",
     "playground.title": "Drop files and preview them instantly.",
-    "playground.desc": "Local files stay in your browser and are not uploaded. Built-in samples cover Markdown, JSON, Word, Excel, PowerPoint, SVG and DXF.",
+    "playground.desc": "Local files stay in your browser and are not uploaded. Built-in samples cover Markdown, JSON, Office, SVG, DXF, 3D, GDSII, OASIS and DWG.",
     "playground.dropTitle": "Choose or drop files",
     "playground.dropDesc": "Multi-file preview queue supported",
     "playground.chooseFile": "Choose files",
@@ -504,25 +504,85 @@ ENTITIES
 0
 LINE
 8
-0
+A-WALL
 10
 0
 20
 0
 11
-120
+240
 21
-80
+0
 0
 CIRCLE
 8
-0
+A-DOOR
 10
 180
 20
 120
 40
 48
+0
+ARC
+8
+A-DOOR
+10
+180
+20
+120
+40
+72
+50
+210
+51
+330
+0
+LWPOLYLINE
+8
+A-WALL
+90
+5
+10
+0
+20
+0
+10
+240
+20
+0
+10
+240
+20
+160
+10
+0
+20
+160
+10
+0
+20
+0
+0
+POINT
+8
+A-MARK
+10
+42
+20
+96
+0
+TEXT
+8
+A-NOTE
+10
+28
+20
+142
+40
+14
+1
+Open File Viewer DXF
 0
 ENDSEC
 0
@@ -531,8 +591,343 @@ EOF`
       "drawing.dxf",
       { type: "application/dxf" }
     )
+  },
+  {
+    label: { zh: "PDF 文档", en: "PDF Document" },
+    file: createPdfSample()
+  },
+  {
+    label: { zh: "音频 WAV", en: "WAV Audio" },
+    file: createWavSample()
+  },
+  {
+    label: { zh: "邮件 EML", en: "EML Email" },
+    file: createEmailSample()
+  },
+  {
+    label: { zh: "压缩包 ZIP", en: "ZIP Archive" },
+    file: createArchiveSample()
+  },
+  {
+    label: { zh: "EPUB 电子书", en: "EPUB Book" },
+    file: createEpubSample()
+  },
+  {
+    label: { zh: "XPS 页面", en: "XPS Pages" },
+    file: createXpsSample()
+  },
+  {
+    label: { zh: "OFD 发票", en: "OFD Document" },
+    file: createOfdSample()
+  },
+  {
+    label: { zh: "SQLite 数据库", en: "SQLite Database" },
+    file: createSqliteSample()
+  },
+  {
+    label: { zh: "STEP 模型", en: "STEP CAD" },
+    file: createStepSample()
+  },
+  {
+    label: { zh: "OBJ 3D 模型", en: "OBJ 3D Model" },
+    file: createObjSample()
+  },
+  {
+    label: { zh: "GDSII 版图", en: "GDSII Layout" },
+    file: createGdsSample()
+  },
+  {
+    label: { zh: "OASIS 版图", en: "OASIS Layout" },
+    file: createOasisSample()
+  },
+  {
+    label: { zh: "DWG 图纸", en: "DWG Drawing" },
+    file: createDwgSample()
   }
 ];
+
+function createPdfSample(): File {
+  return new File(
+    [
+      `%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>
+endobj
+4 0 obj
+<< /Length 95 >>
+stream
+BT
+/F1 24 Tf
+72 720 Td
+(Open File Viewer PDF Sample) Tj
+0 -36 Td
+/F1 12 Tf
+(Toolbar zoom and rotation smoke document.) Tj
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+trailer
+<< /Root 1 0 R >>
+%%EOF`
+    ],
+    "sample.pdf",
+    { type: "application/pdf" }
+  );
+}
+
+function createWavSample(): File {
+  const sampleRate = 44100;
+  const channels = 1;
+  const bitDepth = 16;
+  const sampleCount = sampleRate;
+  const dataSize = sampleCount * channels * (bitDepth / 8);
+  const bytes = new Uint8Array(44 + dataSize);
+  const view = new DataView(bytes.buffer);
+  bytes.set(ascii("RIFF"), 0);
+  view.setUint32(4, 36 + dataSize, true);
+  bytes.set(ascii("WAVEfmt "), 8);
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, channels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * channels * (bitDepth / 8), true);
+  view.setUint16(32, channels * (bitDepth / 8), true);
+  view.setUint16(34, bitDepth, true);
+  bytes.set(ascii("data"), 36);
+  view.setUint32(40, dataSize, true);
+  for (let index = 0; index < sampleCount; index += 1) {
+    const sample = Math.round(Math.sin((index / sampleRate) * 440 * Math.PI * 2) * 16000);
+    view.setInt16(44 + index * 2, sample, true);
+  }
+  return new File([toArrayBuffer(bytes)], "sample-audio.wav", { type: "audio/wav" });
+}
+
+function createEmailSample(): File {
+  return new File(
+    [
+      [
+        "From: product@example.com",
+        "To: viewer@example.com",
+        "Subject: Open File Viewer sample email",
+        "MIME-Version: 1.0",
+        "Content-Type: text/plain; charset=utf-8",
+        "",
+        "Hello from the Open File Viewer email preview.",
+        "This sample checks message headers, body rendering, and toolbar stability."
+      ].join("\r\n")
+    ],
+    "sample-email.eml",
+    { type: "message/rfc822" }
+  );
+}
+
+function createArchiveSample(): File {
+  return createZipFile("sample-archive.zip", "application/zip", [
+    { path: "readme.md", content: "# Archive sample\n\nOpen File Viewer can inspect archive entries." },
+    { path: "data/config.json", content: JSON.stringify({ viewer: "open-file-viewer", sample: true }, null, 2) }
+  ]);
+}
+
+function createEpubSample(): File {
+  return createZipFile("sample-book.epub", "application/epub+zip", [
+    { path: "mimetype", content: "application/epub+zip" },
+    {
+      path: "META-INF/container.xml",
+      content: `<?xml version="1.0"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="OPS/package.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>`
+    },
+    {
+      path: "OPS/package.opf",
+      content: `<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:title>Open File Viewer EPUB</dc:title>
+  </metadata>
+  <manifest>
+    <item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+  <spine>
+    <itemref idref="chapter"/>
+  </spine>
+</package>`
+    },
+    {
+      path: "OPS/chapter.xhtml",
+      content: `<html xmlns="http://www.w3.org/1999/xhtml"><body><h1>Open File Viewer EPUB</h1><p>EPUB sample chapter rendered in the playground.</p></body></html>`
+    }
+  ]);
+}
+
+function createXpsSample(): File {
+  return createZipFile("sample-pages.xps", "application/vnd.ms-xpsdocument", [
+    {
+      path: "Documents/1/Pages/1.fpage",
+      content: `<FixedPage xmlns="http://schemas.microsoft.com/xps/2005/06" Width="800" Height="600">
+  <Glyphs UnicodeString="Open File Viewer XPS page" />
+</FixedPage>`
+    },
+    { path: "FixedDocSeq.fdseq", content: "<FixedDocumentSequence />" }
+  ]);
+}
+
+function createOfdSample(): File {
+  return createZipFile("sample-document.ofd", "application/ofd", [
+    {
+      path: "Doc_0/Pages/Page_0/Content.xml",
+      content: `<ofd:Page xmlns:ofd="http://www.ofdspec.org/2016">
+  <ofd:Content>
+    <ofd:Layer>
+      <ofd:TextObject Boundary="20 30 220 18" Size="12">
+        <ofd:TextCode X="0" Y="0">Open File Viewer OFD sample</ofd:TextCode>
+      </ofd:TextObject>
+    </ofd:Layer>
+  </ofd:Content>
+</ofd:Page>`
+    }
+  ]);
+}
+
+function createSqliteSample(): File {
+  const pageSize = 512;
+  const bytes = new Uint8Array(pageSize * 2);
+  bytes.set(ascii("SQLite format 3\0"), 0);
+  bytes[16] = 0x02;
+  bytes[17] = 0x00;
+  bytes[18] = 0x01;
+  bytes[19] = 0x01;
+  bytes[20] = 0x00;
+  bytes[21] = 0x40;
+  bytes[22] = 0x20;
+  bytes[23] = 0x20;
+  setUint32Be(bytes, 28, 2);
+  setUint32Be(bytes, 40, 1);
+  setUint32Be(bytes, 56, 1);
+
+  const createSql = "CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT)";
+  const schemaRecord = sqliteRecord([
+    { type: 23, value: "table" },
+    { type: 23, value: "users" },
+    { type: 23, value: "users" },
+    { type: 1, value: 2 },
+    { type: 13 + 2 * createSql.length, value: createSql }
+  ]);
+  const schemaCell = [...sqliteVarUint(schemaRecord.length), ...sqliteVarUint(1), ...schemaRecord];
+  const schemaCellOffset = pageSize - schemaCell.length;
+  bytes[100] = 0x0d;
+  setUint16Be(bytes, 103, 1);
+  setUint16Be(bytes, 105, schemaCellOffset);
+  setUint16Be(bytes, 108, schemaCellOffset);
+  bytes.set(schemaCell, schemaCellOffset);
+
+  const rowRecord = sqliteRecord([
+    { type: 0, value: 0 },
+    { type: 23, value: "Alice" }
+  ]);
+  const rowCell = [...sqliteVarUint(rowRecord.length), ...sqliteVarUint(1), ...rowRecord];
+  const rowPageStart = pageSize;
+  const rowCellOffset = pageSize - rowCell.length;
+  bytes[rowPageStart] = 0x0d;
+  setUint16Be(bytes, rowPageStart + 3, 1);
+  setUint16Be(bytes, rowPageStart + 5, rowCellOffset);
+  setUint16Be(bytes, rowPageStart + 8, rowCellOffset);
+  bytes.set(rowCell, rowPageStart + rowCellOffset);
+  return new File([toArrayBuffer(bytes)], "sample-data.sqlite", { type: "application/vnd.sqlite3" });
+}
+
+function createStepSample(): File {
+  return new File(
+    [
+      [
+        "ISO-10303-21;",
+        "DATA;",
+        "#1 = CARTESIAN_POINT('P1',(1.,2.,3.));",
+        "#2 = DIRECTION('D1',(0.,0.,1.));",
+        "#3 = LINE('L1',#1,#2);",
+        "ENDSEC;",
+        "END-ISO-10303-21;"
+      ].join("\n")
+    ],
+    "sample-model.step",
+    { type: "model/step" }
+  );
+}
+
+function createObjSample(): File {
+  return new File(
+    [
+      [
+        "o OpenFileViewerPyramid",
+        "v 0 0 0",
+        "v 1 0 0",
+        "v 0.5 0.86 0",
+        "v 0.5 0.3 0.75",
+        "vn 0 0 1",
+        "f 1//1 2//1 3//1",
+        "f 1 2 4",
+        "f 2 3 4",
+        "f 3 1 4"
+      ].join("\n")
+    ],
+    "sample-model.obj",
+    { type: "model/obj" }
+  );
+}
+
+function createGdsSample(): File {
+  const records: number[] = [
+    ...gdsRecord(0x0002, [0x00, 0x07]),
+    ...gdsRecord(0x0102, new Array(24).fill(0)),
+    ...gdsRecord(0x0206, [...ascii("OFV_LIB"), 0]),
+    ...gdsRecord(0x0305, new Array(16).fill(0)),
+    ...gdsRecord(0x0502, []),
+    ...gdsRecord(0x0606, [...ascii("TOP"), 0]),
+    ...gdsRecord(0x0800, []),
+    ...gdsRecord(0x0d02, [0x00, 0x01]),
+    ...gdsRecord(0x0e02, [0x00, 0x00]),
+    ...gdsRecord(0x1003, [
+      ...int32Be(0),
+      ...int32Be(0),
+      ...int32Be(1200),
+      ...int32Be(0),
+      ...int32Be(1200),
+      ...int32Be(800),
+      ...int32Be(0),
+      ...int32Be(800),
+      ...int32Be(0),
+      ...int32Be(0)
+    ]),
+    ...gdsRecord(0x1100, []),
+    ...gdsRecord(0x0700, []),
+    ...gdsRecord(0x0400, [])
+  ];
+  return new File([toArrayBuffer(Uint8Array.from(records))], "chip-layout.gds", { type: "application/vnd.gds" });
+}
+
+function createOasisSample(): File {
+  const compressedCellHints = [
+    0x63, 0x66, 0x0e, 0xf1, 0x0f, 0x60, 0xe6, 0x70, 0xf1, 0x74, 0x8d, 0x0f, 0xf6, 0x8c, 0x72, 0x05, 0x00
+  ];
+  const bytes = Uint8Array.from([...ascii("%SEMI-OASIS\r\n"), 0x01, 0x03, ...ascii("1.0"), 0x00, 0x21, ...compressedCellHints, 0x02]);
+  return new File([toArrayBuffer(bytes)], "chip-layout.oas", { type: "application/vnd.oasis.layout" });
+}
+
+function createDwgSample(): File {
+  const bytes = Uint8Array.from(ascii("AC1027\0\0DWGDATA\0LINE\0LAYER A-WALL\0BLOCK Door\0XREF site.dwg\0"));
+  return new File([toArrayBuffer(bytes)], "sample-plan.dwg", { type: "application/acad" });
+}
 
 function createDocxSample(): File {
   const contentTypes = `<?xml version="1.0" encoding="UTF-8"?>
@@ -653,9 +1048,9 @@ function createXlsxSample(): File {
     </row>
     <row r="2">
       <c r="A2" t="inlineStr"><is><t>Supported demo formats</t></is></c>
-      <c r="B2"><v>11</v></c>
+      <c r="B2"><v>24</v></c>
       <c r="C2" t="inlineStr"><is><t>Documentation</t></is></c>
-      <c r="D2" t="inlineStr"><is><t>Markdown, JSON, CSV, DOCX, XLSX, PPTX, HTML, SVG, GeoJSON, Excalidraw, DXF</t></is></c>
+      <c r="D2" t="inlineStr"><is><t>Markdown, JSON, CSV, DOCX, XLSX, PPTX, HTML, SVG, GeoJSON, Excalidraw, DXF, PDF, WAV, EML, ZIP, EPUB, XPS, OFD, SQLite, STEP, OBJ, GDSII, OASIS, DWG</t></is></c>
     </row>
     <row r="3">
       <c r="A3" t="inlineStr"><is><t>Office samples</t></is></c>
@@ -992,6 +1387,63 @@ function uint16Le(value: number): Uint8Array {
 
 function uint32Le(value: number): Uint8Array {
   return Uint8Array.from([value & 0xff, (value >> 8) & 0xff, (value >> 16) & 0xff, (value >> 24) & 0xff]);
+}
+
+function ascii(value: string): number[] {
+  return [...value].map((char) => char.charCodeAt(0));
+}
+
+function gdsRecord(type: number, payload: number[]): number[] {
+  return [...uint16Be(payload.length + 4), (type >>> 8) & 0xff, type & 0xff, ...payload];
+}
+
+function uint16Be(value: number): number[] {
+  return [(value >>> 8) & 0xff, value & 0xff];
+}
+
+function int32Be(value: number): number[] {
+  return [(value >>> 24) & 0xff, (value >>> 16) & 0xff, (value >>> 8) & 0xff, value & 0xff];
+}
+
+function setUint16Be(bytes: Uint8Array, offset: number, value: number): void {
+  bytes[offset] = (value >>> 8) & 0xff;
+  bytes[offset + 1] = value & 0xff;
+}
+
+function setUint32Be(bytes: Uint8Array, offset: number, value: number): void {
+  bytes[offset] = (value >>> 24) & 0xff;
+  bytes[offset + 1] = (value >>> 16) & 0xff;
+  bytes[offset + 2] = (value >>> 8) & 0xff;
+  bytes[offset + 3] = value & 0xff;
+}
+
+function sqliteRecord(values: Array<{ type: number; value: string | number }>): number[] {
+  const serialTypes = values.flatMap((item) => sqliteVarUint(item.type));
+  const headerSize = sqliteVarUint(1 + serialTypes.length);
+  const body = values.flatMap((item) => sqliteRecordValue(item));
+  return [...headerSize, ...serialTypes, ...body];
+}
+
+function sqliteRecordValue(item: { type: number; value: string | number }): number[] {
+  if (typeof item.value === "number") {
+    return item.type === 0 ? [] : [item.value & 0xff];
+  }
+  return [...new TextEncoder().encode(item.value)];
+}
+
+function sqliteVarUint(value: number): number[] {
+  if (value < 0x80) {
+    return [value];
+  }
+  const bytes: number[] = [];
+  let remaining = value;
+  const stack = [remaining & 0x7f];
+  remaining >>= 7;
+  while (remaining > 0) {
+    stack.push((remaining & 0x7f) | 0x80);
+    remaining >>= 7;
+  }
+  return stack.reverse();
 }
 
 function crc32(bytes: Uint8Array): number {

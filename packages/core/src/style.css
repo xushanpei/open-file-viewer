@@ -38,7 +38,32 @@
   box-sizing: border-box;
 }
 
-.ofv-root [hidden] {
+.ofv-root [hidden],
+.ofv-root .ofv-pdf-summary[aria-hidden="true"],
+.ofv-root .ofv-sheet-summary[aria-hidden="true"],
+.ofv-root .ofv-presentation-summary[aria-hidden="true"],
+.ofv-root .ofv-media-info[aria-hidden="true"],
+.ofv-root .ofv-image-info[aria-hidden="true"],
+.ofv-root .ofv-drawing-summary[aria-hidden="true"],
+.ofv-root .ofv-cad-summary[aria-hidden="true"],
+.ofv-root .ofv-asset-summary[aria-hidden="true"],
+.ofv-root .ofv-asset-download[aria-hidden="true"],
+.ofv-root .ofv-gis-summary[aria-hidden="true"],
+.ofv-root .ofv-archive-summary[aria-hidden="true"],
+.ofv-root .ofv-archive-info[aria-hidden="true"],
+.ofv-root .ofv-archive-probe-meta[aria-hidden="true"],
+.ofv-root .ofv-epub-meta[aria-hidden="true"],
+.ofv-root .ofv-xps-summary[aria-hidden="true"],
+.ofv-root .ofv-sqlite-summary[aria-hidden="true"],
+.ofv-root .ofv-wasm-summary[aria-hidden="true"],
+.ofv-root .ofv-data-summary[aria-hidden="true"],
+.ofv-root .ofv-data-note[aria-hidden="true"],
+.ofv-root .ofv-font-status[aria-hidden="true"],
+.ofv-root .ofv-font-info[aria-hidden="true"],
+.ofv-root .ofv-model-measure[aria-hidden="true"],
+.ofv-root .ofv-model-materials[aria-hidden="true"],
+.ofv-root .ofv-details[aria-hidden="true"],
+.ofv-root .ofv-table-scroll[aria-hidden="true"] {
   display: none !important;
 }
 
@@ -279,7 +304,7 @@
   flex: 1 1 auto;
   align-items: center;
   justify-content: center;
-  min-height: 0;
+  min-height: min(320px, 55vh);
   min-width: 0;
   overflow: hidden;
   cursor: grab;
@@ -291,6 +316,10 @@
 }
 
 .ofv-image-content {
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
   transform-origin: center;
   transition: transform 120ms ease;
   will-change: transform;
@@ -461,6 +490,9 @@
   justify-content: center;
   min-width: 0;
   min-height: 0;
+  max-width: 100%;
+  max-height: 100%;
+  overflow: hidden;
   position: relative;
 }
 
@@ -568,8 +600,15 @@
   overflow-wrap: anywhere;
 }
 
+.ofv-office {
+  --ofv-office-zoom: 1;
+  min-width: 0;
+  max-width: 100%;
+}
+
 .ofv-document {
   overflow-wrap: anywhere;
+  font-size: calc(14px * var(--ofv-office-zoom, 1));
   line-height: 1.7;
 }
 
@@ -660,14 +699,14 @@
   min-width: 0;
   padding: 24px;
   overflow: hidden;
-  background: #e5e7eb;
+  background: transparent;
   --ofv-docx-scale: 1;
   --ofv-docx-page-width: 794px;
 }
 
 .ofv-docx-page-frame {
   flex: 0 0 auto;
-  width: min(100%, calc(var(--ofv-docx-page-width) * var(--ofv-docx-scale)));
+  width: min(100%, calc(var(--ofv-docx-page-width) * var(--ofv-docx-scale) * var(--ofv-office-zoom, 1)));
   max-width: 100%;
   min-width: 0;
   position: relative;
@@ -679,11 +718,18 @@
   flex: 0 0 auto;
   max-width: none;
   min-width: auto;
+  background: #fff;
   color: #111827;
   overflow: visible;
   overflow-wrap: normal;
-  transform: scale(var(--ofv-docx-scale));
+  transform: scale(calc(var(--ofv-docx-scale) * var(--ofv-office-zoom, 1)));
   transform-origin: top left;
+}
+
+.ofv-docx-document section.ofv-docx > section,
+.ofv-docx-document section.ofv-docx .docx,
+.ofv-docx-document section.ofv-docx .docx-wrapper {
+  background: #fff;
 }
 
 .ofv-docx-document section.ofv-docx img,
@@ -707,6 +753,163 @@
   background: var(--ofv-surface-muted);
   color: var(--ofv-text-muted);
   font-size: 13px;
+}
+
+.ofv-docx-textbox-layout {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.34fr) minmax(0, 1fr);
+  gap: 22px;
+  width: min(100%, 920px);
+  margin: 0 auto;
+  padding: 38px;
+  border: 1px solid var(--ofv-border);
+  background: #fff;
+  color: #111827;
+  box-shadow: 0 10px 32px rgb(15 23 42 / 10%);
+}
+
+.ofv-docx-textbox-page {
+  position: relative;
+  width: min(100%, var(--ofv-docx-textbox-page-width, 595pt));
+  margin: 0 auto;
+  overflow: hidden;
+  border: 1px solid var(--ofv-border);
+  background: #fff;
+  color: #111827;
+  box-shadow: 0 10px 32px rgb(15 23 42 / 10%);
+}
+
+.ofv-docx-textbox-page-has-sidebar::before {
+  position: absolute;
+  z-index: 0;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: var(--ofv-docx-textbox-sidebar-width, 180pt);
+  background: var(--ofv-docx-textbox-sidebar-bg, #1f1c34);
+  content: "";
+}
+
+.ofv-docx-textbox-page-block,
+.ofv-docx-textbox-page-flow {
+  position: absolute;
+  z-index: 1;
+  box-sizing: border-box;
+}
+
+.ofv-docx-textbox-page-block {
+  overflow: hidden;
+}
+
+.ofv-docx-textbox-page-title-block h3 {
+  margin-bottom: 8px;
+  font-size: 24px;
+  line-height: 1.15;
+}
+
+.ofv-docx-textbox-page-title-block p {
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.ofv-docx-textbox-page-filled-block {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 8pt 12pt;
+  background: var(--ofv-docx-textbox-fill, #303241);
+  color: #fff;
+}
+
+.ofv-docx-textbox-page-filled-block h3,
+.ofv-docx-textbox-page-filled-block p {
+  color: inherit;
+}
+
+.ofv-docx-textbox-page-has-sidebar .ofv-docx-textbox-page-sidebar-block:not(.ofv-docx-textbox-page-filled-block),
+.ofv-docx-textbox-page-has-sidebar .ofv-docx-textbox-page-sidebar-flow .ofv-docx-textbox-flow-block,
+.ofv-docx-textbox-page-has-sidebar .ofv-docx-textbox-page-sidebar-flow .ofv-docx-textbox-flow-block h3,
+.ofv-docx-textbox-page-has-sidebar .ofv-docx-textbox-page-sidebar-flow .ofv-docx-textbox-flow-block p {
+  color: #fff;
+}
+
+.ofv-docx-textbox-page-has-sidebar .ofv-docx-textbox-page-sidebar-flow .ofv-docx-textbox-flow-block h3 {
+  border-bottom-color: rgb(255 255 255 / 65%);
+}
+
+.ofv-docx-textbox-page-main-flow .ofv-docx-textbox-flow-block {
+  margin-bottom: 14px;
+}
+
+.ofv-docx-textbox-page-main-flow .ofv-docx-textbox-flow-block h3 {
+  padding-bottom: 5px;
+  border-bottom: 3px solid #303241;
+}
+
+.ofv-docx-textbox-page-sidebar-flow .ofv-docx-textbox-flow-block {
+  margin-bottom: 14px;
+}
+
+.ofv-docx-textbox-sidebar,
+.ofv-docx-textbox-main {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ofv-docx-textbox-block {
+  min-width: 0;
+  break-inside: avoid;
+}
+
+.ofv-docx-textbox-sidebar-block.ofv-docx-textbox-block-filled {
+  padding: 16px;
+  background: var(--ofv-docx-textbox-fill, #303241);
+  color: #fff;
+}
+
+.ofv-docx-textbox-block h3 {
+  margin: 0 0 10px;
+  color: inherit;
+  font-size: 18px;
+  line-height: 1.35;
+  font-weight: 700;
+}
+
+.ofv-docx-textbox-main .ofv-docx-textbox-block h3 {
+  padding-bottom: 6px;
+  border-bottom: 3px solid #303241;
+}
+
+.ofv-docx-textbox-main-block.ofv-docx-textbox-block-filled {
+  padding: 0;
+  background: transparent;
+  color: #111827;
+}
+
+.ofv-docx-textbox-main-block.ofv-docx-textbox-block-filled h3 {
+  margin-bottom: 10px;
+  padding: 10px 14px;
+  border-bottom: 0;
+  background: var(--ofv-docx-textbox-fill, #303241);
+  color: #fff;
+}
+
+.ofv-docx-textbox-main-block.ofv-docx-textbox-block-filled p {
+  padding: 0 14px;
+}
+
+.ofv-docx-textbox-block p {
+  margin: 0 0 7px;
+  color: inherit;
+  font-size: 13px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+
+.ofv-docx-textbox-block p:last-child {
+  margin-bottom: 0;
 }
 
 .ofv-root.ofv-theme-dark .ofv-docx-document {
@@ -755,6 +958,10 @@
 .ofv-sheet h3 {
   margin: 0 0 10px;
   overflow-wrap: anywhere;
+}
+
+.ofv-sheet {
+  font-size: calc(13px * var(--ofv-office-zoom, 1));
 }
 
 .ofv-sheet-summary {
@@ -871,11 +1078,11 @@
   border: 1px solid var(--ofv-border);
   padding: 5px 24px 5px 8px;
   white-space: normal;
-  overflow: visible;
+  overflow: hidden;
   overflow-wrap: anywhere;
   word-break: break-word;
   text-overflow: clip;
-  font-size: 13px;
+  font-size: inherit;
   line-height: 1.45;
   vertical-align: middle;
 }
@@ -899,7 +1106,7 @@
 .ofv-column-resize-handle {
   position: absolute;
   top: 0;
-  right: -3px;
+  right: 0;
   z-index: 2;
   width: 7px;
   height: 100%;
@@ -1033,7 +1240,9 @@
 }
 
 .ofv-epub-content {
-  font: 16px/1.75 Georgia, "Times New Roman", serif;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: calc(16px * var(--ofv-epub-zoom, 1));
+  line-height: 1.75;
 }
 
 .ofv-epub-content p {
@@ -1097,6 +1306,19 @@
   font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
+.ofv-xps-canvas {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  max-height: 68vh;
+  margin: 12px 0 16px;
+  border: 1px solid var(--ofv-border);
+  border-radius: 4px;
+  background: #fff;
+  color-scheme: light;
+}
+
 .ofv-xps-text p {
   margin: 0 0 8px;
   line-height: 1.7;
@@ -1109,6 +1331,7 @@
   border: 1px solid var(--ofv-border);
   border-radius: 8px;
   background: var(--ofv-surface);
+  font-size: calc(14px * var(--ofv-office-zoom, 1));
   overflow-wrap: anywhere;
 }
 
@@ -1225,7 +1448,9 @@
   color: #e5e7eb;
   white-space: pre-wrap;
   word-break: break-word;
-  font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: calc(13px * var(--ofv-email-zoom, var(--ofv-office-zoom, 1)));
+  line-height: 1.6;
 }
 
 .ofv-font-preview {
@@ -1392,17 +1617,20 @@
   gap: 8px 16px;
 }
 
-.ofv-sqlite-schema {
+.ofv-sqlite-schema,
+.ofv-sqlite-data {
   max-width: 100%;
   overflow: auto;
 }
 
-.ofv-sqlite-schema strong {
+.ofv-sqlite-schema strong,
+.ofv-sqlite-data > strong {
   display: block;
   margin: 0 0 8px;
 }
 
-.ofv-sqlite-schema table {
+.ofv-sqlite-schema table,
+.ofv-sqlite-data-table table {
   width: 100%;
   min-width: 720px;
   border-collapse: collapse;
@@ -1410,14 +1638,17 @@
 }
 
 .ofv-sqlite-schema th,
-.ofv-sqlite-schema td {
+.ofv-sqlite-schema td,
+.ofv-sqlite-data-table th,
+.ofv-sqlite-data-table td {
   padding: 8px;
   border-bottom: 1px solid var(--ofv-border);
   text-align: left;
   vertical-align: top;
 }
 
-.ofv-sqlite-schema th {
+.ofv-sqlite-schema th,
+.ofv-sqlite-data-table th {
   color: var(--ofv-text-muted);
   font-weight: 600;
 }
@@ -1426,6 +1657,21 @@
   max-width: 420px;
   overflow-wrap: anywhere;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.ofv-sqlite-table-sample {
+  min-width: 0;
+  margin-top: 10px;
+}
+
+.ofv-sqlite-data-table {
+  max-width: 100%;
+  overflow: auto;
+}
+
+.ofv-sqlite-data-table td {
+  max-width: 280px;
+  overflow-wrap: anywhere;
 }
 
 .ofv-sqlite-error,
@@ -1450,19 +1696,60 @@
   color: var(--ofv-text-muted);
 }
 
+.ofv-ai-pdf-preview {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ofv-asset:has(.ofv-ai-pdf-preview .ofv-pdf-page-wrapper) > .ofv-section > h3,
+.ofv-asset:has(.ofv-ai-pdf-preview .ofv-pdf-page-wrapper) .ofv-asset-summary,
+.ofv-asset:has(.ofv-ai-pdf-preview .ofv-pdf-page-wrapper) .ofv-asset-download,
+.ofv-asset:has(.ofv-ai-pdf-preview .ofv-pdf-page-wrapper) .ofv-asset-hex,
+.ofv-asset:has(.ofv-ai-pdf-preview .ofv-pdf-page-wrapper) .ofv-data-preview {
+  display: none !important;
+}
+
+.ofv-ai-pdf-preview .ofv-pdf-viewer {
+  min-height: min(720px, 68vh);
+  border: 1px solid var(--ofv-border);
+  border-radius: 6px;
+  background: var(--ofv-surface-muted);
+  overflow: hidden;
+}
+
 .ofv-data-kv,
-.ofv-avro-schema {
+.ofv-avro-schema,
+.ofv-avro-records,
+.ofv-parquet-schema {
+  max-width: 100%;
+  overflow: auto;
+}
+
+.ofv-parquet-records {
+  max-width: 100%;
+  overflow: auto;
+}
+
+.ofv-parquet-schema,
+.ofv-parquet-records {
   max-width: 100%;
   overflow: auto;
 }
 
 .ofv-data-kv strong,
-.ofv-avro-schema > strong {
+.ofv-avro-schema > strong,
+.ofv-avro-records > strong,
+.ofv-parquet-schema > strong,
+.ofv-parquet-records > strong {
   display: block;
   margin: 0 0 8px;
 }
 
-.ofv-data-kv table {
+.ofv-data-kv table,
+.ofv-avro-records table,
+.ofv-parquet-schema table,
+.ofv-parquet-records table {
   width: 100%;
   min-width: 640px;
   border-collapse: collapse;
@@ -1470,20 +1757,30 @@
 }
 
 .ofv-data-kv th,
-.ofv-data-kv td {
+.ofv-data-kv td,
+.ofv-avro-records th,
+.ofv-avro-records td,
+.ofv-parquet-schema th,
+.ofv-parquet-schema td,
+.ofv-parquet-records th,
+.ofv-parquet-records td {
   padding: 8px;
   border-bottom: 1px solid var(--ofv-border);
   text-align: left;
   vertical-align: top;
 }
 
-.ofv-data-kv th {
+.ofv-data-kv th,
+.ofv-avro-records th {
   width: 180px;
   color: var(--ofv-text-muted);
   font-weight: 600;
 }
 
-.ofv-data-kv td {
+.ofv-data-kv td,
+.ofv-avro-records td,
+.ofv-parquet-schema td,
+.ofv-parquet-records td {
   overflow-wrap: anywhere;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
@@ -2645,6 +2942,7 @@
 
 /* Code container styling */
 .ofv-code-container {
+  --ofv-text-zoom: 1;
   display: flex;
   flex-direction: column;
   width: 100%;
@@ -2812,7 +3110,7 @@
   box-shadow: 8px 0 14px -14px rgba(15, 23, 42, 0.65);
   color: var(--ofv-text-muted);
   font-family: var(--ofv-font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
-  font-size: 13px;
+  font-size: calc(13px * var(--ofv-text-zoom, 1));
   line-height: 1.6;
   text-align: right;
   user-select: none;
@@ -2827,7 +3125,7 @@
   min-width: max-content;
   background: transparent !important;
   font-family: var(--ofv-font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
-  font-size: 13px;
+  font-size: calc(13px * var(--ofv-text-zoom, 1));
   line-height: 1.6;
 }
 
@@ -2874,6 +3172,7 @@
 
 /* Markdown container styling */
 .ofv-markdown-body {
+  --ofv-markdown-zoom: 1;
   width: 100%;
   max-width: 100%;
   height: 100%;
@@ -2884,7 +3183,7 @@
   background: var(--ofv-surface);
   color: var(--ofv-text);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
-  font-size: 15px;
+  font-size: calc(15px * var(--ofv-markdown-zoom, 1));
   line-height: 1.65;
   word-wrap: break-word;
 }
@@ -3041,6 +3340,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
   box-sizing: border-box;
 }
 
@@ -3071,6 +3371,36 @@
   color: #ef4444;
   font-weight: 500;
   font-size: 14px;
+  width: 100%;
+  height: 100%;
+  min-height: 160px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+  line-height: 1.6;
+  background: color-mix(in srgb, #ef4444 8%, var(--ofv-surface));
+  box-sizing: border-box;
+}
+
+.ofv-pdf-empty {
+  position: absolute;
+  inset: 16px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  border: 1px solid color-mix(in srgb, #f59e0b 34%, var(--ofv-border));
+  border-radius: 8px;
+  background: color-mix(in srgb, #fef3c7 86%, transparent);
+  color: #92400e;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.6;
+  text-align: center;
+  box-sizing: border-box;
 }
 
 /* PDF Text Layer styling */

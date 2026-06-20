@@ -195,6 +195,7 @@ const extensionMimeMap: Record<string, string> = {
   xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   xltx: "application/vnd.openxmlformats-officedocument.spreadsheetml.template",
   xls: "application/vnd.ms-excel",
+  xlt: "application/vnd.ms-excel",
   xlsm: "application/vnd.ms-excel.sheet.macroenabled.12",
   xltm: "application/vnd.ms-excel.template.macroenabled.12",
   xlsb: "application/vnd.ms-excel.sheet.binary.macroenabled.12",

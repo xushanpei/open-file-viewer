@@ -1,3 +1,4 @@
+/// <reference path="../shims-archive.d.ts" />
 import JSZip from "jszip";
 import pako from "pako";
 import type { PreviewPlugin, PreviewFile } from "../types";
@@ -102,7 +103,7 @@ export function archivePlugin(): PreviewPlugin {
             : ctx.file.name;
 
           if (ext === "tgz" || ext === "tar.gz" || originalName.endsWith(".tar")) {
-            archiveEntries = untar(decompressed.buffer);
+            archiveEntries = untar(toArrayBuffer(decompressed));
           } else {
             // Single decompressed file
             archiveEntries = [
@@ -110,11 +111,40 @@ export function archivePlugin(): PreviewPlugin {
                 name: originalName,
                 size: decompressed.byteLength,
                 dir: false,
-                read: async () => decompressed.buffer
+                read: async () => toArrayBuffer(decompressed)
               }
             ];
           }
-        } else if (["rar", "7z", "bz2", "xz"].includes(ext)) {
+        } else if (ext === "bz2") {
+          const compressed = new Uint8Array(await readArrayBuffer(ctx.file));
+          const decompressed = await bunzip2(compressed);
+          const originalName = ctx.file.name.toLowerCase().endsWith(".bz2") ? ctx.file.name.slice(0, -4) : ctx.file.name;
+          archiveEntries = [
+            {
+              name: originalName || "decompressed",
+              size: decompressed.byteLength,
+              dir: false,
+              read: async () => toArrayBuffer(decompressed)
+            }
+          ];
+        } else if (ext === "xz") {
+          const compressed = new Uint8Array(await readArrayBuffer(ctx.file));
+          const decompressed = await unxz(compressed);
+          const originalName = deriveSingleFileArchiveName(ctx.file.name, ".xz", "decompressed");
+
+          if (originalName.toLowerCase().endsWith(".tar") || ctx.file.name.toLowerCase().endsWith(".txz")) {
+            archiveEntries = untar(toArrayBuffer(decompressed));
+          } else {
+            archiveEntries = [
+              {
+                name: originalName,
+                size: decompressed.byteLength,
+                dir: false,
+                read: async () => toArrayBuffer(decompressed)
+              }
+            ];
+          }
+        } else if (["rar", "7z"].includes(ext)) {
           archiveProbe = probeArchiveHeader(await readArrayBuffer(ctx.file), ext);
         } else {
           parseError = `该格式 (.${ext.toUpperCase()}) 目前暂不支持直接在浏览器端在线解压和目录预览。`;
@@ -237,6 +267,7 @@ export function archivePlugin(): PreviewPlugin {
         mainPanel.replaceChildren();
         const summary = document.createElement("div");
         summary.className = "ofv-archive-info";
+        hideSupplementalInfo(summary);
         
         const heading = document.createElement("h3");
         heading.textContent = ctx.file.name;
@@ -263,7 +294,121 @@ export function archivePlugin(): PreviewPlugin {
       let destroyed = false;
       let renderToken = 0;
 
-      visibleEntries.forEach((entry) => {
+      const openArchiveEntry = async (entry: ArchiveEntry, item: HTMLButtonElement) => {
+        if (destroyed) {
+          return;
+        }
+        if (shouldAutoCollapseSidebar()) {
+          setSidebarCollapsed(true);
+        }
+        const token = ++renderToken;
+        sidebar.querySelectorAll(".ofv-archive-item").forEach((el) => {
+          el.classList.remove("is-active");
+          el.removeAttribute("aria-current");
+        });
+        item.classList.add("is-active");
+        item.setAttribute("aria-current", "true");
+
+        if (currentSubInstance) {
+          currentSubInstance.destroy();
+          currentSubInstance = null;
+          ctx.toolbar?.refreshCommandSupport();
+        }
+
+        mainPanel.replaceChildren(createArchiveLoading(entry.name.split("/").pop() || entry.name));
+
+        try {
+          let buffer = await entry.read();
+          if (destroyed || token !== renderToken) {
+            return;
+          }
+          const subName = entry.name.split("/").pop() || entry.name;
+          const subExt = subName.split(".").pop()?.toLowerCase() || "";
+
+          if (subExt === "shp") {
+            const basePath = entry.name.slice(0, -4);
+            const dbfEntry = archiveEntries.find((e) => e.name.toLowerCase() === basePath.toLowerCase() + ".dbf");
+            const shxEntry = archiveEntries.find((e) => e.name.toLowerCase() === basePath.toLowerCase() + ".shx");
+            if (dbfEntry && shxEntry) {
+              const prjEntry = archiveEntries.find((e) => e.name.toLowerCase() === basePath.toLowerCase() + ".prj");
+              const newZip = new JSZip();
+              newZip.file(subName, buffer);
+              newZip.file(dbfEntry.name.split("/").pop()!, await dbfEntry.read());
+              newZip.file(shxEntry.name.split("/").pop()!, await shxEntry.read());
+              if (prjEntry) {
+                newZip.file(prjEntry.name.split("/").pop()!, await prjEntry.read());
+              }
+              buffer = await newZip.generateAsync({ type: "arraybuffer" });
+              if (destroyed || token !== renderToken) {
+                return;
+              }
+            }
+          }
+
+          const subContainer = document.createElement("div");
+          subContainer.style.cssText = "width: 100%; height: 100%; position: relative; display: flex; flex-direction: column;";
+          mainPanel.replaceChildren(subContainer);
+
+          const subViewport = document.createElement("div");
+          subViewport.className = "ofv-viewport";
+          subViewport.style.cssText = "flex: 1; width: 100%; height: 100%; position: relative; overflow: auto;";
+          subContainer.append(subViewport);
+
+          const subFile: PreviewFile = await normalizeFile(buffer, subName);
+
+          const plugins = [...(ctx.options.plugins || []), fallbackPlugin()];
+          let matchedPlugin = await findSubPreviewPlugin(plugins, subFile);
+          if (destroyed || token !== renderToken) {
+            return;
+          }
+          if (matchedPlugin.name === "archive") {
+            matchedPlugin = fallbackPlugin();
+          }
+
+          let previewError: Error | undefined;
+          const nextSubInstance = await Promise.resolve()
+            .then(() =>
+              matchedPlugin.render({
+                host: ctx.host,
+                viewport: subViewport,
+                file: subFile,
+                size: { width: subViewport.clientWidth || 600, height: subViewport.clientHeight || 400 },
+                options: ctx.options,
+                toolbar: ctx.toolbar,
+                setLoading: () => {},
+                setError: (err) => {
+                  previewError = err instanceof Error ? err : new Error(String(err));
+                  subViewport.replaceChildren(createInlineError("文件预览失败", previewError.message));
+                }
+              })
+            )
+            .catch((error: unknown) => {
+              previewError = error instanceof Error ? error : new Error(String(error));
+              subViewport.replaceChildren(createInlineError("文件预览失败", previewError.message));
+              return undefined;
+            });
+          if (destroyed || token !== renderToken) {
+            nextSubInstance?.destroy();
+            return;
+          }
+          if (nextSubInstance && !previewError) {
+            currentSubInstance = nextSubInstance;
+            ctx.toolbar?.refreshCommandSupport();
+          } else if (nextSubInstance) {
+            nextSubInstance.destroy();
+            ctx.toolbar?.refreshCommandSupport();
+          }
+        } catch (err: any) {
+          if (destroyed || token !== renderToken) {
+            return;
+          }
+          currentSubInstance = null;
+          ctx.toolbar?.refreshCommandSupport();
+          mainPanel.replaceChildren(createInlineError("解压加载失败", String(err.message || err)));
+        }
+      };
+
+      visibleEntries.forEach((entry, index) => {
         const item = document.createElement("button");
         item.className = "ofv-archive-item";
         item.type = "button";
@@ -282,126 +427,20 @@ export function archivePlugin(): PreviewPlugin {
         tree.append(item);
 
         item.addEventListener("click", async () => {
-          if (destroyed) {
-            return;
-          }
-          if (shouldAutoCollapseSidebar()) {
-            setSidebarCollapsed(true);
-          }
-          const token = ++renderToken;
-          // Highlight active item
-          sidebar.querySelectorAll(".ofv-archive-item").forEach((el) => {
-            el.classList.remove("is-active");
-            el.removeAttribute("aria-current");
-          });
-          item.classList.add("is-active");
-          item.setAttribute("aria-current", "true");
-
-          // Cleanup previous sub-preview
-          if (currentSubInstance) {
-            currentSubInstance.destroy();
-            currentSubInstance = null;
-          }
-
-          // Show loading state
-          mainPanel.replaceChildren(createArchiveLoading(entry.name.split("/").pop() || entry.name));
-
-          try {
-            let buffer = await entry.read();
-            if (destroyed || token !== renderToken) {
-              return;
-            }
-            const subName = entry.name.split("/").pop() || entry.name;
-            const subExt = subName.split(".").pop()?.toLowerCase() || "";
-
-            // Shapefile components linkage mechanism:
-            // Combine adjacent .dbf, .shx, and .prj files into a single ZIP buffer in memory
-            if (subExt === "shp") {
-              const basePath = entry.name.slice(0, -4);
-              const dbfEntry = archiveEntries.find(
-                (e) => e.name.toLowerCase() === basePath.toLowerCase() + ".dbf"
-              );
-              const shxEntry = archiveEntries.find(
-                (e) => e.name.toLowerCase() === basePath.toLowerCase() + ".shx"
-              );
-              if (dbfEntry && shxEntry) {
-                const prjEntry = archiveEntries.find(
-                  (e) => e.name.toLowerCase() === basePath.toLowerCase() + ".prj"
-                );
-                const newZip = new JSZip();
-                newZip.file(subName, buffer);
-                newZip.file(dbfEntry.name.split("/").pop()!, await dbfEntry.read());
-                newZip.file(shxEntry.name.split("/").pop()!, await shxEntry.read());
-                if (prjEntry) {
-                  newZip.file(prjEntry.name.split("/").pop()!, await prjEntry.read());
-                }
-                buffer = await newZip.generateAsync({ type: "arraybuffer" });
-                if (destroyed || token !== renderToken) {
-                  return;
-                }
-              }
-            }
-
-            const subContainer = document.createElement("div");
-            subContainer.style.cssText = "width: 100%; height: 100%; position: relative; display: flex; flex-direction: column;";
-            mainPanel.replaceChildren(subContainer);
-
-            const subViewport = document.createElement("div");
-            subViewport.className = "ofv-viewport";
-            subViewport.style.cssText = "flex: 1; width: 100%; height: 100%; position: relative; overflow: auto;";
-            subContainer.append(subViewport);
-
-            const subFile: PreviewFile = await normalizeFile(buffer, subName);
-
-            const plugins = [...(ctx.options.plugins || []), fallbackPlugin()];
-            let matchedPlugin = await findSubPreviewPlugin(plugins, subFile);
-            if (destroyed || token !== renderToken) {
-              return;
-            }
-            if (matchedPlugin.name === "archive") {
-              matchedPlugin = fallbackPlugin();
-            }
-
-            let previewError: Error | undefined;
-            const nextSubInstance = await Promise.resolve()
-              .then(() =>
-                matchedPlugin.render({
-                host: ctx.host,
-                viewport: subViewport,
-                file: subFile,
-                size: { width: subViewport.clientWidth || 600, height: subViewport.clientHeight || 400 },
-                options: ctx.options,
-                setLoading: () => {},
-                setError: (err) => {
-                  previewError = err instanceof Error ? err : new Error(String(err));
-                  subViewport.replaceChildren(createInlineError("文件预览失败", previewError.message));
-                }
-                })
-              )
-              .catch((error: unknown) => {
-                previewError = error instanceof Error ? error : new Error(String(error));
-                subViewport.replaceChildren(createInlineError("文件预览失败", previewError.message));
-                return undefined;
-              });
-            if (destroyed || token !== renderToken) {
-              nextSubInstance?.destroy();
-              return;
-            }
-            if (nextSubInstance && !previewError) {
-              currentSubInstance = nextSubInstance;
-            } else if (nextSubInstance) {
-              nextSubInstance.destroy();
-            }
-          } catch (err: any) {
-            if (destroyed || token !== renderToken) {
-              return;
-            }
-            mainPanel.replaceChildren(createInlineError("解压加载失败", String(err.message || err)));
-          }
+          await openArchiveEntry(entry, item);
         });
+        if (index === 0) {
+          void openArchiveEntry(entry, item);
+        }
       });
 
       return {
+        canCommand(command) {
+          return currentSubInstance?.canCommand?.(command) ?? false;
+        },
+        command(command) {
+          return currentSubInstance?.command?.(command) ?? false;
+        },
         resize(size) {
           currentSubInstance?.resize?.(size);
         },
@@ -426,6 +465,84 @@ async function findSubPreviewPlugin(plugins: PreviewPlugin[], file: PreviewFile)
     }
   }
   return fallbackPlugin();
+}
+
+async function bunzip2(bytes: Uint8Array): Promise<Uint8Array> {
+  const restoreBuffer = installSeekBzipBufferCompat();
+  try {
+    const module = await import("seek-bzip");
+    const decoder = (module.default || module) as { decode: (input: Uint8Array) => Uint8Array | ArrayBuffer | ArrayLike<number> };
+    const decoded = decoder.decode(bytes);
+    return decoded instanceof Uint8Array
+      ? decoded
+      : decoded instanceof ArrayBuffer
+        ? new Uint8Array(decoded)
+        : Uint8Array.from(decoded);
+  } finally {
+    restoreBuffer();
+  }
+}
+
+function installSeekBzipBufferCompat(): () => void {
+  const globalObject = globalThis as unknown as Record<string, unknown>;
+  if (typeof globalObject.Buffer === "function") {
+    return () => undefined;
+  }
+  class SeekBzipBuffer extends Uint8Array {
+    copy(target: Uint8Array, targetStart = 0, sourceStart = 0, sourceEnd = this.length): number {
+      const slice = this.subarray(sourceStart, sourceEnd);
+      target.set(slice, targetStart);
+      return slice.length;
+    }
+
+    toString(encoding?: string): string {
+      if (encoding === "hex") {
+        return Array.from(this)
+          .map((byte) => byte.toString(16).padStart(2, "0"))
+          .join("");
+      }
+      return new TextDecoder().decode(this);
+    }
+  }
+  globalObject.Buffer = SeekBzipBuffer;
+  return () => {
+    if (globalObject.Buffer === SeekBzipBuffer) {
+      Reflect.deleteProperty(globalObject, "Buffer");
+    }
+  };
+}
+
+async function unxz(bytes: Uint8Array): Promise<Uint8Array> {
+  const module = await import("xz-decompress");
+  const XzReadableStream = (module as any).XzReadableStream || (module as any).default?.XzReadableStream;
+  if (typeof XzReadableStream !== "function") {
+    throw new Error("XZ 解码器不可用。");
+  }
+  const response = new Response(new XzReadableStream(createByteReadableStream(bytes)));
+  return new Uint8Array(await response.arrayBuffer());
+}
+
+function createByteReadableStream(bytes: Uint8Array): ReadableStream<Uint8Array> {
+  const blob = new Blob([bytes as BlobPart]);
+  if (typeof blob.stream === "function") {
+    return blob.stream() as ReadableStream<Uint8Array>;
+  }
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(bytes);
+      controller.close();
+    }
+  });
+}
+
+function deriveSingleFileArchiveName(fileName: string, suffix: string, fallback: string): string {
+  return fileName.toLowerCase().endsWith(suffix) ? fileName.slice(0, -suffix.length) || fallback : fileName || fallback;
+}
+
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
 }
 
 function decodeZipFileName(bytes: string[] | Uint8Array | ArrayLike<number>): string {
@@ -474,6 +591,12 @@ function appendArchiveInfo(parent: HTMLElement, label: string, value: string): v
   key.textContent = `${label}：`;
   row.append(key, document.createTextNode(value));
   parent.append(row);
+}
+
+function hideSupplementalInfo(element: HTMLElement): void {
+  element.hidden = true;
+  element.setAttribute("aria-hidden", "true");
+  element.style.display = "none";
 }
 
 function createArchiveSummary(entries: ArchiveEntry[]): HTMLElement {

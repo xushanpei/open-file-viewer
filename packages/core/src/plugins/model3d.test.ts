@@ -7,9 +7,11 @@ const controlsUpdate = vi.hoisted(() => vi.fn());
 const rendererDispose = vi.hoisted(() => vi.fn());
 const rendererSetSize = vi.hoisted(() => vi.fn());
 const rotateY = vi.hoisted(() => vi.fn());
+const lastRotatedObject = vi.hoisted(() => ({ value: undefined as any }));
 const textureDispose = vi.hoisted(() => vi.fn());
 const shouldThrowRenderer = vi.hoisted(() => ({ value: false }));
 const shouldThrowGltf = vi.hoisted(() => ({ value: false }));
+const gltfLoadUrl = vi.hoisted(() => ({ value: "" }));
 
 vi.mock("three", () => {
   class Vector3 {
@@ -65,6 +67,16 @@ vi.mock("three", () => {
     children: Object3D[] = [];
     geometry?: { dispose: () => void };
     material?: Material | Material[];
+    rotation = {
+      x: 0,
+      y: 0,
+      z: 0,
+      set: vi.fn((x: number, y: number, z: number) => {
+        this.rotation.x = x;
+        this.rotation.y = y;
+        this.rotation.z = z;
+      })
+    };
     add(child: Object3D) {
       this.children.push(child);
     }
@@ -72,7 +84,11 @@ vi.mock("three", () => {
       callback(this);
       this.children.forEach((child) => child.traverse(callback));
     }
-    rotateY = rotateY;
+    rotateY(value: number) {
+      this.rotation.y += value;
+      lastRotatedObject.value = this;
+      rotateY(value);
+    }
   }
 
   class Mesh extends Object3D {
@@ -186,7 +202,8 @@ function createOrbitVector(x = 0, y = 0, z = 0) {
 
 vi.mock("three/examples/jsm/loaders/GLTFLoader.js", () => ({
   GLTFLoader: class {
-    async loadAsync() {
+    async loadAsync(url: string) {
+      gltfLoadUrl.value = url;
       if (shouldThrowGltf.value) {
         throw new Error("Invalid GLB");
       }
@@ -289,6 +306,8 @@ describe("model3dPlugin", () => {
     textureDispose.mockClear();
     shouldThrowRenderer.value = false;
     shouldThrowGltf.value = false;
+    gltfLoadUrl.value = "";
+    lastRotatedObject.value = undefined;
   });
 
   it("renders FBX with toolbar commands", async () => {
@@ -317,17 +336,21 @@ describe("model3dPlugin", () => {
     await waitFor(() => Boolean(container.querySelector(".ofv-model-stage")));
 
     expect(container.querySelector(".ofv-model-message")).toBeNull();
-    expect(container.querySelector(".ofv-model-measure")?.textContent).toContain("模型测量");
-    expect(container.querySelector(".ofv-model-measure")?.textContent).toContain("宽1");
-    expect(container.querySelector(".ofv-model-measure")?.textContent).toContain("高1");
-    expect(container.querySelector(".ofv-model-measure")?.textContent).toContain("深1");
-    expect(container.querySelector(".ofv-model-measure")?.textContent).toContain("对角线1.732");
-    expect(container.querySelector(".ofv-model-measure")?.textContent).toContain("中心0, 0, 0");
-    expect(container.querySelector(".ofv-model-materials")?.textContent).toContain("材质贴图");
-    expect(container.querySelector(".ofv-model-materials")?.textContent).toContain("网格1");
-    expect(container.querySelector(".ofv-model-materials")?.textContent).toContain("材质1");
-    expect(container.querySelector(".ofv-model-materials")?.textContent).toContain("贴图2");
-    expect(container.querySelector(".ofv-model-materials")?.textContent).toContain("map, normalMap");
+    const measurePanel = container.querySelector<HTMLElement>(".ofv-model-measure");
+    const materialsPanel = container.querySelector<HTMLElement>(".ofv-model-materials");
+    expect(measurePanel?.hidden).toBe(true);
+    expect(materialsPanel?.hidden).toBe(true);
+    expect(measurePanel?.textContent).toContain("模型测量");
+    expect(measurePanel?.textContent).toContain("宽1");
+    expect(measurePanel?.textContent).toContain("高1");
+    expect(measurePanel?.textContent).toContain("深1");
+    expect(measurePanel?.textContent).toContain("对角线1.732");
+    expect(measurePanel?.textContent).toContain("中心0, 0, 0");
+    expect(materialsPanel?.textContent).toContain("材质贴图");
+    expect(materialsPanel?.textContent).toContain("网格1");
+    expect(materialsPanel?.textContent).toContain("材质1");
+    expect(materialsPanel?.textContent).toContain("贴图2");
+    expect(materialsPanel?.textContent).toContain("map, normalMap");
     const zoomIn = container.querySelector<HTMLButtonElement>('button[aria-label="Zoom in"]');
     const zoomReset = container.querySelector<HTMLButtonElement>('button[aria-label="Reset zoom"]');
     expect(zoomIn?.disabled).toBe(false);
@@ -337,6 +360,9 @@ describe("model3dPlugin", () => {
     await waitFor(() => zoomReset?.textContent === "122%");
     container.querySelector<HTMLButtonElement>('button[aria-label="Rotate right"]')?.click();
     expect(rotateY).toHaveBeenCalled();
+    zoomReset?.click();
+    await waitFor(() => zoomReset?.textContent === "100%");
+    expect(lastRotatedObject.value.rotation.y).toBe(0);
     expect(rendererSetSize).toHaveBeenCalled();
 
     viewer.destroy();
@@ -371,6 +397,36 @@ describe("model3dPlugin", () => {
     await waitFor(() => Boolean(container.querySelector(".ofv-model-stage")));
 
     expect(container.querySelector(".ofv-model-message")).toBeNull();
+    const measurePanel = container.querySelector<HTMLElement>(".ofv-model-measure");
+    const materialsPanel = container.querySelector<HTMLElement>(".ofv-model-materials");
+    expect(measurePanel?.hidden).toBe(true);
+    expect(materialsPanel?.hidden).toBe(true);
+
+    viewer.destroy();
+  });
+
+  it("keeps remote .gltf URLs intact so relative buffers can load", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const sourceUrl = "https://example.com/models/Box.gltf";
+    vi.stubGlobal(
+      "requestAnimationFrame",
+      vi.fn(() => 1)
+    );
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
+
+    const viewer = createViewer({
+      container,
+      file: sourceUrl,
+      fileName: "Box.gltf",
+      toolbar: true,
+      plugins: [model3dPlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-model-stage canvas")));
+
+    expect(gltfLoadUrl.value).toBe(sourceUrl);
+    expect(container.querySelector<HTMLButtonElement>('button[aria-label="Zoom in"]')?.disabled).toBe(false);
 
     viewer.destroy();
   });
@@ -400,7 +456,11 @@ describe("model3dPlugin", () => {
     await waitFor(() => Boolean(container.querySelector(".ofv-model-stage")));
 
     expect(container.querySelector(".ofv-model-message")).toBeNull();
-    expect(container.querySelector(".ofv-model-measure")?.textContent).toContain("模型测量");
+    const measurePanel = container.querySelector<HTMLElement>(".ofv-model-measure");
+    const materialsPanel = container.querySelector<HTMLElement>(".ofv-model-materials");
+    expect(measurePanel?.hidden).toBe(true);
+    expect(materialsPanel?.hidden).toBe(true);
+    expect(measurePanel?.textContent).toContain("模型测量");
 
     viewer.destroy();
     expect(URL.revokeObjectURL).toHaveBeenCalledWith(objectUrl);
@@ -430,7 +490,11 @@ describe("model3dPlugin", () => {
     await waitFor(() => Boolean(container.querySelector(".ofv-model-stage")));
 
     expect(container.querySelector(".ofv-model-message")).toBeNull();
-    expect(container.querySelector(".ofv-model-materials")?.textContent).toContain("网格1");
+    const measurePanel = container.querySelector<HTMLElement>(".ofv-model-measure");
+    const materialsPanel = container.querySelector<HTMLElement>(".ofv-model-materials");
+    expect(measurePanel?.hidden).toBe(true);
+    expect(materialsPanel?.hidden).toBe(true);
+    expect(materialsPanel?.textContent).toContain("网格1");
 
     viewer.destroy();
   });

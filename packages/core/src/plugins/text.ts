@@ -1,6 +1,6 @@
 /// <reference path="../shims-text.d.ts" />
 import { isTextLike } from "../detect";
-import type { PreviewPlugin } from "../types";
+import type { PreviewCommand, PreviewContext, PreviewPlugin } from "../types";
 import { decodeTextBuffer } from "./utils";
 
 const langMap: Record<string, string> = {
@@ -260,7 +260,15 @@ export function textPlugin(): PreviewPlugin {
           console.warn("Prism highlight for markdown failed:", e);
         }
 
+        const markdownZoom = createTextZoomController(container, "--ofv-markdown-zoom", ctx);
+
         return {
+          canCommand(command) {
+            return markdownZoom.canCommand(command);
+          },
+          command(command) {
+            return markdownZoom.command(command);
+          },
           destroy() {
             container.remove();
           }
@@ -493,11 +501,55 @@ export function textPlugin(): PreviewPlugin {
         }
       }
 
+      const codeZoom = createTextZoomController(wrapper, "--ofv-text-zoom", ctx);
+
       return {
+        canCommand(command) {
+          return codeZoom.canCommand(command);
+        },
+        command(command) {
+          return codeZoom.command(command);
+        },
         destroy() {
           wrapper.remove();
         }
       };
+    }
+  };
+}
+
+function createTextZoomController(target: HTMLElement, cssVariable: string, ctx: PreviewContext) {
+  let zoom = 1;
+
+  const apply = () => {
+    const normalized = Math.round(zoom * 100) / 100;
+    target.style.setProperty(cssVariable, String(normalized));
+    ctx.toolbar?.setZoom(normalized === 1 ? undefined : normalized);
+  };
+
+  apply();
+
+  return {
+    canCommand(command: PreviewCommand) {
+      return command === "zoom-in" || command === "zoom-out" || command === "zoom-reset";
+    },
+    command(command: PreviewCommand) {
+      if (command === "zoom-in") {
+        zoom = Math.min(3, zoom * 1.15);
+        apply();
+        return true;
+      }
+      if (command === "zoom-out") {
+        zoom = Math.max(0.5, zoom / 1.15);
+        apply();
+        return true;
+      }
+      if (command === "zoom-reset") {
+        zoom = 1;
+        apply();
+        return true;
+      }
+      return false;
     }
   };
 }
@@ -583,6 +635,9 @@ function createTextStructureSummary(text: string, extension: string, language: s
   }
   const summary = document.createElement("div");
   summary.className = "ofv-text-structure";
+  summary.hidden = true;
+  summary.setAttribute("aria-hidden", "true");
+  summary.style.display = "none";
   for (const item of items) {
     const row = document.createElement("span");
     const label = document.createElement("span");

@@ -2,9 +2,11 @@
 
 Framework-agnostic browser file preview core for Open File Viewer.
 
-Open File Viewer renders files inside your own DOM container instead of opening a new window. It supports images, PDF, Office documents, audio, video, text/code, archives, email, drawings, CAD, 3D and GIS formats through a plugin-based pipeline.
+Open File Viewer renders files inside your own DOM container instead of opening a new window. It supports images, PDF, Office documents, audio, video, text/code, archives, email, drawings, CAD, 3D, GIS, data and design asset formats through a plugin-based pipeline.
 
 DWG/DWF are proprietary binary CAD formats. `cadPlugin()` uses a two-layer model: it tries the built-in LibreDWG WASM DWG preview by default, then falls back to embedded thumbnails or metadata; applications can use `binaryRenderer` as the highest-priority override for custom renderers or server-side CAD conversion services.
+
+Data/design asset previews are pure frontend where practical: SQLite shows header, schema and sample rows from common table leaf pages; PDF-compatible Illustrator files embed a browser PDF preview; PSD/PSB tries the Photoshop composite image; XPS/OXPS renders a lightweight FixedPage SVG view plus extracted text and package structure.
 
 - Website: https://open-file-viewer-workspace.void.app
 - GitHub: https://github.com/xushanpei/open-file-viewer

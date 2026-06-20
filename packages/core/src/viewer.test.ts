@@ -145,6 +145,34 @@ describe("createViewer", () => {
     viewer.destroy();
   });
 
+  it("clears partial plugin output before showing render errors", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    createViewer({
+      container,
+      file: new Blob(["broken"], { type: "application/octet-stream" }),
+      fileName: "broken.bin",
+      plugins: [
+        {
+          name: "partial-failure",
+          match: () => true,
+          async render(ctx) {
+            const partial = document.createElement("div");
+            partial.className = "partial-preview";
+            ctx.viewport.append(partial);
+            throw new Error("preview failed");
+          }
+        }
+      ]
+    });
+
+    await waitFor(() => container.textContent?.includes("preview failed") === true);
+
+    expect(container.querySelector(".partial-preview")).toBeNull();
+    expect(container.querySelector(".ofv-status")?.textContent).toContain("preview failed");
+  });
+
   it("customizes toolbar labels, order, icons, and business actions", async () => {
     const container = document.createElement("div");
     document.body.append(container);
@@ -201,6 +229,7 @@ describe("createViewer", () => {
     expect(buttons.map((button) => button.textContent)).toEqual(["下载", "审批", "放大"]);
     expect(buttons[0].getAttribute("aria-label")).toBe("下载文件");
     expect(buttons[0].querySelector("[data-icon='download']")).not.toBeNull();
+    expect(buttons[0].querySelector<HTMLElement>(".ofv-toolbar-icon")?.hidden).toBe(false);
     expect(buttons[0].querySelector("path")?.getAttribute("d")).toBe("M12 3v12");
 
     buttons[1].click();
@@ -451,6 +480,90 @@ describe("createViewer", () => {
     expect(container.querySelector(".ofv-toolbar-search-count")?.textContent).toBe("");
 
     viewer.destroy();
+  });
+
+  it("resets command support and zoom state when navigating between different preview types", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    const destroyed: string[] = [];
+    const commandLog: string[] = [];
+    const plugin: PreviewPlugin = {
+      name: "mixed-queue",
+      match: (file) => file.extension === "img" || file.extension === "doc",
+      render(ctx) {
+        ctx.viewport.textContent = ctx.file.name;
+        if (ctx.file.extension === "img") {
+          ctx.toolbar?.setZoom(1);
+          return {
+            canCommand: (command) =>
+              command === "zoom-in" || command === "zoom-out" || command === "zoom-reset" || command === "rotate-right",
+            command(command) {
+              commandLog.push(`${ctx.file.name}:${command}`);
+              if (command === "zoom-in") {
+                ctx.toolbar?.setZoom(1.5);
+              }
+              return true;
+            },
+            destroy() {
+              destroyed.push(ctx.file.name);
+            }
+          };
+        }
+
+        return {
+          canCommand: (command) => command === "zoom-in" || command === "zoom-out" || command === "zoom-reset",
+          command(command) {
+            commandLog.push(`${ctx.file.name}:${command}`);
+            if (command === "zoom-in") {
+              ctx.toolbar?.setZoom(1.25);
+            }
+            return true;
+          },
+          destroy() {
+            destroyed.push(ctx.file.name);
+          }
+        };
+      }
+    };
+
+    const viewer = createViewer({
+      container,
+      files: [
+        { file: new Blob(["image"], { type: "application/octet-stream" }), fileName: "preview.img" },
+        { file: new Blob(["doc"], { type: "application/octet-stream" }), fileName: "preview.doc" }
+      ],
+      toolbar: true,
+      plugins: [plugin]
+    });
+
+    const zoomIn = () => container.querySelector<HTMLButtonElement>('button[aria-label="Zoom in"]');
+    const zoomReset = () => container.querySelector<HTMLButtonElement>('button[aria-label="Reset zoom"]');
+    const rotate = () => container.querySelector<HTMLButtonElement>('button[aria-label="Rotate right"]');
+
+    await waitFor(() => container.textContent?.includes("preview.img") === true && rotate()?.disabled === false);
+    zoomIn()?.click();
+    await waitFor(() => zoomReset()?.textContent === "150%");
+    rotate()?.click();
+    expect(commandLog).toContain("preview.img:rotate-right");
+
+    await viewer.next();
+    await waitFor(() => container.textContent?.includes("preview.doc") === true && rotate()?.disabled === true);
+
+    expect(zoomReset()?.textContent).toBe("100%");
+    expect(zoomIn()?.disabled).toBe(false);
+    expect(rotate()?.disabled).toBe(true);
+    expect(destroyed).toContain("preview.img");
+
+    zoomIn()?.click();
+    await waitFor(() => zoomReset()?.textContent === "125%");
+    rotate()?.click();
+
+    expect(commandLog).toContain("preview.doc:zoom-in");
+    expect(commandLog).not.toContain("preview.doc:rotate-right");
+
+    viewer.destroy();
+    expect(destroyed).toContain("preview.doc");
   });
 
   it("searches accessible iframe body text", async () => {
@@ -749,6 +862,47 @@ describe("createViewer", () => {
     viewer.destroy();
 
     expect(removeListener).toHaveBeenCalledWith(expect.any(Function));
+  });
+
+  it("ignores stale async renders when reloading quickly", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    let releaseSlowRender: (() => void) | undefined;
+    const slowRender = new Promise<void>((resolve) => {
+      releaseSlowRender = resolve;
+    });
+
+    const rendered: string[] = [];
+    const viewer = createViewer({
+      container,
+      file: "https://example.com/slow.txt",
+      toolbar: true,
+      plugins: [
+        {
+          name: "remote-text",
+          match: (file) => file.extension === "txt",
+          async render(ctx) {
+            if (ctx.file.name === "slow.txt") {
+              await slowRender;
+            }
+            rendered.push(ctx.file.name);
+            ctx.viewport.textContent = ctx.file.name;
+            return { destroy: vi.fn() };
+          }
+        }
+      ]
+    });
+
+    await viewer.reload("https://example.com/fast.txt");
+    await waitFor(() => container.textContent?.includes("fast.txt") === true);
+    releaseSlowRender?.();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(container.textContent).toContain("fast.txt");
+    expect(container.textContent).not.toContain("slow.txt");
+    expect(rendered).toEqual(["fast.txt"]);
+
+    viewer.destroy();
   });
 });
 

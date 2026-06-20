@@ -1,5 +1,5 @@
 import JSZip from "jszip";
-import type { PreviewPlugin } from "../types";
+import type { PreviewCommand, PreviewContext, PreviewPlugin } from "../types";
 import { createPanel, createSection, readArrayBuffer } from "./utils";
 
 const xpsMimeTypes = new Set([
@@ -23,14 +23,107 @@ export function xpsPlugin(): PreviewPlugin {
       } catch (error) {
         renderXpsFallback(panel, error);
       }
+      const controller = createXpsCanvasController(panel, ctx);
 
       return {
+        canCommand(command) {
+          return controller?.canCommand(command) ?? false;
+        },
+        command(command) {
+          return controller?.command(command) ?? false;
+        },
         destroy() {
+          controller?.destroy();
           panel.remove();
         }
       };
     }
   };
+}
+
+function createXpsCanvasController(
+  panel: HTMLElement,
+  ctx: Pick<PreviewContext, "toolbar">
+): {
+  canCommand: (command: PreviewCommand) => boolean;
+  command: (command: PreviewCommand) => boolean;
+  destroy: () => void;
+} | undefined {
+  const canvases = Array.from(panel.querySelectorAll<SVGSVGElement>(".ofv-xps-canvas"))
+    .map((svg) => ({ svg, initialViewBox: parseSvgViewBox(svg) }))
+    .filter((item): item is { svg: SVGSVGElement; initialViewBox: SvgViewBox } => Boolean(item.initialViewBox));
+  if (canvases.length === 0) {
+    return undefined;
+  }
+
+  let zoom = 1;
+  let rotation = 0;
+  const apply = () => {
+    for (const { svg, initialViewBox } of canvases) {
+      const width = initialViewBox.width / zoom;
+      const height = initialViewBox.height / zoom;
+      const x = initialViewBox.x + (initialViewBox.width - width) / 2;
+      const y = initialViewBox.y + (initialViewBox.height - height) / 2;
+      svg.setAttribute("viewBox", `${x} ${y} ${width} ${height}`);
+      svg.style.transformOrigin = "center center";
+      svg.style.transform = rotation === 0 ? "" : `rotate(${rotation}deg)`;
+    }
+    ctx.toolbar?.setZoom(zoom);
+  };
+  apply();
+
+  return {
+    canCommand(command) {
+      return (
+        command === "zoom-in" ||
+        command === "zoom-out" ||
+        command === "zoom-reset" ||
+        command === "rotate-right" ||
+        command === "rotate-left"
+      );
+    },
+    command(command) {
+      if (command === "zoom-in") {
+        zoom = Math.min(8, zoom * 1.18);
+        apply();
+        return true;
+      }
+      if (command === "zoom-out") {
+        zoom = Math.max(0.25, zoom / 1.18);
+        apply();
+        return true;
+      }
+      if (command === "zoom-reset") {
+        zoom = 1;
+        rotation = 0;
+        apply();
+        return true;
+      }
+      if (command === "rotate-right" || command === "rotate-left") {
+        rotation += command === "rotate-right" ? 90 : -90;
+        apply();
+        return true;
+      }
+      return false;
+    },
+    destroy() {
+      ctx.toolbar?.setZoom(undefined);
+    }
+  };
+}
+
+type SvgViewBox = { x: number; y: number; width: number; height: number };
+
+function parseSvgViewBox(svg: SVGSVGElement): SvgViewBox | undefined {
+  const parts = svg
+    .getAttribute("viewBox")
+    ?.trim()
+    .split(/[\s,]+/)
+    .map(Number);
+  if (!parts || parts.length !== 4 || parts.some((part) => !Number.isFinite(part)) || parts[2] <= 0 || parts[3] <= 0) {
+    return undefined;
+  }
+  return { x: parts[0], y: parts[1], width: parts[2], height: parts[3] };
 }
 
 async function renderXps(panel: HTMLElement, zip: JSZip): Promise<void> {
@@ -51,14 +144,22 @@ async function renderXps(panel: HTMLElement, zip: JSZip): Promise<void> {
     })
   );
 
-  const summary = createSection("XPS 基础预览");
+  const summary = createSection("XPS 版式预览");
+  summary.hidden = fixedPages.length > 0;
+  if (fixedPages.length > 0) {
+    summary.setAttribute("aria-hidden", "true");
+    summary.style.display = "none";
+  }
   const note = document.createElement("p");
-  note.textContent = "当前版本提取 XPS/OXPS 包内 FixedPage 文本、页面顺序和资源结构。完整版式渲染可后续接入专用渲染器。";
+  note.textContent = "当前版本会在前端解析 XPS/OXPS 包内 FixedPage 文本、路径和资源结构，并生成轻量 SVG 页面预览；复杂画刷、字体子集和透明混合可接入专用渲染器增强。";
   summary.append(note);
   summary.append(createXpsSummary(entries, fixedPages, resourceEntries, pagePreviews.map((page) => page.info)));
   panel.append(summary);
 
   const pages = createSection(`页面文本 ${fixedPages.length}`);
+  if (fixedPages.length > 0) {
+    hideSupplementalInfo(pages.querySelector<HTMLElement>("h3") as HTMLElement);
+  }
   const reader = document.createElement("div");
   reader.className = "ofv-xps-pages";
 
@@ -72,9 +173,19 @@ async function renderXps(panel: HTMLElement, zip: JSZip): Promise<void> {
     }
   }
   pages.append(reader);
+  if (fixedPages.length > 0 && reader.querySelector(".ofv-xps-canvas")) {
+    for (const textLayer of reader.querySelectorAll<HTMLElement>(".ofv-xps-text")) {
+      hideSupplementalInfo(textLayer);
+    }
+  }
   panel.append(pages);
 
   const structure = createSection(`文件结构 ${entries.length}`);
+  structure.hidden = fixedPages.length > 0;
+  if (fixedPages.length > 0) {
+    structure.setAttribute("aria-hidden", "true");
+    structure.style.display = "none";
+  }
   const list = document.createElement("ul");
   for (const entry of entries.slice(0, 240)) {
     const item = document.createElement("li");
@@ -102,6 +213,11 @@ function createXpsSummary(
 ): HTMLElement {
   const meta = document.createElement("div");
   meta.className = "ofv-xps-meta ofv-xps-summary";
+  meta.hidden = fixedPages.length > 0;
+  if (fixedPages.length > 0) {
+    meta.setAttribute("aria-hidden", "true");
+    meta.style.display = "none";
+  }
   appendMeta(meta, "页面", fixedPages.length);
   appendMeta(meta, "文件", entries.length);
   appendMeta(meta, "FixedDocument", entries.filter((entry) => /\.fdoc$/i.test(entry.name)).length);
@@ -191,7 +307,9 @@ function renderXpsPage(xml: string, path: string, index: number): HTMLElement {
   heading.textContent = `Page ${index + 1}`;
   const pathMeta = document.createElement("span");
   pathMeta.textContent = path;
+  hideSupplementalInfo(pathMeta);
 
+  const canvas = createXpsPageCanvas(xml);
   const text = document.createElement("div");
   text.className = "ofv-xps-text";
   const fragments = extractXpsText(xml);
@@ -207,8 +325,82 @@ function renderXpsPage(xml: string, path: string, index: number): HTMLElement {
     text.append(empty);
   }
 
-  page.append(heading, pathMeta, text);
+  page.append(heading, pathMeta);
+  if (canvas) {
+    hideSupplementalInfo(heading);
+    page.append(canvas);
+  }
+  page.append(text);
   return page;
+}
+
+function createXpsPageCanvas(xml: string): Element | null {
+  const doc = new DOMParser().parseFromString(xml, "application/xml");
+  if (doc.querySelector("parsererror")) {
+    return null;
+  }
+  const info = parseXpsPageInfo(xml);
+  const width = info.width || 816;
+  const height = info.height || 1056;
+  const elements = Array.from(doc.getElementsByTagName("*"));
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.classList.add("ofv-xps-canvas");
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", "XPS page layout preview");
+
+  const background = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+  background.setAttribute("x", "0");
+  background.setAttribute("y", "0");
+  background.setAttribute("width", String(width));
+  background.setAttribute("height", String(height));
+  background.setAttribute("fill", "#ffffff");
+  svg.append(background);
+
+  let drawn = 0;
+  for (const element of elements) {
+    if (element.localName === "Path") {
+      const pathData = getXmlAttribute(element, "Data");
+      if (pathData) {
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        path.setAttribute("d", pathData);
+        path.setAttribute("fill", parseXpsBrush(getXmlAttribute(element, "Fill"), "none"));
+        path.setAttribute("stroke", parseXpsBrush(getXmlAttribute(element, "Stroke"), "#334155"));
+        path.setAttribute("stroke-width", getXmlAttribute(element, "StrokeThickness") || "1");
+        path.setAttribute("vector-effect", "non-scaling-stroke");
+        svg.append(path);
+        drawn++;
+      }
+    } else if (element.localName === "Glyphs") {
+      const label = getXmlAttribute(element, "UnicodeString");
+      if (label) {
+        const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        text.textContent = label;
+        text.setAttribute("x", String(finiteNumber(getXmlAttribute(element, "OriginX"), 24) || 24));
+        text.setAttribute("y", String(finiteNumber(getXmlAttribute(element, "OriginY"), 36) || 36));
+        text.setAttribute("fill", parseXpsBrush(getXmlAttribute(element, "Fill"), "#111827"));
+        text.setAttribute("font-size", String(finiteNumber(getXmlAttribute(element, "FontRenderingEmSize"), 16) || 16));
+        text.setAttribute("font-family", "system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif");
+        svg.append(text);
+        drawn++;
+      }
+    }
+  }
+  return drawn > 0 ? svg : null;
+}
+
+function parseXpsBrush(value: string | null, fallback: string): string {
+  if (!value) {
+    return fallback;
+  }
+  const normalized = value.trim();
+  if (/^#[0-9a-f]{6,8}$/i.test(normalized)) {
+    return normalized.length === 9 ? `#${normalized.slice(3)}` : normalized;
+  }
+  if (/^[a-z]+$/i.test(normalized)) {
+    return normalized;
+  }
+  return fallback;
 }
 
 function extractXpsText(xml: string): string[] {
@@ -260,6 +452,15 @@ function appendMeta(parent: HTMLElement, label: string, value: string | number):
   content.textContent = String(value);
   row.append(key, content);
   parent.append(row);
+}
+
+function hideSupplementalInfo(element: HTMLElement | null): void {
+  if (!element) {
+    return;
+  }
+  element.hidden = true;
+  element.setAttribute("aria-hidden", "true");
+  element.style.display = "none";
 }
 
 function getXmlAttribute(element: Element, localName: string): string | null {

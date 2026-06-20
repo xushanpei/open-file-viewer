@@ -3,10 +3,17 @@ import { createViewer } from "../viewer";
 import { imagePlugin } from "./image";
 
 const heic2anyMock = vi.hoisted(() => vi.fn());
+const utifMock = vi.hoisted(() => ({
+  decode: vi.fn(),
+  decodeImage: vi.fn(),
+  toRGBA8: vi.fn()
+}));
 
 vi.mock("heic2any", () => ({
   default: heic2anyMock
 }));
+
+vi.mock("utif", () => utifMock);
 
 describe("imagePlugin", () => {
   afterEach(() => {
@@ -85,6 +92,82 @@ describe("imagePlugin", () => {
     viewer.destroy();
   });
 
+  it("renders remote image URLs without creating or revoking object URLs", async () => {
+    const container = document.createElement("div");
+    const createObjectURL = vi.fn(() => "blob:should-not-be-used");
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal("URL", {
+      ...URL,
+      createObjectURL,
+      revokeObjectURL
+    });
+    document.body.append(container);
+
+    const viewer = createViewer({
+      container,
+      file: "https://example.com/assets/photo.png?cache=1",
+      toolbar: true,
+      plugins: [imagePlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-image-content")));
+
+    const image = container.querySelector<HTMLImageElement>(".ofv-image-content");
+    const zoomIn = container.querySelector<HTMLButtonElement>('button[aria-label="Zoom in"]');
+    const rotate = container.querySelector<HTMLButtonElement>('button[aria-label="Rotate right"]');
+    expect(image?.src).toBe("https://example.com/assets/photo.png?cache=1");
+    expect(createObjectURL).not.toHaveBeenCalled();
+
+    zoomIn?.click();
+    rotate?.click();
+    expect(image?.style.transform).toContain("scale(1.25)");
+    expect(image?.style.transform).toContain("rotate(90deg)");
+
+    viewer.destroy();
+    expect(revokeObjectURL).not.toHaveBeenCalled();
+  });
+
+  it("fetches remote TIFF URLs before decoding them to canvas", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const tiff = minimalTiff({ width: 2, height: 1 });
+    const ifd = { width: 2, height: 1 };
+    utifMock.decode.mockReturnValueOnce([ifd]);
+    utifMock.toRGBA8.mockReturnValueOnce(new Uint8Array([255, 0, 0, 255, 0, 128, 255, 255]));
+    vi.stubGlobal(
+      "ImageData",
+      vi.fn(function ImageDataMock(this: ImageData, data: Uint8ClampedArray, width: number, height: number) {
+        Object.assign(this, { data, width, height });
+      })
+    );
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      putImageData: vi.fn()
+    } as unknown as CanvasRenderingContext2D);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        arrayBuffer: async () => tiff.arrayBuffer()
+      }))
+    );
+
+    const viewer = createViewer({
+      container,
+      file: "https://example.com/assets/scan.tiff",
+      toolbar: true,
+      plugins: [imagePlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-tiff-canvas")));
+
+    expect(fetch).toHaveBeenCalledWith("https://example.com/assets/scan.tiff");
+    expect(container.querySelector<HTMLCanvasElement>(".ofv-tiff-canvas")?.width).toBe(2);
+    expect(container.querySelector<HTMLCanvasElement>(".ofv-tiff-canvas")?.height).toBe(1);
+    expect(container.querySelector(".ofv-fallback")).toBeNull();
+
+    viewer.destroy();
+  });
+
   it("recovers dragging after pointer capture is lost", async () => {
     const container = document.createElement("div");
     document.body.append(container);
@@ -140,6 +223,7 @@ describe("imagePlugin", () => {
 
     await waitFor(() => Boolean(container.querySelector(".ofv-image-info")));
 
+    expect(container.querySelector<HTMLElement>(".ofv-image-info")?.hidden).toBe(true);
     expect(container.textContent).toContain("格式PNG");
     expect(container.textContent).toContain("尺寸320 x 180px");
     expect(container.textContent).toContain("位深8 bit");
@@ -165,6 +249,7 @@ describe("imagePlugin", () => {
     });
 
     await waitFor(() => Boolean(svgContainer.querySelector(".ofv-image-info")));
+    expect(svgContainer.querySelector<HTMLElement>(".ofv-image-info")?.hidden).toBe(true);
     expect(svgContainer.textContent).toContain("格式SVG");
     expect(svgContainer.textContent).toContain("尺寸640 x 360px");
     expect(svgContainer.textContent).toContain("viewBox 0 0 640 360");
@@ -180,6 +265,7 @@ describe("imagePlugin", () => {
     });
 
     await waitFor(() => Boolean(icoContainer.querySelector(".ofv-image-info")));
+    expect(icoContainer.querySelector<HTMLElement>(".ofv-image-info")?.hidden).toBe(true);
     expect(icoContainer.textContent).toContain("格式ICO");
     expect(icoContainer.textContent).toContain("尺寸32 x 32px");
     expect(icoContainer.textContent).toContain("图像2");
@@ -204,6 +290,7 @@ describe("imagePlugin", () => {
 
     await waitFor(() => Boolean(container.querySelector(".ofv-image-info")));
 
+    expect(container.querySelector<HTMLElement>(".ofv-image-info")?.hidden).toBe(true);
     expect(container.textContent).toContain("格式APNG");
     expect(container.textContent).toContain("帧2");
 
@@ -228,12 +315,82 @@ describe("imagePlugin", () => {
 
     await waitFor(() => Boolean(container.querySelector(".ofv-image-info")));
 
+    expect(container.querySelector<HTMLElement>(".ofv-image-info")?.hidden).toBe(true);
     expect(container.textContent).toContain("格式AVIF");
     expect(container.textContent).toContain("尺寸1024 x 576px");
     expect(container.textContent).toContain("brand avif");
     expect(container.textContent).toContain("mif1");
 
     viewer.destroy();
+  });
+
+  it("decodes TIFF images to a canvas preview", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const ifd = { width: 2, height: 1 };
+    utifMock.decode.mockReturnValueOnce([ifd]);
+    utifMock.toRGBA8.mockReturnValueOnce(new Uint8Array([255, 0, 0, 255, 0, 128, 255, 255]));
+    vi.stubGlobal(
+      "ImageData",
+      vi.fn(function ImageDataMock(this: ImageData, data: Uint8ClampedArray, width: number, height: number) {
+        Object.assign(this, { data, width, height });
+      })
+    );
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      putImageData: vi.fn()
+    } as unknown as CanvasRenderingContext2D);
+
+    const viewer = createViewer({
+      container,
+      file: minimalTiff({ width: 2, height: 1 }),
+      fileName: "scan.tiff",
+      plugins: [imagePlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-tiff-canvas")));
+
+    const canvas = container.querySelector<HTMLCanvasElement>(".ofv-tiff-canvas");
+    expect(canvas?.width).toBe(2);
+    expect(canvas?.height).toBe(1);
+    expect(container.querySelector<HTMLElement>(".ofv-image-info")?.hidden).toBe(true);
+    expect(container.textContent).toContain("格式TIFF");
+    expect(container.textContent).toContain("尺寸2 x 1px");
+    expect(utifMock.decodeImage).toHaveBeenCalledWith(expect.any(ArrayBuffer), ifd);
+
+    viewer.destroy();
+  });
+
+  it("falls back to native image handling when TIFF decoding fails", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    utifMock.decode.mockImplementationOnce(() => {
+      throw new Error("bad tiff");
+    });
+    vi.stubGlobal("URL", {
+      ...URL,
+      createObjectURL: vi.fn(() => "blob:raw-tiff"),
+      revokeObjectURL: vi.fn()
+    });
+
+    const viewer = createViewer({
+      container,
+      file: minimalTiff({ width: 2, height: 1 }),
+      fileName: "scan.tiff",
+      plugins: [imagePlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-image-content")));
+    container.querySelector<HTMLImageElement>(".ofv-image-content")?.dispatchEvent(new Event("error"));
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-fallback")));
+
+    expect(container.textContent).toContain("图片预览失败");
+    expect(container.querySelector<HTMLElement>(".ofv-image-info")?.hidden).toBe(false);
+    expect(container.querySelector<HTMLAnchorElement>(".ofv-fallback a")?.href).toBe("blob:raw-tiff");
+
+    viewer.destroy();
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:raw-tiff");
   });
 
   it("converts HEIC images to a browser-displayable object URL", async () => {
@@ -369,6 +526,7 @@ describe("imagePlugin", () => {
       container,
       file: new Blob(["bad"], { type: "image/avif" }),
       fileName: "broken.avif",
+      toolbar: true,
       plugins: [imagePlugin()]
     });
 
@@ -379,6 +537,9 @@ describe("imagePlugin", () => {
 
     expect(container.textContent).toContain("图片预览失败");
     expect(container.querySelector<HTMLAnchorElement>(".ofv-fallback a")?.href).toBe(objectUrl);
+    expect(container.querySelector<HTMLButtonElement>('button[aria-label="Zoom in"]')?.disabled).toBe(true);
+    expect(container.querySelector<HTMLButtonElement>('button[aria-label="Zoom out"]')?.disabled).toBe(true);
+    expect(container.querySelector<HTMLButtonElement>('button[aria-label="Rotate right"]')?.disabled).toBe(true);
 
     viewer.destroy();
     expect(URL.revokeObjectURL).toHaveBeenCalledWith(objectUrl);
@@ -476,6 +637,26 @@ function minimalAvif({ width, height }: { width: number; height: number }): Blob
   const iprp = bmffBox("iprp", ipco);
   const meta = bmffBox("meta", [0, 0, 0, 0, ...iprp]);
   return new Blob([new Uint8Array([...ftyp, ...meta])], { type: "image/avif" });
+}
+
+function minimalTiff({ width, height }: { width: number; height: number }): Blob {
+  const bytes = new Uint8Array(8 + 2 + 3 * 12 + 4);
+  const view = new DataView(bytes.buffer);
+  bytes.set([0x49, 0x49, 0x2a, 0x00]);
+  view.setUint32(4, 8, true);
+  view.setUint16(8, 3, true);
+  writeTiffEntry(view, 10, 256, width);
+  writeTiffEntry(view, 22, 257, height);
+  writeTiffEntry(view, 34, 258, 8);
+  view.setUint32(46, 0, true);
+  return new Blob([bytes], { type: "image/tiff" });
+}
+
+function writeTiffEntry(view: DataView, offset: number, tag: number, value: number): void {
+  view.setUint16(offset, tag, true);
+  view.setUint16(offset + 2, 3, true);
+  view.setUint32(offset + 4, 1, true);
+  view.setUint16(offset + 8, value, true);
 }
 
 function bmffBox(type: string, payload: number[]): number[] {

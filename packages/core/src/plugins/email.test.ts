@@ -86,6 +86,41 @@ describe("emailPlugin", () => {
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:email-1");
   });
 
+  it("supports shared toolbar zoom for plain email bodies", async () => {
+    parseEmail.mockResolvedValueOnce({
+      from: { name: "Alice", address: "alice@example.com" },
+      to: [{ name: "Bob", address: "bob@example.com" }],
+      subject: "Plain",
+      date: "2026-06-13",
+      text: "Plain body",
+      attachments: []
+    });
+
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    createViewer({
+      container,
+      file: new Blob(["raw email"], { type: "message/rfc822" }),
+      fileName: "plain.eml",
+      plugins: [emailPlugin()],
+      toolbar: true
+    });
+
+    const panel = await waitFor(() => container.querySelector<HTMLElement>(".ofv-email"));
+    const zoomIn = await waitFor(() => {
+      const button = findToolbarButton(container, "Zoom in");
+      return button && !button.disabled ? button : false;
+    });
+    const rotate = await waitFor(() => findToolbarButton(container, "Rotate right"));
+
+    expect(zoomIn.disabled).toBe(false);
+    expect(rotate.disabled).toBe(true);
+
+    zoomIn.click();
+    await waitFor(() => panel.style.getPropertyValue("--ofv-email-zoom") === "1.15");
+  });
+
   it("clears email iframe resize timers on destroy", async () => {
     parseEmail.mockResolvedValueOnce({
       from: { name: "Alice", address: "alice@example.com" },
@@ -154,6 +189,38 @@ describe("emailPlugin", () => {
     expect(iframe?.contentDocument?.body?.textContent).toContain("电子发票");
 
     viewer.destroy();
+  });
+
+  it("supports shared toolbar zoom for HTML email bodies", async () => {
+    parseEmail.mockResolvedValueOnce({
+      from: { name: "Invoice", address: "invoice@example.com" },
+      to: [{ name: "Customer", address: "customer@example.com" }],
+      subject: "HTML zoom",
+      date: "2026-06-18",
+      html: "<p>Zoomable HTML</p>",
+      attachments: []
+    } as any);
+
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    createViewer({
+      container,
+      file: new Blob(["raw email"], { type: "message/rfc822" }),
+      fileName: "html.eml",
+      plugins: [emailPlugin()],
+      toolbar: true
+    });
+
+    const iframe = await waitFor(() => container.querySelector<HTMLIFrameElement>(".ofv-email-body-iframe"));
+    await waitFor(() => iframe.contentDocument?.body?.textContent?.includes("Zoomable HTML") === true);
+    const zoomIn = await waitFor(() => {
+      const button = findToolbarButton(container, "Zoom in");
+      return button && !button.disabled ? button : false;
+    });
+
+    zoomIn.click();
+    await waitFor(() => iframe.contentDocument?.body?.style.fontSize === "16.1px");
   });
 
   it("sanitizes HTML email bodies and secures external links", async () => {
@@ -351,12 +418,21 @@ describe("emailPlugin", () => {
   });
 });
 
-async function waitFor(predicate: () => boolean, timeout = 1000): Promise<void> {
+async function waitFor<T>(predicate: () => T | false | null | undefined, timeout = 1000): Promise<T> {
   const start = Date.now();
-  while (!predicate()) {
+  let result = predicate();
+  while (!result) {
     if (Date.now() - start > timeout) {
       throw new Error("Timed out waiting for condition.");
     }
     await new Promise((resolve) => setTimeout(resolve, 0));
+    result = predicate();
   }
+  return result;
+}
+
+function findToolbarButton(container: HTMLElement, title: string): HTMLButtonElement | undefined {
+  return Array.from(container.querySelectorAll<HTMLButtonElement>(".ofv-toolbar button")).find(
+    (button) => button.getAttribute("aria-label") === title
+  );
 }

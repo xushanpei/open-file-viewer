@@ -45,7 +45,11 @@ export function audioPlugin(): PreviewPlugin {
       audio.controls = true;
       audio.preload = "metadata";
 
-      wrapper.append(title, audio, createAudioInfo(parseAudioInfo(bytes, ctx.file.extension, ctx.file.mimeType)));
+      const infoBar = createAudioInfo(parseAudioInfo(bytes, ctx.file.extension, ctx.file.mimeType));
+      infoBar.hidden = true;
+      infoBar.setAttribute("aria-hidden", "true");
+      infoBar.style.display = "none";
+      wrapper.append(title, audio, infoBar);
       ctx.viewport.classList.add("ofv-center");
       ctx.viewport.append(wrapper);
 
@@ -53,6 +57,9 @@ export function audioPlugin(): PreviewPlugin {
       const showPlaybackFallback = () => {
         audio.pause();
         audio.remove();
+        infoBar.hidden = false;
+        infoBar.removeAttribute("aria-hidden");
+        infoBar.style.removeProperty("display");
 
         if (wrapper.querySelector(".ofv-fallback")) {
           return;
@@ -156,7 +163,7 @@ function parseAudioInfo(bytes: Uint8Array, extension: string, mimeType: string):
   if (bytes.length === 0) {
     return { format: fallback, note: "无法读取本地头信息" };
   }
-  return parseWaveInfo(bytes) || parseFlacInfo(bytes) || parseOggInfo(bytes) || parseAiffInfo(bytes) || parseAuInfo(bytes) || parseMidiInfo(bytes) || parseId3Mp3Info(bytes) || {
+  return parseWaveInfo(bytes) || parseFlacInfo(bytes) || parseOggInfo(bytes) || parseAiffInfo(bytes) || parseAuInfo(bytes) || parseMidiInfo(bytes) || parseAdtsAacInfo(bytes) || parseId3Mp3Info(bytes) || {
     format: fallback,
     note: "暂未识别音频头结构"
   };
@@ -437,6 +444,26 @@ function parseMidiInfo(bytes: Uint8Array): AudioInfo | null {
     channels: readUint16Be(bytes, 10),
     note: `${readUint16Be(bytes, 12)} ticks/quarter`
   };
+}
+
+function parseAdtsAacInfo(bytes: Uint8Array): AudioInfo | null {
+  if (bytes.length < 7 || bytes[0] !== 0xff || (bytes[1] & 0xf0) !== 0xf0) {
+    return null;
+  }
+  const profile = ((bytes[2] >> 6) & 0x03) + 1;
+  const sampleIndex = (bytes[2] >> 2) & 0x0f;
+  const channels = ((bytes[2] & 0x01) << 2) | ((bytes[3] >> 6) & 0x03);
+  return {
+    format: "AAC",
+    codec: `AAC ADTS profile ${profile}`,
+    sampleRate: aacSampleRate(sampleIndex),
+    channels: channels || undefined,
+    note: "ADTS stream"
+  };
+}
+
+function aacSampleRate(index: number): number | undefined {
+  return [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350][index];
 }
 
 function formatDuration(seconds: number): string {

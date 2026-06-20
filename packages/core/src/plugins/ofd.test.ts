@@ -176,6 +176,8 @@ describe("ofdPlugin", () => {
     zoomReset?.click();
     await waitFor(() => zoomReset?.textContent === "100%");
     expect(panel?.style.getPropertyValue("--ofv-ofd-zoom")).toBe("1");
+    expect(panel?.style.getPropertyValue("--ofv-ofd-rotation")).toBe("0deg");
+    expect(panel?.classList.contains("is-ofd-rotated-sideways")).toBe(false);
 
     viewer.destroy();
   });

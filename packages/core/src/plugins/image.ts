@@ -39,13 +39,26 @@ export function imagePlugin(): PreviewPlugin {
     async render(ctx) {
       const ext = ctx.file.extension.toLowerCase();
       const isHeic = ext === "heic" || ext === "heif" || heicMimeTypes.has(ctx.file.mimeType.toLowerCase());
-      const sourceBytesPromise = readImageBytes(ctx.file.blob);
+      const isTiff = ext === "tif" || ext === "tiff" || ctx.file.mimeType.toLowerCase() === "image/tiff";
+      const sourceBytesPromise = readImageBytes(ctx.file);
 
       let url = "";
       let convertedBlob: Blob | null = null;
       let isExternal = Boolean(ctx.file.url);
+      let canvasSource: HTMLCanvasElement | null = null;
 
-      if (isHeic) {
+      if (isTiff) {
+        ctx.setLoading(true);
+        try {
+          const bytes = await sourceBytesPromise;
+          canvasSource = await createTiffCanvas(bytes);
+        } catch (err: any) {
+          console.error("TIFF image conversion failed:", err);
+          url = createObjectUrl(ctx.file);
+        } finally {
+          ctx.setLoading(false);
+        }
+      } else if (isHeic) {
         ctx.setLoading(true);
         try {
           let blob = ctx.file.blob;
@@ -93,13 +106,25 @@ export function imagePlugin(): PreviewPlugin {
       const stage = document.createElement("div");
       stage.className = "ofv-image-stage";
       const infoBar = createImageInfoBar(await sourceBytesPromise, ext, ctx.file.mimeType, ctx.file.name);
+      infoBar.hidden = true;
+      infoBar.setAttribute("aria-hidden", "true");
+      infoBar.style.display = "none";
 
       const image = document.createElement("img");
       image.className = "ofv-media ofv-image-content";
       image.alt = ctx.file.name;
       image.draggable = false;
-      image.src = url;
       image.style.objectFit = objectFit(ctx.options.fit);
+      if (url) {
+        image.src = url;
+      }
+
+      const visual: HTMLElement = canvasSource || image;
+      if (canvasSource) {
+        canvasSource.classList.add("ofv-media", "ofv-image-content", "ofv-tiff-canvas");
+        canvasSource.setAttribute("role", "img");
+        canvasSource.setAttribute("aria-label", ctx.file.name);
+      }
 
       let scale = 1;
       let rotation = 0;
@@ -111,18 +136,25 @@ export function imagePlugin(): PreviewPlugin {
       let startOffsetX = 0;
       let startOffsetY = 0;
       let activePointerId: number | null = null;
+      let previewAvailable = true;
 
       const zoomLabel = document.createElement("span");
       zoomLabel.className = "ofv-image-zoom";
 
       const updateTransform = () => {
-        image.style.transform = `translate(${offsetX}px, ${offsetY}px) scale(${scale}) rotate(${rotation}deg)`;
+        visual.style.transform = `translate(${offsetX}px, ${offsetY}px) scale(${scale}) rotate(${rotation}deg)`;
         zoomLabel.textContent = `${Math.round(scale * 100)}%`;
-        ctx.toolbar?.setZoom(scale);
+        ctx.toolbar?.setZoom(previewAvailable ? scale : undefined);
       };
 
       const showImageFallback = () => {
+        previewAvailable = false;
+        ctx.toolbar?.setZoom(undefined);
+        infoBar.hidden = false;
+        infoBar.removeAttribute("aria-hidden");
+        infoBar.style.removeProperty("display");
         stage.replaceChildren(createImageFallback(ctx.file.name, url));
+        ctx.toolbar?.refreshCommandSupport();
       };
 
       const setScale = (nextScale: number) => {
@@ -247,10 +279,12 @@ export function imagePlugin(): PreviewPlugin {
       stage.addEventListener("lostpointercapture", onLostPointerCapture);
       stage.addEventListener("pointerleave", onPointerLeave);
       stage.addEventListener("wheel", onWheel, { passive: false });
-      image.addEventListener("error", showImageFallback);
+      if (!canvasSource) {
+        image.addEventListener("error", showImageFallback);
+      }
       window.addEventListener("blur", onWindowBlur);
 
-      stage.append(image);
+      stage.append(visual);
       wrapper.append(...(showInlineControls ? [controls, stage, infoBar] : [stage, infoBar]));
       ctx.viewport.append(wrapper);
       updateTransform();
@@ -258,14 +292,18 @@ export function imagePlugin(): PreviewPlugin {
       return {
         canCommand(command) {
           return (
-            command === "zoom-in" ||
-            command === "zoom-out" ||
-            command === "zoom-reset" ||
-            command === "rotate-right" ||
-            command === "rotate-left"
+            previewAvailable &&
+            (command === "zoom-in" ||
+              command === "zoom-out" ||
+              command === "zoom-reset" ||
+              command === "rotate-right" ||
+              command === "rotate-left")
           );
         },
         command(command) {
+          if (!previewAvailable) {
+            return false;
+          }
           if (command === "zoom-in") {
             setScale(scale + 0.25);
             return true;
@@ -291,8 +329,8 @@ export function imagePlugin(): PreviewPlugin {
           return false;
         },
         resize(size: PreviewSize) {
-          image.style.maxWidth = `${size.width}px`;
-          image.style.maxHeight = `${Math.max(0, size.height - controls.offsetHeight)}px`;
+          visual.style.maxWidth = `${size.width}px`;
+          visual.style.maxHeight = `${Math.max(0, size.height - controls.offsetHeight)}px`;
         },
         destroy() {
           ctx.toolbar?.setZoom(undefined);
@@ -312,13 +350,43 @@ export function imagePlugin(): PreviewPlugin {
           wrapper.remove();
           if (convertedBlob) {
             URL.revokeObjectURL(url);
-          } else {
+          } else if (url) {
             revokeObjectUrl(url, isExternal);
           }
         }
       };
     }
   };
+}
+
+async function createTiffCanvas(bytes: Uint8Array): Promise<HTMLCanvasElement> {
+  if (bytes.byteLength === 0) {
+    throw new Error("无法读取 TIFF 文件内容。");
+  }
+  const UTIF = await import("utif");
+  const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  const ifds = UTIF.decode(buffer);
+  const ifd = ifds.find((item) => Number(item.width || 0) > 0 || Number(item.t256 || 0) > 0) || ifds[0];
+  if (!ifd) {
+    throw new Error("TIFF 文件没有可解码的图像目录。");
+  }
+  UTIF.decodeImage(buffer, ifd);
+  const rgba = UTIF.toRGBA8(ifd);
+  const width = Number(ifd.width || ifd.t256 || 0);
+  const height = Number(ifd.height || ifd.t257 || 0);
+  if (!width || !height || rgba.length < width * height * 4) {
+    throw new Error("TIFF 图像像素数据不完整。");
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  if (!context) {
+    throw new Error("当前环境不支持 Canvas 2D，无法展示 TIFF。");
+  }
+  context.putImageData(new ImageData(new Uint8ClampedArray(rgba), width, height), 0, 0);
+  return canvas;
 }
 
 function createImageFallback(fileName: string, url: string): HTMLElement {
@@ -351,11 +419,23 @@ type ImageInfo = {
   note?: string;
 };
 
-async function readImageBytes(blob?: Blob): Promise<Uint8Array> {
-  if (!blob) {
+async function readImageBytes(file: { blob?: Blob; url?: string; source?: unknown }): Promise<Uint8Array> {
+  if (file.blob) {
+    return new Uint8Array(await file.blob.arrayBuffer().catch(() => new ArrayBuffer(0)));
+  }
+  const url = file.url || (typeof file.source === "string" ? file.source : "");
+  if (!url) {
     return new Uint8Array();
   }
-  return new Uint8Array(await blob.arrayBuffer().catch(() => new ArrayBuffer(0)));
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      return new Uint8Array();
+    }
+    return new Uint8Array(await response.arrayBuffer());
+  } catch {
+    return new Uint8Array();
+  }
 }
 
 function createImageInfoBar(bytes: Uint8Array, extension: string, mimeType: string, fileName: string): HTMLElement {
@@ -408,6 +488,7 @@ function parseImageInfo(bytes: Uint8Array, extension: string, mimeType: string, 
     parseAvifInfo(bytes) ||
     parseBmpInfo(bytes) ||
     parseIcoInfo(bytes) ||
+    parseTiffInfo(bytes) ||
     parseSvgInfo(bytes) ||
     { format: fallbackFormat, note: "暂未识别图片头结构" }
   );
@@ -667,6 +748,81 @@ function parseSvgInfo(bytes: Uint8Array): ImageInfo | null {
   };
 }
 
+function parseTiffInfo(bytes: Uint8Array): ImageInfo | null {
+  if (bytes.length < 8) {
+    return null;
+  }
+  const littleEndian = asciiAt(bytes, 0, 2) === "II";
+  const bigEndian = asciiAt(bytes, 0, 2) === "MM";
+  if (!littleEndian && !bigEndian) {
+    return null;
+  }
+  const magic = readTiffUint16(bytes, 2, littleEndian);
+  if (magic !== 42 && magic !== 43) {
+    return null;
+  }
+  const ifdOffset = magic === 43 ? readTiffUint64AsNumber(bytes, 8, littleEndian) : readTiffUint32(bytes, 4, littleEndian);
+  if (!Number.isFinite(ifdOffset) || ifdOffset + 2 > bytes.length) {
+    return { format: magic === 43 ? "BigTIFF" : "TIFF", note: "IFD 偏移超出文件范围" };
+  }
+  const count = magic === 43 ? readTiffUint64AsNumber(bytes, ifdOffset, littleEndian) : readTiffUint16(bytes, ifdOffset, littleEndian);
+  const entrySize = magic === 43 ? 20 : 12;
+  const entriesStart = ifdOffset + (magic === 43 ? 8 : 2);
+  let width: number | undefined;
+  let height: number | undefined;
+  let bitDepth: number | undefined;
+  let compression: number | undefined;
+  for (let index = 0; index < Math.min(count, 256); index++) {
+    const offset = entriesStart + index * entrySize;
+    if (offset + entrySize > bytes.length) {
+      break;
+    }
+    const tag = readTiffUint16(bytes, offset, littleEndian);
+    const type = readTiffUint16(bytes, offset + 2, littleEndian);
+    const valueOffset = magic === 43 ? offset + 12 : offset + 8;
+    const value = readTiffInlineValue(bytes, valueOffset, type, littleEndian);
+    if (tag === 256) width = value;
+    if (tag === 257) height = value;
+    if (tag === 258) bitDepth = value;
+    if (tag === 259) compression = value;
+  }
+  return {
+    format: magic === 43 ? "BigTIFF" : "TIFF",
+    width,
+    height,
+    bitDepth: bitDepth ? `${bitDepth} bit` : undefined,
+    color: compression ? tiffCompressionName(compression) : undefined,
+    count: Number.isFinite(count) ? count : undefined
+  };
+}
+
+function readTiffInlineValue(bytes: Uint8Array, offset: number, type: number, littleEndian: boolean): number | undefined {
+  if (offset + 4 > bytes.length) {
+    return undefined;
+  }
+  if (type === 3) {
+    return readTiffUint16(bytes, offset, littleEndian);
+  }
+  if (type === 4 || type === 13) {
+    return readTiffUint32(bytes, offset, littleEndian);
+  }
+  return readTiffUint16(bytes, offset, littleEndian);
+}
+
+function tiffCompressionName(value: number): string {
+  const names: Record<number, string> = {
+    1: "Uncompressed",
+    3: "CCITT Group 3",
+    4: "CCITT Group 4",
+    5: "LZW",
+    6: "Old JPEG",
+    7: "JPEG",
+    8: "Deflate",
+    32773: "PackBits"
+  };
+  return names[value] || `Compression ${value}`;
+}
+
 function countPngChunks(bytes: Uint8Array, chunkType: string): number {
   let offset = 8;
   let count = 0;
@@ -754,6 +910,24 @@ function readUint32Be(bytes: Uint8Array, offset: number): number {
 
 function readInt32Le(bytes: Uint8Array, offset: number): number {
   return dataView(bytes).getInt32(offset, true);
+}
+
+function readTiffUint16(bytes: Uint8Array, offset: number, littleEndian: boolean): number {
+  return dataView(bytes).getUint16(offset, littleEndian);
+}
+
+function readTiffUint32(bytes: Uint8Array, offset: number, littleEndian: boolean): number {
+  return dataView(bytes).getUint32(offset, littleEndian);
+}
+
+function readTiffUint64AsNumber(bytes: Uint8Array, offset: number, littleEndian: boolean): number {
+  if (offset + 8 > bytes.length) {
+    return Number.NaN;
+  }
+  const view = dataView(bytes);
+  const low = view.getUint32(offset + (littleEndian ? 0 : 4), littleEndian);
+  const high = view.getUint32(offset + (littleEndian ? 4 : 0), littleEndian);
+  return high * 2 ** 32 + low;
 }
 
 function objectFit(fit: string): string {

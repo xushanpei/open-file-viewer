@@ -1,5 +1,5 @@
 import DOMPurify from "dompurify";
-import type { PreviewPlugin } from "../types";
+import type { PreviewCommand, PreviewContext, PreviewPlugin } from "../types";
 import { appendMeta, createPanel, createSection, readArrayBuffer, readTextFile, resolveFormat } from "./utils";
 import { createObjectUrl, revokeObjectUrl } from "../dom";
 
@@ -52,6 +52,7 @@ export function emailPlugin(): PreviewPlugin {
       const objectUrlsToRevoke: string[] = [];
       const attachmentObjectUrls = new Map<EmailAttachment, string>();
       const timersToClear: number[] = [];
+      const zoomController = createEmailZoomController(panel, ctx);
       let mboxSummary: MboxMessageSummary[] = [];
 
       try {
@@ -157,6 +158,7 @@ export function emailPlugin(): PreviewPlugin {
 
         // 1. Render Header information section
         const headerSection = createSection("邮件信息");
+        hideSupplementalInfo(headerSection);
         appendMeta(headerSection, "Subject", emailData.subject);
         appendMeta(headerSection, "From", emailData.from);
         appendMeta(headerSection, "To", emailData.to);
@@ -169,6 +171,7 @@ export function emailPlugin(): PreviewPlugin {
         // 2. Render Attachments section if present
         if (emailData.attachments.length > 0) {
           const attachmentsSection = createSection("附件列表");
+          hideSupplementalInfo(attachmentsSection);
           const container = document.createElement("div");
           container.className = "ofv-email-attachments";
 
@@ -220,6 +223,7 @@ export function emailPlugin(): PreviewPlugin {
           iframe.setAttribute("sandbox", "allow-same-origin allow-popups allow-popups-to-escape-sandbox");
           iframe.style.cssText = "width: 100%; border: none; background: #fff; min-height: 200px;";
           let renderedHtmlBody = false;
+          let resizeHtmlBody: (() => void) | undefined;
           const renderHtmlBody = () => {
             if (renderedHtmlBody) {
               return;
@@ -258,6 +262,8 @@ export function emailPlugin(): PreviewPlugin {
                 `);
                 idoc.close();
                 secureEmailLinks(idoc);
+                zoomController.setHtmlBody(idoc.body, () => resizeHtmlBody?.());
+                ctx.toolbar?.refreshCommandSupport();
 
                 // Auto-adjust height to avoid double scrolling
                 const resize = () => {
@@ -272,6 +278,7 @@ export function emailPlugin(): PreviewPlugin {
                   );
                   iframe.style.height = `${height + 32}px`;
                 };
+                resizeHtmlBody = resize;
 
                 resize();
                 timersToClear.push(window.setTimeout(resize, 300));
@@ -304,6 +311,12 @@ export function emailPlugin(): PreviewPlugin {
       }
 
       return {
+        canCommand(command) {
+          return zoomController.canCommand(command);
+        },
+        command(command) {
+          return zoomController.command(command);
+        },
         destroy() {
           timersToClear.forEach((timer) => window.clearTimeout(timer));
           objectUrlsToRevoke.forEach((u) => {
@@ -313,6 +326,54 @@ export function emailPlugin(): PreviewPlugin {
           panel.remove();
         }
       };
+    }
+  };
+}
+
+function createEmailZoomController(panel: HTMLElement, ctx: PreviewContext) {
+  let zoom = 1;
+  let htmlBody: HTMLElement | undefined;
+  let resizeHtmlBody: (() => void) | undefined;
+
+  const apply = () => {
+    const normalized = Math.round(zoom * 100) / 100;
+    panel.style.setProperty("--ofv-email-zoom", String(normalized));
+    if (htmlBody) {
+      htmlBody.style.fontSize = `${Math.round(14 * normalized * 100) / 100}px`;
+      resizeHtmlBody?.();
+      window.setTimeout(() => resizeHtmlBody?.(), 0);
+    }
+    ctx.toolbar?.setZoom(normalized === 1 ? undefined : normalized);
+  };
+
+  apply();
+
+  return {
+    setHtmlBody(body: HTMLElement, resize: () => void) {
+      htmlBody = body;
+      resizeHtmlBody = resize;
+      apply();
+    },
+    canCommand(command: PreviewCommand) {
+      return command === "zoom-in" || command === "zoom-out" || command === "zoom-reset";
+    },
+    command(command: PreviewCommand) {
+      if (command === "zoom-in") {
+        zoom = Math.min(3, zoom * 1.15);
+        apply();
+        return true;
+      }
+      if (command === "zoom-out") {
+        zoom = Math.max(0.5, zoom / 1.15);
+        apply();
+        return true;
+      }
+      if (command === "zoom-reset") {
+        zoom = 1;
+        apply();
+        return true;
+      }
+      return false;
     }
   };
 }
@@ -379,6 +440,7 @@ function escapeRegExp(value: string): string {
 
 function createMboxSummarySection(messages: MboxMessageSummary[]): HTMLElement {
   const section = createSection("MBOX 邮箱摘要");
+  hideSupplementalInfo(section);
   const meta = document.createElement("div");
   meta.className = "ofv-email-mbox-meta";
   appendMeta(meta, "邮件数", String(messages.length));
@@ -409,6 +471,12 @@ function createMboxSummarySection(messages: MboxMessageSummary[]): HTMLElement {
   tableWrap.append(table);
   section.append(meta, tableWrap);
   return section;
+}
+
+function hideSupplementalInfo(element: HTMLElement): void {
+  element.hidden = true;
+  element.setAttribute("aria-hidden", "true");
+  element.style.display = "none";
 }
 
 function splitMboxMessages(mboxText: string): string[] {

@@ -14,9 +14,9 @@ import {
   onMounted,
   ref,
   render,
+  Teleport,
   watch,
   type PropType,
-  type Slots
 } from "vue";
 
 export const OpenFileViewer = defineComponent({
@@ -73,19 +73,20 @@ export const OpenFileViewer = defineComponent({
   },
   setup(props, { emit, slots }) {
     const containerRef = ref<HTMLElement | null>(null);
+    const toolbarTarget = ref<HTMLElement | null>(null);
+    const toolbarContext = ref<PreviewToolbarRenderContext | null>(null);
     let viewer: FileViewer | null = null;
     let toolbarMount: HTMLElement | null = null;
-
-    const renderToolbarSlot = createToolbarSlotRenderer(slots, () => toolbarMount);
 
     const mount = () => {
       if (!containerRef.value) {
         return;
       }
       if (toolbarMount) {
-        render(null, toolbarMount);
         toolbarMount = null;
       }
+      toolbarTarget.value = null;
+      toolbarContext.value = null;
       viewer?.destroy();
       viewer = createViewer({
         container: containerRef.value,
@@ -101,9 +102,13 @@ export const OpenFileViewer = defineComponent({
           ? {
               ...(typeof props.toolbar === "object" ? props.toolbar : {}),
               render(ctx) {
+                toolbarContext.value = ctx;
+                if (toolbarMount) {
+                  return toolbarMount;
+                }
                 toolbarMount = document.createElement("div");
                 toolbarMount.className = "ofv-vue-toolbar";
-                renderToolbarSlot(ctx);
+                toolbarTarget.value = toolbarMount;
                 return toolbarMount;
               }
             }
@@ -160,28 +165,23 @@ export const OpenFileViewer = defineComponent({
 
     onBeforeUnmount(() => {
       if (toolbarMount) {
-        render(null, toolbarMount);
         toolbarMount = null;
       }
+      toolbarTarget.value = null;
+      toolbarContext.value = null;
       viewer?.destroy();
       viewer = null;
     });
 
-    return () => h("div", { ref: containerRef, class: props.className });
+    return () => [
+      h("div", { ref: containerRef, class: props.className }),
+      toolbarTarget.value && toolbarContext.value
+        ? h(Teleport, { to: toolbarTarget.value }, [
+            h("div", { class: "ofv-vue-toolbar-content" }, slots.toolbar?.(toolbarContext.value))
+          ])
+        : null
+    ];
   }
 });
-
-function createToolbarSlotRenderer(
-  slots: Slots,
-  getMount: () => HTMLElement | null
-): (ctx: PreviewToolbarRenderContext) => void {
-  return (ctx) => {
-    const mount = getMount();
-    if (!mount) {
-      return;
-    }
-    render(h("div", { class: "ofv-vue-toolbar-content" }, slots.toolbar?.(ctx)), mount);
-  };
-}
 
 export type { FileViewer, PreviewOptions, PreviewPlugin, PreviewSource, PreviewTheme, PreviewToolbarRenderContext };

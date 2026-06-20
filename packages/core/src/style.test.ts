@@ -9,7 +9,10 @@ describe("core responsive styles", () => {
   it("keeps the preview shell constrained to its host container", () => {
     expect(rule(".ofv-root")).toContain("max-width: 100%");
     expect(rule(".ofv-root")).toContain("min-width: 0");
-    expect(rule(".ofv-root [hidden]")).toContain("display: none !important");
+    expect(css).toContain('.ofv-root .ofv-presentation-summary[aria-hidden="true"]');
+    expect(css).toContain('.ofv-root .ofv-media-info[aria-hidden="true"]');
+    expect(css).not.toContain('.ofv-root [aria-hidden="true"] {\n  display: none !important;');
+    expect(rule(".ofv-toolbar-icon")).toContain("display: inline-flex");
     expect(rule(".ofv-host")).toContain("min-width: 0");
     expect(rule(".ofv-host")).toContain("overflow: hidden");
     expect(rule(".ofv-viewport")).toContain("container-type: inline-size");
@@ -33,6 +36,10 @@ describe("core responsive styles", () => {
     expect(rule(".ofv-image-info")).toContain("max-width: 100%");
     expect(rule(".ofv-image-info-item")).toContain("max-width: 100%");
     expect(rule(".ofv-image-info-item")).toContain("overflow-wrap: anywhere");
+    expect(rule(".ofv-image-stage")).toContain("min-height: min(320px, 55vh)");
+    expect(rule(".ofv-image-content")).toContain("width: auto");
+    expect(rule(".ofv-image-content")).toContain("height: auto");
+    expect(rule(".ofv-image-content")).toContain("max-height: 100%");
   });
 
   it("keeps large document, code, markdown, and PDF content inside local scroll regions", () => {
@@ -42,15 +49,23 @@ describe("core responsive styles", () => {
     expect(docxWrapper).toContain("width: 100%");
     expect(docxWrapper).toContain("max-width: 100%");
     expect(docxWrapper).toContain("overflow: hidden");
+    expect(docxWrapper).toContain("background: transparent");
     expect(docxWrapper).toContain("--ofv-docx-scale: 1");
     expect(docxWrapper).toContain("box-sizing: border-box");
+    expect(rule(".ofv-office")).toContain("--ofv-office-zoom: 1");
     expect(rule(".ofv-docx-page-frame")).toContain("max-width: 100%");
     expect(rule(".ofv-docx-page-frame")).toContain("overflow: visible");
     expect(docxSection).toContain("max-width: none");
+    expect(docxSection).toContain("background: #fff");
     expect(docxSection).toContain("overflow: visible");
     expect(docxSection).toContain("overflow-wrap: normal");
-    expect(docxSection).toContain("transform: scale(var(--ofv-docx-scale))");
+    expect(docxSection).toContain("transform: scale(calc(var(--ofv-docx-scale) * var(--ofv-office-zoom, 1)))");
     expect(docxSection).toContain("transform-origin: top left");
+    expect(
+      rule(
+        ".ofv-docx-document section.ofv-docx > section,\n.ofv-docx-document section.ofv-docx .docx,\n.ofv-docx-document section.ofv-docx .docx-wrapper"
+      )
+    ).toContain("background: #fff");
     expect(
       rule(
         ".ofv-docx-document section.ofv-docx img,\n.ofv-docx-document section.ofv-docx svg,\n.ofv-docx-document section.ofv-docx canvas,\n.ofv-docx-document section.ofv-docx video"
@@ -70,6 +85,7 @@ describe("core responsive styles", () => {
     expect(rule(".ofv-markdown-body table")).toContain("max-width: 100%");
     expect(rule(".ofv-pdf")).toContain("overflow-x: hidden");
     expect(rule(".ofv-pdf")).toContain("overflow-y: auto");
+    expect(rule(".ofv-pdf-page-wrapper")).toContain("overflow: hidden");
     expect(rule(".ofv-ofd")).toContain("--ofv-ofd-zoom: 1");
     expect(rule(".ofv-ofd")).toContain("--ofv-ofd-rotation: 0deg");
     expect(rule(".ofv-ofd")).toContain("height: 100%");
@@ -101,7 +117,10 @@ describe("core responsive styles", () => {
     expect(rule(".ofv-tabs button")).toContain("text-overflow: ellipsis");
     expect(rule(".ofv-table-scroll")).toContain("max-width: 100%");
     expect(rule(".ofv-table-scroll")).toContain("overflow: auto");
-    expect(rule(".ofv-table-scroll td,\n.ofv-table-scroll th")).toContain("text-overflow: ellipsis");
+    expect(rule(".ofv-table-scroll td,\n.ofv-table-scroll th")).toContain("overflow-wrap: anywhere");
+    expect(rule(".ofv-table-scroll td,\n.ofv-table-scroll th")).toContain("overflow: hidden");
+    expect(rule(".ofv-table-scroll td,\n.ofv-table-scroll th")).toContain("text-overflow: clip");
+    expect(rule(".ofv-column-resize-handle")).toContain("right: 0");
     expect(rule(".ofv-sheet-window")).toContain("flex-wrap: wrap");
     expect(rule(".ofv-sheet-window")).toContain("min-width: 0");
     expect(rule(".ofv-sheet-window-note")).toContain("min-width: 0");
@@ -116,6 +135,10 @@ describe("core responsive styles", () => {
     expect(rule(".ofv-pptx-viewer > div[data-slide-index]")).toContain("overflow: auto");
     expect(rule(".ofv-pptx-viewer svg")).toContain("width: auto");
     expect(rule(".ofv-pptx-viewer svg")).toContain("stroke-width: initial");
+    expect(rule(".ofv-parquet-schema")).toContain("max-width: 100%");
+    expect(rule(".ofv-parquet-schema")).toContain("overflow: auto");
+    expect(rule(".ofv-parquet-records")).toContain("max-width: 100%");
+    expect(rule(".ofv-parquet-records")).toContain("overflow: auto");
   });
 
   it("keeps specialized preview surfaces constrained and locally scrollable", () => {

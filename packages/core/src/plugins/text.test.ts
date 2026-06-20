@@ -67,6 +67,38 @@ describe("textPlugin", () => {
     expect(container.querySelector(".ofv-markdown-body strong")?.textContent).toBe("bold");
   });
 
+  it("supports shared toolbar zoom for markdown previews", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    createViewer({
+      container,
+      file: new Blob(["# Zoomable\n\nMarkdown body"], { type: "text/markdown" }),
+      fileName: "zoom.md",
+      plugins: [textPlugin()],
+      toolbar: true
+    });
+
+    const markdown = await waitFor(() => container.querySelector<HTMLElement>(".ofv-markdown-body"));
+    const zoomIn = await waitFor(() => {
+      const button = findToolbarButton(container, "Zoom in");
+      return button && !button.disabled ? button : false;
+    });
+    const reset = await waitFor(() => findToolbarButton(container, "Reset zoom"));
+    const rotate = await waitFor(() => findToolbarButton(container, "Rotate right"));
+
+    expect(zoomIn.disabled).toBe(false);
+    expect(rotate.disabled).toBe(true);
+
+    zoomIn.click();
+    await waitFor(() => markdown.style.getPropertyValue("--ofv-markdown-zoom") === "1.15");
+    expect(reset.textContent).toBe("115%");
+
+    reset.click();
+    await waitFor(() => markdown.style.getPropertyValue("--ofv-markdown-zoom") === "1");
+    expect(reset.textContent).toBe("100%");
+  });
+
   it("shows a local fallback when remote text cannot be fetched", async () => {
     const container = document.createElement("div");
     const onError = vi.fn();
@@ -89,6 +121,42 @@ describe("textPlugin", () => {
     expect(container.textContent).toContain("文本预览失败");
     expect(container.querySelector<HTMLAnchorElement>(".ofv-fallback a")?.href).toBe("https://example.com/missing.txt");
     expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("renders remote text sources and keeps shared toolbar commands working", async () => {
+    const container = document.createElement("div");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          arrayBuffer: () => Promise.resolve(new TextEncoder().encode("# Remote Markdown\n\nLoaded over URL").buffer)
+        } as Response)
+      )
+    );
+    document.body.append(container);
+
+    createViewer({
+      container,
+      file: "https://example.com/docs/remote.md?download=1",
+      plugins: [textPlugin()],
+      toolbar: true
+    });
+
+    const markdown = await waitFor(() => container.querySelector<HTMLElement>(".ofv-markdown-body"));
+    const zoomIn = await waitFor(() => {
+      const button = findToolbarButton(container, "Zoom in");
+      return button && !button.disabled ? button : false;
+    });
+    const reset = await waitFor(() => findToolbarButton(container, "Reset zoom"));
+
+    expect(fetch).toHaveBeenCalledWith("https://example.com/docs/remote.md?download=1");
+    expect(container.textContent).toContain("Remote Markdown");
+
+    zoomIn.click();
+    await waitFor(() => markdown.style.getPropertyValue("--ofv-markdown-zoom") === "1.15");
+    reset?.click();
+    await waitFor(() => markdown.style.getPropertyValue("--ofv-markdown-zoom") === "1");
   });
 
   it("renders code even when Prism CSS fails to load", async () => {
@@ -127,6 +195,40 @@ describe("textPlugin", () => {
     expect(container.querySelector(".ofv-code-title")?.textContent).toContain("javascript");
   });
 
+  it("supports shared toolbar zoom for code previews", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    createViewer({
+      container,
+      file: new Blob(["const answer = 42;"], { type: "application/javascript" }),
+      fileName: "zoom.js",
+      plugins: [textPlugin()],
+      toolbar: true
+    });
+
+    const code = await waitFor(() => container.querySelector<HTMLElement>(".ofv-code-container"));
+    const zoomIn = await waitFor(() => {
+      const button = findToolbarButton(container, "Zoom in");
+      return button && !button.disabled ? button : false;
+    });
+    const zoomOut = await waitFor(() => {
+      const button = findToolbarButton(container, "Zoom out");
+      return button && !button.disabled ? button : false;
+    });
+    const rotate = await waitFor(() => findToolbarButton(container, "Rotate right"));
+
+    expect(zoomIn.disabled).toBe(false);
+    expect(zoomOut.disabled).toBe(false);
+    expect(rotate.disabled).toBe(true);
+
+    zoomIn.click();
+    await waitFor(() => code.style.getPropertyValue("--ofv-text-zoom") === "1.15");
+
+    zoomOut.click();
+    await waitFor(() => code.style.getPropertyValue("--ofv-text-zoom") === "1");
+  });
+
   it("renders JSON structure summaries", async () => {
     const container = document.createElement("div");
     document.body.append(container);
@@ -142,9 +244,12 @@ describe("textPlugin", () => {
 
     await waitFor(() => Boolean(container.querySelector(".ofv-text-structure")));
 
-    expect(container.textContent).toContain("结构Object");
-    expect(container.textContent).toContain("键3");
-    expect(container.textContent).toContain("name, plugins, enabled");
+    const summary = container.querySelector<HTMLElement>(".ofv-text-structure");
+    expect(summary?.hidden).toBe(true);
+    expect(summary?.textContent).toContain("结构Object");
+    expect(summary?.textContent).toContain("键3");
+    expect(visibleText(container)).not.toContain("结构Object");
+    expect(visibleText(container)).not.toContain("键3");
   });
 
   it("renders notebook cell summaries", async () => {
@@ -169,9 +274,13 @@ describe("textPlugin", () => {
 
     await waitFor(() => Boolean(container.querySelector(".ofv-text-structure")));
 
-    expect(container.textContent).toContain("Notebook3 cells");
-    expect(container.textContent).toContain("markdown 1, code 2");
-    expect(container.textContent).toContain("KernelPython 3");
+    const summary = container.querySelector<HTMLElement>(".ofv-text-structure");
+    expect(summary?.hidden).toBe(true);
+    expect(summary?.textContent).toContain("Notebook3 cells");
+    expect(summary?.textContent).toContain("markdown 1, code 2");
+    expect(summary?.textContent).toContain("KernelPython 3");
+    expect(visibleText(container)).not.toContain("Notebook3 cells");
+    expect(visibleText(container)).not.toContain("KernelPython 3");
   });
 
   it("renders NDJSON record summaries", async () => {
@@ -187,9 +296,13 @@ describe("textPlugin", () => {
 
     await waitFor(() => Boolean(container.querySelector(".ofv-text-structure")));
 
-    expect(container.textContent).toContain("NDJSON4 lines");
-    expect(container.textContent).toContain("可解析3");
-    expect(container.textContent).toContain("object 2, array 1");
+    const summary = container.querySelector<HTMLElement>(".ofv-text-structure");
+    expect(summary?.hidden).toBe(true);
+    expect(summary?.textContent).toContain("NDJSON4 lines");
+    expect(summary?.textContent).toContain("可解析3");
+    expect(summary?.textContent).toContain("object 2, array 1");
+    expect(visibleText(container)).not.toContain("NDJSON4 lines");
+    expect(visibleText(container)).not.toContain("可解析3");
   });
 
   it.each([
@@ -469,4 +582,35 @@ async function waitFor<T>(predicate: () => T | false | null | undefined, timeout
     result = predicate();
   }
   return result;
+}
+
+function findToolbarButton(container: HTMLElement, title: string): HTMLButtonElement | undefined {
+  return Array.from(container.querySelectorAll<HTMLButtonElement>(".ofv-toolbar button")).find(
+    (button) => button.getAttribute("aria-label") === title
+  );
+}
+
+function visibleText(root: HTMLElement): string {
+  const parts: string[] = [];
+  const walk = (node: Node, hidden: boolean) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      if (!hidden) {
+        parts.push(node.textContent || "");
+      }
+      return;
+    }
+    if (!(node instanceof HTMLElement)) {
+      node.childNodes.forEach((child) => walk(child, hidden));
+      return;
+    }
+    const isHidden =
+      hidden ||
+      node.hidden ||
+      node.getAttribute("aria-hidden") === "true" ||
+      node.style.display === "none" ||
+      node.style.visibility === "hidden";
+    node.childNodes.forEach((child) => walk(child, isHidden));
+  };
+  walk(root, false);
+  return parts.join(" ").replace(/\s+/g, " ").trim();
 }

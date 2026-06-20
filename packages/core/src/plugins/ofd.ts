@@ -107,7 +107,9 @@ export function ofdPlugin(): PreviewPlugin {
           }
           if (command === "zoom-reset") {
             zoom = 1;
+            rotation = 0;
             applyZoom();
+            applyRotation();
             return true;
           }
           if (command === "rotate-right") {

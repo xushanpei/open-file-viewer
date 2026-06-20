@@ -1,6 +1,7 @@
 import { createObjectUrl, revokeObjectUrl } from "../dom";
 import type { Psd } from "ag-psd";
-import type { PreviewPlugin } from "../types";
+import type { PreviewCommand, PreviewInstance, PreviewPlugin, PreviewSize } from "../types";
+import { renderPdfDocumentPreview } from "./pdf";
 import { appendMeta, createPanel, createSection, readArrayBuffer, resolveFormat } from "./utils";
 
 const assetExtensions = new Set([
@@ -56,9 +57,63 @@ export function assetPlugin(): PreviewPlugin {
       const bytes = new Uint8Array(await readArrayBuffer(ctx.file).catch(() => new ArrayBuffer(0)));
 
       if (isPhotoshopAsset(extension)) {
-        panel.append(await createPhotoshopPreview(bytes));
+        const photoshopPreview = await createPhotoshopPreview(bytes, ctx.toolbar);
+        panel.append(photoshopPreview.element);
+        ctx.toolbar?.refreshCommandSupport();
         return {
+          canCommand(command) {
+            return photoshopPreview.instance?.canCommand?.(command) ?? false;
+          },
+          command(command) {
+            return photoshopPreview.instance?.command?.(command) ?? false;
+          },
+          resize(size) {
+            photoshopPreview.instance?.resize?.(size);
+          },
           destroy() {
+            photoshopPreview.instance?.destroy();
+            revokeObjectUrl(url, isExternal);
+            panel.remove();
+          }
+        };
+      }
+
+      if (extension === "ai" || extension === "eps" || extension === "ps") {
+        const postScriptPreview = await createPostScriptPreview(bytes, url, ctx.file.name, ctx.size, ctx.options.fit, ctx.toolbar);
+        panel.append(postScriptPreview.element);
+        if (postScriptPreview.primaryRendered) {
+          hideSuccessfulAssetDiagnostics(panel);
+          ctx.toolbar?.refreshCommandSupport();
+          return {
+            canCommand(command) {
+              return postScriptPreview.instance?.canCommand?.(command) ?? false;
+            },
+            command(command) {
+              return postScriptPreview.instance?.command?.(command) ?? false;
+            },
+            resize(size) {
+              postScriptPreview.instance?.resize?.(size);
+            },
+            destroy() {
+              postScriptPreview.instance?.destroy();
+              revokeObjectUrl(url, isExternal);
+              panel.remove();
+            }
+          };
+        }
+
+        return {
+          canCommand(command) {
+            return postScriptPreview.instance?.canCommand?.(command) ?? false;
+          },
+          command(command) {
+            return postScriptPreview.instance?.command?.(command) ?? false;
+          },
+          resize(size) {
+            postScriptPreview.instance?.resize?.(size);
+          },
+          destroy() {
+            postScriptPreview.instance?.destroy();
             revokeObjectUrl(url, isExternal);
             panel.remove();
           }
@@ -72,46 +127,75 @@ export function assetPlugin(): PreviewPlugin {
       appendMeta(summary, "格式", extension ? `.${extension}` : ctx.file.mimeType || "未知");
       appendMeta(summary, "大小", formatBytes(ctx.file.size ?? bytes.byteLength));
       appendMeta(summary, "签名", byteSignature(bytes));
+      hideSupplementalInfo(summary);
 
       const note = document.createElement("p");
       note.textContent = assetGuidance(extension);
+      hideSupplementalInfo(note);
 
       const download = document.createElement("a");
       download.className = "ofv-asset-download";
       download.href = url;
       download.download = ctx.file.name;
       download.textContent = "下载文件";
+      download.hidden = true;
+      download.setAttribute("aria-hidden", "true");
+      download.style.display = "none";
 
       section.append(summary, note, download);
+      const childInstances: PreviewInstance[] = [];
+      let hasPrimaryPreview = false;
       if (isFontAsset(extension)) {
+        hideSuccessfulSectionHeading(section);
         section.append(await createFontPreview(extension, url, ctx.file.name, bytes));
+        hasPrimaryPreview = true;
       }
       if (extension === "wasm") {
         section.append(createWasmPreview(bytes));
+        hasPrimaryPreview = true;
       }
       if (extension === "sqlite" || extension === "sqlite3" || extension === "db") {
         section.append(createSqlitePreview(bytes));
+        hasPrimaryPreview = true;
       }
       if (extension === "parquet") {
         section.append(createParquetPreview(bytes));
+        hasPrimaryPreview = true;
       }
       if (extension === "avro") {
         section.append(createAvroPreview(bytes));
+        hasPrimaryPreview = true;
       }
       if (extension === "webarchive") {
         section.append(createWebArchivePreview(bytes));
+        hasPrimaryPreview = true;
       }
-      if (extension === "ai" || extension === "eps" || extension === "ps") {
-        section.append(createPostScriptPreview(bytes));
+      if (hasPrimaryPreview) {
+        hideSuccessfulSectionHeading(section);
       }
-      const preview = createHexPreview(bytes);
+      const preview = shouldShowHexPreview(extension, hasPrimaryPreview) ? createHexPreview(bytes) : null;
       if (preview) {
         section.append(preview);
       }
       panel.append(section);
 
       return {
+        canCommand(command) {
+          return childInstances.some((instance) => instance.canCommand?.(command));
+        },
+        command(command) {
+          for (const instance of childInstances) {
+            if (instance.canCommand?.(command)) {
+              return instance.command?.(command) ?? false;
+            }
+          }
+          return false;
+        },
+        resize(size) {
+          childInstances.forEach((instance) => instance.resize?.(size));
+        },
         destroy() {
+          childInstances.forEach((instance) => instance.destroy());
           revokeObjectUrl(url, isExternal);
           panel.remove();
         }
@@ -147,10 +231,10 @@ function assetGuidance(extension: string): string {
     return "PSD/PSB 已识别，当前会优先解析 Photoshop 合成图预览，并保留画布、通道、位深和颜色模式等结构信息。";
   }
   if (["ai", "eps", "ps"].includes(extension)) {
-    return "PostScript/Illustrator 文件已识别，当前会解析文档头、BoundingBox 和常见 DSC 元信息；高保真图形可后续接入 Ghostscript/Illustrator 转换。";
+    return "PostScript/Illustrator 文件已识别；PDF-compatible AI 会直接使用浏览器 PDF 预览，EPS/PS 会解析文档头、BoundingBox 和常见 DSC 元信息。";
   }
   if (["sqlite", "sqlite3", "db"].includes(extension)) {
-    return "SQLite 数据库已识别，当前会解析数据库头和 sqlite_schema 摘要；抽样数据可后续接入 sqlite-wasm 增强。";
+    return "SQLite 数据库已识别，当前会解析数据库头、sqlite_schema 摘要，并对常见 table leaf page 做前端抽样预览；复杂查询可接入 sqlite-wasm 增强。";
   }
   if (extension === "parquet" || extension === "avro") {
     return "列式/序列化数据文件已识别，当前会解析容器头、元信息和 schema 摘要；抽样记录可后续接入专用解析器增强。";
@@ -201,6 +285,7 @@ async function createFontPreview(extension: string, url: string, fileName: strin
   const family = `ofv-${fileName.replace(/[^a-z0-9_-]/gi, "-")}-${Date.now()}`;
   const format = fontFaceFormat(extension);
   const source = format ? `url("${url}") format("${format}")` : `url("${url}")`;
+  let sampleRendered = false;
 
   try {
     const fontFace = new FontFace(family, source);
@@ -209,11 +294,18 @@ async function createFontPreview(extension: string, url: string, fileName: strin
     sample.style.fontFamily = `"${family}", sans-serif`;
     pangram.style.fontFamily = `"${family}", sans-serif`;
     meta.textContent = "已使用浏览器 FontFace API 加载字体样张。";
+    hideSupplementalInfo(meta);
+    sampleRendered = true;
   } catch (error) {
     meta.textContent = `字体样张加载失败：${error instanceof Error ? error.message : "当前字体编码暂不受浏览器支持。"}`;
   }
 
-  preview.append(createFontInfoPreview(bytes, extension));
+  const info = createFontInfoPreview(bytes, extension);
+  const hasVisibleFontDiagnostic = Boolean(info.querySelector(".ofv-data-error"));
+  if (sampleRendered || !hasVisibleFontDiagnostic) {
+    hideSupplementalInfo(info);
+  }
+  preview.append(info);
   return preview;
 }
 
@@ -822,12 +914,15 @@ function createWasmPreview(bytes: Uint8Array): HTMLElement {
   appendMeta(summary, "Exports", parsed.exports.length);
   preview.append(summary);
 
-  preview.append(createWasmSectionTable(parsed.sections));
+  const sectionTable = createWasmSectionTable(parsed.sections);
+  preview.append(sectionTable);
   if (parsed.imports.length > 0) {
-    preview.append(createWasmList("导入", parsed.imports.map((item) => `${item.module}.${item.name} · ${item.kind}`)));
+    const imports = createWasmList("导入", parsed.imports.map((item) => `${item.module}.${item.name} · ${item.kind}`));
+    preview.append(imports);
   }
   if (parsed.exports.length > 0) {
-    preview.append(createWasmList("导出", parsed.exports.map((item) => `${item.name} · ${item.kind} #${item.index}`)));
+    const exports = createWasmList("导出", parsed.exports.map((item) => `${item.name} · ${item.kind} #${item.index}`));
+    preview.append(exports);
   }
 
   return preview;
@@ -1061,7 +1156,10 @@ type PhotoshopHeader = {
   colorMode?: number;
 };
 
-async function createPhotoshopPreview(bytes: Uint8Array): Promise<HTMLElement> {
+async function createPhotoshopPreview(
+  bytes: Uint8Array,
+  toolbar?: { setZoom(value: number | undefined): void }
+): Promise<{ element: HTMLElement; instance?: PreviewInstance }> {
   const preview = document.createElement("div");
   preview.className = "ofv-psd-preview";
 
@@ -1071,15 +1169,20 @@ async function createPhotoshopPreview(bytes: Uint8Array): Promise<HTMLElement> {
     error.className = "ofv-psd-error";
     error.textContent = header.error || "不是有效的 Photoshop 文档头。";
     preview.append(error);
-    return preview;
+    return { element: preview };
   }
 
-  preview.append(await createPhotoshopCompositePreview(bytes, header));
+  const composite = await createPhotoshopCompositePreview(bytes, header, toolbar);
+  preview.append(composite.element);
 
-  return preview;
+  return { element: preview, instance: composite.instance };
 }
 
-async function createPhotoshopCompositePreview(bytes: Uint8Array, header: PhotoshopHeader): Promise<HTMLElement> {
+async function createPhotoshopCompositePreview(
+  bytes: Uint8Array,
+  header: PhotoshopHeader,
+  toolbar?: { setZoom(value: number | undefined): void }
+): Promise<{ element: HTMLElement; instance?: PreviewInstance }> {
   const wrapper = document.createElement("div");
   wrapper.className = "ofv-psd-composite";
 
@@ -1088,7 +1191,7 @@ async function createPhotoshopCompositePreview(bytes: Uint8Array, header: Photos
     status.className = "ofv-psd-error";
     status.textContent = "当前环境不支持 Canvas，无法生成 PSD 合成图预览。";
     wrapper.append(status);
-    return wrapper;
+    return { element: wrapper };
   }
 
   try {
@@ -1110,6 +1213,7 @@ async function createPhotoshopCompositePreview(bytes: Uint8Array, header: Photos
     canvas.setAttribute("role", "img");
     canvas.setAttribute("aria-label", `Photoshop composite ${header.width} x ${header.height}`);
     wrapper.append(canvas);
+    return { element: wrapper, instance: createAssetVisualController(canvas, toolbar) };
   } catch (error) {
     const status = document.createElement("p");
     status.className = "ofv-psd-error";
@@ -1117,7 +1221,61 @@ async function createPhotoshopCompositePreview(bytes: Uint8Array, header: Photos
     wrapper.append(status);
   }
 
-  return wrapper;
+  return { element: wrapper };
+}
+
+function createAssetVisualController(
+  element: HTMLElement,
+  toolbar?: { setZoom(value: number | undefined): void }
+): PreviewInstance {
+  let scale = 1;
+  let rotation = 0;
+  const apply = () => {
+    element.style.transform = `scale(${scale}) rotate(${rotation}deg)`;
+    element.style.transformOrigin = "center";
+    toolbar?.setZoom(scale);
+  };
+  apply();
+
+  return {
+    canCommand(command) {
+      return command === "zoom-in" || command === "zoom-out" || command === "zoom-reset" || command === "rotate-right" || command === "rotate-left";
+    },
+    command(command: PreviewCommand) {
+      if (command === "zoom-in") {
+        scale = Math.min(8, Number((scale + 0.25).toFixed(2)));
+        apply();
+        return true;
+      }
+      if (command === "zoom-out") {
+        scale = Math.max(0.1, Number((scale - 0.25).toFixed(2)));
+        apply();
+        return true;
+      }
+      if (command === "zoom-reset") {
+        scale = 1;
+        rotation = 0;
+        apply();
+        return true;
+      }
+      if (command === "rotate-right") {
+        rotation += 90;
+        apply();
+        return true;
+      }
+      if (command === "rotate-left") {
+        rotation -= 90;
+        apply();
+        return true;
+      }
+      return false;
+    },
+    destroy() {
+      element.style.removeProperty("transform");
+      element.style.removeProperty("transform-origin");
+      toolbar?.setZoom(undefined);
+    }
+  };
 }
 
 function canUseBrowserCanvas(): boolean {
@@ -1196,6 +1354,20 @@ type SqliteSchemaEntry = {
   sql: string;
 };
 
+type SqliteColumn = {
+  name: string;
+  type: string;
+  primaryKey: boolean;
+};
+
+type SqliteTableSample = {
+  tableName: string;
+  rootPage: number;
+  columns: SqliteColumn[];
+  rows: Array<Array<string | number | null>>;
+  note?: string;
+};
+
 function createSqlitePreview(bytes: Uint8Array): HTMLElement {
   const preview = document.createElement("div");
   preview.className = "ofv-sqlite-preview";
@@ -1211,6 +1383,7 @@ function createSqlitePreview(bytes: Uint8Array): HTMLElement {
     preview.append(error);
     return preview;
   }
+  hideSupplementalInfo(heading);
 
   const summary = document.createElement("div");
   summary.className = "ofv-sqlite-summary";
@@ -1220,11 +1393,16 @@ function createSqlitePreview(bytes: Uint8Array): HTMLElement {
   appendMeta(summary, "Schema", header.schemaVersion ?? "未知");
   appendMeta(summary, "编码", sqliteEncoding(header.textEncoding));
   appendMeta(summary, "User version", header.userVersion ?? 0);
+  hideSupplementalInfo(summary);
   preview.append(summary);
 
   const schema = parseSqliteSchema(bytes, header);
   if (schema.length > 0) {
     preview.append(createSqliteSchemaTable(schema));
+    const samples = createSqliteTableSamples(bytes, header, schema);
+    if (samples.length > 0) {
+      preview.append(createSqliteDataPreview(samples));
+    }
   } else {
     const empty = document.createElement("p");
     empty.className = "ofv-sqlite-empty";
@@ -1233,6 +1411,171 @@ function createSqlitePreview(bytes: Uint8Array): HTMLElement {
   }
 
   return preview;
+}
+
+function createSqliteTableSamples(bytes: Uint8Array, header: SqliteHeader, schema: SqliteSchemaEntry[]): SqliteTableSample[] {
+  return schema
+    .filter((entry) => entry.type === "table" && entry.rootPage > 0 && !entry.name.startsWith("sqlite_"))
+    .slice(0, 6)
+    .map((entry) => parseSqliteTableSample(bytes, header, entry))
+    .filter((sample): sample is SqliteTableSample => Boolean(sample && (sample.rows.length > 0 || sample.note)));
+}
+
+function parseSqliteTableSample(bytes: Uint8Array, header: SqliteHeader, entry: SqliteSchemaEntry): SqliteTableSample | null {
+  const pageSize = header.pageSize || 0;
+  const pageIndex = entry.rootPage - 1;
+  const pageStart = pageIndex * pageSize;
+  if (pageSize <= 0 || pageStart < 0 || pageStart >= bytes.length) {
+    return null;
+  }
+  const pageHeader = pageStart + (entry.rootPage === 1 ? 100 : 0);
+  if (pageHeader + 8 > bytes.length) {
+    return null;
+  }
+  const columns = parseSqliteCreateTableColumns(entry.sql);
+  if (columns.length === 0) {
+    return null;
+  }
+  if (bytes[pageHeader] !== 0x0d) {
+    return {
+      tableName: entry.name,
+      rootPage: entry.rootPage,
+      columns,
+      rows: [],
+      note: "当前只内置解析 SQLite table leaf page；索引页、溢出页或复杂 b-tree 可接入 sqlite-wasm 增强。"
+    };
+  }
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const cellCount = view.getUint16(pageHeader + 3, false);
+  const rows: Array<Array<string | number | null>> = [];
+  const pageEnd = Math.min(bytes.length, pageStart + pageSize);
+  for (let index = 0; index < Math.min(cellCount, 80); index++) {
+    const pointerOffset = pageHeader + 8 + index * 2;
+    if (pointerOffset + 2 > pageEnd) {
+      break;
+    }
+    const cellOffset = pageStart + view.getUint16(pointerOffset, false);
+    const row = parseSqliteTableCell(bytes, cellOffset, pageEnd, columns);
+    if (row) {
+      rows.push(row);
+    }
+  }
+  return {
+    tableName: entry.name,
+    rootPage: entry.rootPage,
+    columns,
+    rows,
+    note: rows.length === 0 ? "未从该表 root page 抽样到行数据。" : undefined
+  };
+}
+
+function parseSqliteTableCell(
+  bytes: Uint8Array,
+  offset: number,
+  pageEnd: number,
+  columns: SqliteColumn[]
+): Array<string | number | null> | null {
+  try {
+    let cursor = offset;
+    const payloadLength = readSqliteVarint(bytes, cursor);
+    cursor = payloadLength.offset;
+    const rowId = readSqliteVarint(bytes, cursor);
+    cursor = rowId.offset;
+    const payloadEnd = Math.min(pageEnd, cursor + Number(payloadLength.value));
+    if (payloadEnd > bytes.length) {
+      return null;
+    }
+    const record = parseSqliteRecord(bytes, cursor, payloadEnd);
+    return columns.map((column, index) => {
+      const value = record[index] ?? null;
+      return value === null && column.primaryKey && /int/i.test(column.type) ? Number(rowId.value) : value;
+    });
+  } catch {
+    return null;
+  }
+}
+
+function parseSqliteCreateTableColumns(sql: string): SqliteColumn[] {
+  const start = sql.indexOf("(");
+  const end = sql.lastIndexOf(")");
+  if (start < 0 || end <= start) {
+    return [];
+  }
+  return splitSqliteColumnDefinitions(sql.slice(start + 1, end))
+    .map(parseSqliteColumnDefinition)
+    .filter((column): column is SqliteColumn => Boolean(column));
+}
+
+function splitSqliteColumnDefinitions(value: string): string[] {
+  const result: string[] = [];
+  let current = "";
+  let depth = 0;
+  let quote = "";
+  for (let index = 0; index < value.length; index++) {
+    const char = value[index];
+    if (quote) {
+      current += char;
+      if (char === quote && value[index + 1] === quote) {
+        current += value[++index];
+      } else if (char === quote) {
+        quote = "";
+      }
+      continue;
+    }
+    if (char === "'" || char === "\"" || char === "`") {
+      quote = char;
+      current += char;
+      continue;
+    }
+    if (char === "[") {
+      quote = "]";
+      current += char;
+      continue;
+    }
+    if (char === "(") {
+      depth++;
+    } else if (char === ")") {
+      depth = Math.max(0, depth - 1);
+    }
+    if (char === "," && depth === 0) {
+      result.push(current.trim());
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+  if (current.trim()) {
+    result.push(current.trim());
+  }
+  return result;
+}
+
+function parseSqliteColumnDefinition(definition: string): SqliteColumn | null {
+  if (/^(?:constraint|primary|foreign|unique|check|key)\b/i.test(definition)) {
+    return null;
+  }
+  const match = definition.match(/^("[^"]+"|'[^']+'|`[^`]+`|\[[^\]]+\]|\S+)(?:\s+(.+))?$/);
+  if (!match) {
+    return null;
+  }
+  const name = unquoteSqliteIdentifier(match[1]);
+  const rest = match[2] || "";
+  const typeMatch = rest.match(/^([a-z0-9_]+(?:\s+[a-z0-9_]+)?)/i);
+  return {
+    name,
+    type: typeMatch?.[1]?.toUpperCase() || "ANY",
+    primaryKey: /\bprimary\s+key\b/i.test(rest)
+  };
+}
+
+function unquoteSqliteIdentifier(value: string): string {
+  if ((value.startsWith("\"") && value.endsWith("\"")) || (value.startsWith("'") && value.endsWith("'")) || (value.startsWith("`") && value.endsWith("`"))) {
+    return value.slice(1, -1).replaceAll(value[0] + value[0], value[0]);
+  }
+  if (value.startsWith("[") && value.endsWith("]")) {
+    return value.slice(1, -1);
+  }
+  return value;
 }
 
 function parseSqliteHeader(bytes: Uint8Array): SqliteHeader {
@@ -1441,6 +1784,63 @@ function createSqliteSchemaTable(entries: SqliteSchemaEntry[]): HTMLElement {
   return wrapper;
 }
 
+function createSqliteDataPreview(samples: SqliteTableSample[]): HTMLElement {
+  const wrapper = document.createElement("div");
+  wrapper.className = "ofv-sqlite-data";
+  const title = document.createElement("strong");
+  title.textContent = "表数据抽样";
+  wrapper.append(title);
+
+  for (const sample of samples) {
+    const details = document.createElement("details");
+    details.className = "ofv-sqlite-table-sample";
+    details.open = true;
+    const summary = document.createElement("summary");
+    summary.textContent = `${sample.tableName} · root ${sample.rootPage} · ${sample.rows.length} 行`;
+    details.append(summary);
+
+    if (sample.note) {
+      const note = document.createElement("p");
+      note.className = "ofv-sqlite-empty";
+      note.textContent = sample.note;
+      details.append(note);
+    }
+
+    if (sample.rows.length > 0) {
+      const scroller = document.createElement("div");
+      scroller.className = "ofv-sqlite-data-table";
+      const table = document.createElement("table");
+      const thead = document.createElement("thead");
+      const headRow = document.createElement("tr");
+      for (const column of sample.columns) {
+        const th = document.createElement("th");
+        th.textContent = column.name;
+        if (column.type) {
+          th.title = column.primaryKey ? `${column.type} PRIMARY KEY` : column.type;
+        }
+        headRow.append(th);
+      }
+      thead.append(headRow);
+      const tbody = document.createElement("tbody");
+      for (const row of sample.rows) {
+        const tr = document.createElement("tr");
+        for (const value of row) {
+          const td = document.createElement("td");
+          td.textContent = value === null ? "NULL" : String(value);
+          tr.append(td);
+        }
+        tbody.append(tr);
+      }
+      table.append(thead, tbody);
+      scroller.append(table);
+      details.append(scroller);
+    }
+    wrapper.append(details);
+  }
+
+  return wrapper;
+}
+
 function sqliteJournalMode(value?: number): string {
   if (value === 1) {
     return "rollback";
@@ -1491,13 +1891,183 @@ function createParquetPreview(bytes: Uint8Array): HTMLElement {
   appendMeta(summary, "Footer", `${parsed.footerLength} B`);
   appendMeta(summary, "Footer offset", `0x${(parsed.footerOffset || 0).toString(16).toUpperCase()}`);
   appendMeta(summary, "数据区", formatBytes(parsed.dataBytes || 0));
+  hideSupplementalInfo(summary);
   preview.append(summary);
 
   const note = document.createElement("p");
   note.className = "ofv-data-note";
-  note.textContent = "Parquet footer 使用 Thrift 编码；当前先展示容器边界，schema/row group 可后续接入 Arrow/Parquet 解码器。";
+  note.textContent = "Parquet footer 使用 Thrift 编码；正在尝试在浏览器端解析 schema、row group 和前几行数据。";
+  hideSupplementalInfo(note);
   preview.append(note);
+  void appendParquetDecodedPreview(preview, bytes, note, heading);
   return preview;
+}
+
+async function appendParquetDecodedPreview(
+  preview: HTMLElement,
+  bytes: Uint8Array,
+  note: HTMLElement,
+  heading: HTMLElement
+): Promise<void> {
+  try {
+    const { parquetMetadataAsync, parquetReadObjects, parquetSchema } = await import("hyparquet");
+    const file = arrayBufferLike(bytes);
+    const metadata = await parquetMetadataAsync(file, { initialFetchSize: Math.min(bytes.byteLength, 512 * 1024) });
+    const schema = parquetSchema(metadata);
+    const fields = flattenParquetSchema(schema);
+    const rows = await parquetReadObjects({
+      file,
+      metadata,
+      rowFormat: "object",
+      rowStart: 0,
+      rowEnd: Math.min(20, Number(metadata.num_rows || 0n))
+    });
+
+    note.textContent = `已使用 hyparquet 在前端解析 schema、${metadata.row_groups.length} 个 row group 和 ${rows.length} 行抽样数据。`;
+    if (rows.length > 0) {
+      hideSupplementalInfo(heading);
+      const schemaTable = createParquetSchemaTable(fields, metadata);
+      hideSupplementalInfo(schemaTable);
+      preview.append(schemaTable);
+      preview.append(createObjectRowsTable("记录抽样", rows));
+    } else {
+      preview.append(createParquetSchemaTable(fields, metadata));
+    }
+  } catch (error) {
+    note.textContent = `已展示 Parquet 容器边界；schema/记录解析失败：${error instanceof Error ? error.message : "当前编码或压缩方式暂不支持。"}`;
+  }
+}
+
+function arrayBufferLike(bytes: Uint8Array): { byteLength: number; slice(start: number, end?: number): ArrayBuffer } {
+  return {
+    byteLength: bytes.byteLength,
+    slice(start: number, end?: number) {
+      return bytes.buffer.slice(bytes.byteOffset + start, bytes.byteOffset + (end ?? bytes.byteLength)) as ArrayBuffer;
+    }
+  };
+}
+
+type ParquetSchemaNode = {
+  element?: { name?: string; type?: string; repetition_type?: string; converted_type?: string; logical_type?: { type?: string } };
+  path?: string[];
+  children?: ParquetSchemaNode[];
+};
+
+function flattenParquetSchema(schema: ParquetSchemaNode): Array<{ name: string; type: string; repetition: string; logical: string }> {
+  const fields: Array<{ name: string; type: string; repetition: string; logical: string }> = [];
+  const visit = (node: ParquetSchemaNode) => {
+    const path = Array.isArray(node.path) && node.path.length > 0 ? node.path.join(".") : node.element?.name || "";
+    if (node.element && path) {
+      fields.push({
+        name: path,
+        type: node.element.type || (node.children?.length ? "group" : "-"),
+        repetition: node.element.repetition_type || "-",
+        logical: node.element.logical_type?.type || node.element.converted_type || "-"
+      });
+    }
+    for (const child of node.children || []) {
+      visit(child);
+    }
+  };
+  for (const child of schema.children || []) {
+    visit(child);
+  }
+  return fields;
+}
+
+function createParquetSchemaTable(
+  fields: Array<{ name: string; type: string; repetition: string; logical: string }>,
+  metadata: { num_rows: bigint; row_groups: unknown[]; created_by?: string }
+): HTMLElement {
+  const wrapper = document.createElement("div");
+  wrapper.className = "ofv-parquet-schema";
+  const title = document.createElement("strong");
+  title.textContent = "Schema";
+  const summary = document.createElement("div");
+  summary.className = "ofv-data-summary";
+  appendMeta(summary, "Rows", String(metadata.num_rows));
+  appendMeta(summary, "Row groups", metadata.row_groups.length);
+  appendMeta(summary, "Columns", fields.filter((field) => field.type !== "group").length);
+  if (metadata.created_by) {
+    appendMeta(summary, "Created by", metadata.created_by);
+  }
+  hideSupplementalInfo(summary);
+
+  const table = document.createElement("table");
+  const head = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  for (const label of ["Name", "Type", "Repetition", "Logical"]) {
+    const th = document.createElement("th");
+    th.textContent = label;
+    headRow.append(th);
+  }
+  head.append(headRow);
+  const body = document.createElement("tbody");
+  for (const field of fields.slice(0, 120)) {
+    const row = document.createElement("tr");
+    for (const value of [field.name, field.type, field.repetition, field.logical]) {
+      const cell = document.createElement("td");
+      cell.textContent = value;
+      row.append(cell);
+    }
+    body.append(row);
+  }
+  table.append(head, body);
+  wrapper.append(title, summary, table);
+  return wrapper;
+}
+
+function createObjectRowsTable(titleText: string, rows: Record<string, unknown>[]): HTMLElement {
+  const wrapper = document.createElement("div");
+  wrapper.className = "ofv-parquet-records";
+  const title = document.createElement("strong");
+  title.textContent = `${titleText} ${rows.length}`;
+  const columns = [...new Set(rows.flatMap((row) => Object.keys(row)))].slice(0, 40);
+  const table = document.createElement("table");
+  const head = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  for (const column of columns) {
+    const th = document.createElement("th");
+    th.textContent = column;
+    headRow.append(th);
+  }
+  head.append(headRow);
+  const body = document.createElement("tbody");
+  for (const item of rows) {
+    const row = document.createElement("tr");
+    for (const column of columns) {
+      const cell = document.createElement("td");
+      cell.textContent = formatPreviewValue(item[column]);
+      row.append(cell);
+    }
+    body.append(row);
+  }
+  table.append(head, body);
+  wrapper.append(title, table);
+  return wrapper;
+}
+
+function formatPreviewValue(value: unknown): string {
+  if (value === null || value === undefined) {
+    return "";
+  }
+  if (typeof value === "bigint") {
+    return value.toString();
+  }
+  if (value instanceof Uint8Array) {
+    return `Uint8Array(${value.byteLength})`;
+  }
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+  if (typeof value === "object") {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return Object.prototype.toString.call(value);
+    }
+  }
+  return String(value);
 }
 
 function parseParquet(bytes: Uint8Array): ParquetPreview {
@@ -1526,6 +2096,14 @@ type AvroMetadata = {
   value: string;
 };
 
+type AvroValue = string | number | boolean | null;
+
+type AvroFieldSchema = {
+  name: string;
+  type: unknown;
+  label: string;
+};
+
 type AvroPreview = {
   valid: boolean;
   error?: string;
@@ -1535,9 +2113,15 @@ type AvroPreview = {
     name?: string;
     namespace?: string;
     fields: string[];
+    fieldSchemas: AvroFieldSchema[];
   };
   codec?: string;
   syncMarker?: string;
+  records?: {
+    fields: string[];
+    rows: AvroValue[][];
+    note?: string;
+  };
 };
 
 function createAvroPreview(bytes: Uint8Array): HTMLElement {
@@ -1562,7 +2146,13 @@ function createAvroPreview(bytes: Uint8Array): HTMLElement {
   appendMeta(summary, "Codec", parsed.codec || "null");
   appendMeta(summary, "Metadata", parsed.metadata.length);
   appendMeta(summary, "Sync marker", parsed.syncMarker || "未知");
-  preview.append(summary);
+  hideSupplementalInfo(summary);
+    preview.append(summary);
+
+  const hasRecordRows = Boolean(parsed.records && parsed.records.rows.length > 0);
+  if (hasRecordRows) {
+    hideSupplementalInfo(heading);
+  }
 
   if (parsed.schema) {
     const schema = document.createElement("div");
@@ -1574,6 +2164,7 @@ function createAvroPreview(bytes: Uint8Array): HTMLElement {
     appendMeta(meta, "类型", parsed.schema.type || "未知");
     appendMeta(meta, "名称", [parsed.schema.namespace, parsed.schema.name].filter(Boolean).join(".") || "未知");
     appendMeta(meta, "字段", parsed.schema.fields.length);
+    hideSupplementalInfo(meta);
     schema.append(title, meta);
     if (parsed.schema.fields.length > 0) {
       const list = document.createElement("ul");
@@ -1584,11 +2175,22 @@ function createAvroPreview(bytes: Uint8Array): HTMLElement {
       }
       schema.append(list);
     }
+    if (hasRecordRows) {
+      hideSupplementalInfo(schema);
+    }
     preview.append(schema);
   }
 
+  if (parsed.records && (parsed.records.rows.length > 0 || parsed.records.note)) {
+    preview.append(createAvroRecordPreview(parsed.records));
+  }
+
   if (parsed.metadata.length > 0) {
-    preview.append(createKeyValueTable("Metadata", parsed.metadata));
+    const metadata = createKeyValueTable("Metadata", parsed.metadata);
+    if (parsed.schema || hasRecordRows) {
+      hideSupplementalInfo(metadata);
+    }
+    preview.append(metadata);
   }
 
   return preview;
@@ -1627,16 +2229,20 @@ function parseAvro(bytes: Uint8Array): AvroPreview {
     if (offset + 16 > bytes.length) {
       throw new Error("Avro sync marker 缺失。");
     }
-    const syncMarker = Array.from(bytes.slice(offset, offset + 16))
+    const syncMarkerBytes = bytes.slice(offset, offset + 16);
+    const syncMarker = Array.from(syncMarkerBytes)
       .map((byte) => byte.toString(16).padStart(2, "0"))
       .join("");
     const schemaText = metadata.find((item) => item.key === "avro.schema")?.value;
+    const codec = metadata.find((item) => item.key === "avro.codec")?.value;
+    const schema = schemaText ? summarizeAvroSchema(schemaText) : undefined;
     return {
       valid: true,
       metadata,
-      codec: metadata.find((item) => item.key === "avro.codec")?.value,
+      codec,
       syncMarker,
-      schema: schemaText ? summarizeAvroSchema(schemaText) : undefined
+      schema,
+      records: schemaText ? parseAvroRecordSamples(bytes, offset + 16, syncMarkerBytes, schemaText, codec) : undefined
     };
   } catch (error) {
     return {
@@ -1695,17 +2301,197 @@ function summarizeAvroSchema(schemaText: string): AvroPreview["schema"] {
       namespace?: string;
       fields?: Array<{ name?: string; type?: unknown }>;
     };
+    const fieldSchemas = Array.isArray(schema.fields)
+      ? schema.fields
+          .filter((field) => typeof field.name === "string")
+          .map((field) => ({
+            name: field.name as string,
+            type: field.type,
+            label: `${field.name}: ${formatAvroType(field.type)}`
+          }))
+      : [];
     return {
       type: typeof schema.type === "string" ? schema.type : undefined,
       name: typeof schema.name === "string" ? schema.name : undefined,
       namespace: typeof schema.namespace === "string" ? schema.namespace : undefined,
-      fields: Array.isArray(schema.fields)
-        ? schema.fields.map((field) => `${field.name || "field"}: ${formatAvroType(field.type)}`)
-        : []
+      fields: fieldSchemas.map((field) => field.label),
+      fieldSchemas
     };
   } catch {
-    return { fields: [] };
+    return { fields: [], fieldSchemas: [] };
   }
+}
+
+function parseAvroRecordSamples(
+  bytes: Uint8Array,
+  offset: number,
+  syncMarker: Uint8Array,
+  schemaText: string,
+  codec?: string
+): AvroPreview["records"] | undefined {
+  if (codec && codec !== "null") {
+    return { fields: [], rows: [], note: `当前内置抽样只支持 null codec；该文件使用 ${codec} 压缩。` };
+  }
+  const schema = summarizeAvroSchema(schemaText);
+  const fields = schema?.fieldSchemas || [];
+  if (!schema || schema.type !== "record" || fields.length === 0) {
+    return undefined;
+  }
+  const rows: AvroValue[][] = [];
+  try {
+    while (offset < bytes.length && rows.length < 80) {
+      const countInfo = readAvroLong(bytes, offset);
+      offset = countInfo.offset;
+      if (countInfo.value === 0n) {
+        break;
+      }
+      const blockSizeInfo = readAvroLong(bytes, offset);
+      offset = blockSizeInfo.offset;
+      const count = Number(countInfo.value < 0n ? -countInfo.value : countInfo.value);
+      const blockSize = Number(blockSizeInfo.value);
+      const blockEnd = offset + blockSize;
+      if (!Number.isFinite(count) || !Number.isFinite(blockSize) || blockSize < 0 || blockEnd > bytes.length) {
+        throw new Error("Avro data block 超出文件边界。");
+      }
+      for (let index = 0; index < count && offset < blockEnd && rows.length < 80; index++) {
+        const decoded = readAvroRecord(bytes, offset, blockEnd, fields);
+        offset = decoded.offset;
+        rows.push(decoded.row);
+      }
+      offset = blockEnd;
+      if (offset + syncMarker.length <= bytes.length && matchesBytes(bytes, offset, syncMarker)) {
+        offset += syncMarker.length;
+      }
+    }
+  } catch (error) {
+    return {
+      fields: fields.map((field) => field.name),
+      rows,
+      note: rows.length > 0
+        ? `已抽样部分记录，后续数据解析失败：${error instanceof Error ? error.message : "未知错误"}`
+        : `记录抽样失败：${error instanceof Error ? error.message : "当前 schema 暂不支持"}`
+    };
+  }
+  return rows.length > 0 ? { fields: fields.map((field) => field.name), rows } : undefined;
+}
+
+function readAvroRecord(
+  bytes: Uint8Array,
+  offset: number,
+  end: number,
+  fields: AvroFieldSchema[]
+): { row: AvroValue[]; offset: number } {
+  const row: AvroValue[] = [];
+  for (const field of fields) {
+    const value = readAvroDatum(bytes, offset, end, field.type);
+    row.push(value.value);
+    offset = value.offset;
+  }
+  return { row, offset };
+}
+
+function readAvroDatum(bytes: Uint8Array, offset: number, end: number, type: unknown): { value: AvroValue; offset: number } {
+  if (Array.isArray(type)) {
+    const branch = readAvroLong(bytes, offset);
+    const branchIndex = Number(branch.value);
+    const branchType = type[branchIndex];
+    if (branchIndex < 0 || branchIndex >= type.length) {
+      throw new Error("Avro union 分支索引无效。");
+    }
+    return readAvroDatum(bytes, branch.offset, end, branchType);
+  }
+  if (type && typeof type === "object") {
+    const typed = type as { type?: unknown };
+    return readAvroDatum(bytes, offset, end, typed.type);
+  }
+  if (type === "null") {
+    return { value: null, offset };
+  }
+  if (type === "boolean") {
+    if (offset >= end) {
+      throw new Error("Avro boolean 数据不完整。");
+    }
+    return { value: bytes[offset] !== 0, offset: offset + 1 };
+  }
+  if (type === "int" || type === "long") {
+    const value = readAvroLong(bytes, offset);
+    return { value: Number(value.value), offset: value.offset };
+  }
+  if (type === "float") {
+    if (offset + 4 > end) {
+      throw new Error("Avro float 数据不完整。");
+    }
+    return { value: new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getFloat32(offset, true), offset: offset + 4 };
+  }
+  if (type === "double") {
+    if (offset + 8 > end) {
+      throw new Error("Avro double 数据不完整。");
+    }
+    return { value: new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getFloat64(offset, true), offset: offset + 8 };
+  }
+  if (type === "string") {
+    const value = readAvroBytes(bytes, offset);
+    if (value.offset > end) {
+      throw new Error("Avro string 超出 block 边界。");
+    }
+    return { value: new TextDecoder().decode(value.value), offset: value.offset };
+  }
+  if (type === "bytes") {
+    const value = readAvroBytes(bytes, offset);
+    if (value.offset > end) {
+      throw new Error("Avro bytes 超出 block 边界。");
+    }
+    return { value: `<bytes ${value.value.length} B>`, offset: value.offset };
+  }
+  throw new Error(`暂不支持 Avro 字段类型 ${formatAvroType(type)}。`);
+}
+
+function matchesBytes(bytes: Uint8Array, offset: number, expected: Uint8Array): boolean {
+  for (let index = 0; index < expected.length; index++) {
+    if (bytes[offset + index] !== expected[index]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function createAvroRecordPreview(records: NonNullable<AvroPreview["records"]>): HTMLElement {
+  const wrapper = document.createElement("div");
+  wrapper.className = "ofv-avro-records";
+  const title = document.createElement("strong");
+  title.textContent = `记录抽样 ${records.rows.length}`;
+  wrapper.append(title);
+  if (records.note) {
+    const note = document.createElement("p");
+    note.className = "ofv-data-note";
+    note.textContent = records.note;
+    wrapper.append(note);
+  }
+  if (records.rows.length === 0) {
+    return wrapper;
+  }
+  const table = document.createElement("table");
+  const thead = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  for (const field of records.fields) {
+    const th = document.createElement("th");
+    th.textContent = field;
+    headRow.append(th);
+  }
+  thead.append(headRow);
+  const tbody = document.createElement("tbody");
+  for (const row of records.rows) {
+    const tr = document.createElement("tr");
+    for (const value of row) {
+      const td = document.createElement("td");
+      td.textContent = value === null ? "NULL" : String(value);
+      tr.append(td);
+    }
+    tbody.append(tr);
+  }
+  table.append(thead, tbody);
+  wrapper.append(table);
+  return wrapper;
 }
 
 function formatAvroType(type: unknown): string {
@@ -1799,16 +2585,21 @@ function createWebArchivePreview(bytes: Uint8Array): HTMLElement {
   appendMeta(summary, "主资源大小", parsed.mainBytes !== undefined ? formatBytes(parsed.mainBytes) : "未知");
   appendMeta(summary, "子资源", String(parsed.subresources ?? 0));
   appendMeta(summary, "子归档", String(parsed.subframeArchives ?? 0));
+  hideSupplementalInfo(summary);
   preview.append(summary);
 
   if (parsed.binary) {
     const note = document.createElement("p");
     note.className = "ofv-data-note";
-    note.textContent = "已识别 binary plist WebArchive；浏览器端需要 binary plist 解码器后才能展开主资源。";
+    note.textContent = parsed.snippet
+      ? "已在浏览器端解析 binary plist WebArchive，并展开主资源摘要。"
+      : "已识别 binary plist WebArchive；当前文件未提取到可展示的主资源片段。";
+    hideSupplementalInfo(note);
     preview.append(note);
   }
 
   if (parsed.snippet) {
+    hideSupplementalInfo(heading);
     const snippet = document.createElement("pre");
     snippet.className = "ofv-text-block ofv-webarchive-snippet";
     snippet.textContent = parsed.snippet;
@@ -1819,7 +2610,7 @@ function createWebArchivePreview(bytes: Uint8Array): HTMLElement {
 
 function parseWebArchive(bytes: Uint8Array): WebArchivePreview {
   if (bytes.length >= 8 && asciiAt(bytes, 0, 8) === "bplist00") {
-    return { valid: true, binary: true };
+    return parseBinaryWebArchive(bytes);
   }
 
   const text = new TextDecoder("utf-8", { fatal: false }).decode(bytes.slice(0, Math.min(bytes.length, 1024 * 1024)));
@@ -1843,9 +2634,24 @@ function parseWebArchive(bytes: Uint8Array): WebArchivePreview {
   if (!isPlistDict(plist)) {
     return { valid: false, error: "XML plist 根节点不是 dict。" };
   }
+  return webArchivePreviewFromPlist(plist);
+}
+
+function parseBinaryWebArchive(bytes: Uint8Array): WebArchivePreview {
+  const plist = parseBinaryPlist(bytes);
+  if (!plist.valid) {
+    return { valid: true, binary: true, error: plist.error };
+  }
+  if (!isPlistDict(plist.value)) {
+    return { valid: true, binary: true, error: "Binary plist 根节点不是 dict。" };
+  }
+  return webArchivePreviewFromPlist(plist.value, true);
+}
+
+function webArchivePreviewFromPlist(plist: { [key: string]: PlistValue }, binary = false): WebArchivePreview {
   const mainResource = plist.WebMainResource;
   if (!isPlistDict(mainResource)) {
-    return { valid: false, error: "WebArchive 缺少 WebMainResource dict。" };
+    return { valid: false, binary, error: "WebArchive 缺少 WebMainResource dict。" };
   }
 
   const resourceData = mainResource.WebResourceData;
@@ -1853,6 +2659,7 @@ function parseWebArchive(bytes: Uint8Array): WebArchivePreview {
   const mainBytes = resourceData instanceof Uint8Array ? resourceData.length : undefined;
   return {
     valid: true,
+    binary,
     url: plistString(mainResource.WebResourceURL),
     mimeType,
     encoding: plistString(mainResource.WebResourceTextEncodingName),
@@ -1899,6 +2706,167 @@ function parsePlistElement(element: Element): PlistValue {
   }
 }
 
+type BinaryPlistResult = {
+  valid: boolean;
+  value?: PlistValue;
+  error?: string;
+};
+
+function parseBinaryPlist(bytes: Uint8Array): BinaryPlistResult {
+  try {
+    if (bytes.length < 40 || asciiAt(bytes, 0, 8) !== "bplist00") {
+      return { valid: false, error: "缺少 bplist00 文件头。" };
+    }
+    const trailer = bytes.length - 32;
+    const offsetIntSize = bytes[trailer + 6];
+    const objectRefSize = bytes[trailer + 7];
+    const objectCount = readBinaryPlistInt(bytes, trailer + 8, 8);
+    const topObject = readBinaryPlistInt(bytes, trailer + 16, 8);
+    const offsetTableOffset = readBinaryPlistInt(bytes, trailer + 24, 8);
+    if (
+      offsetIntSize <= 0 ||
+      objectRefSize <= 0 ||
+      objectCount <= 0 ||
+      topObject < 0 ||
+      topObject >= objectCount ||
+      offsetTableOffset + objectCount * offsetIntSize > trailer
+    ) {
+      return { valid: false, error: "Binary plist trailer 或 offset table 异常。" };
+    }
+    const offsets: number[] = [];
+    for (let index = 0; index < objectCount; index++) {
+      offsets.push(readBinaryPlistInt(bytes, offsetTableOffset + index * offsetIntSize, offsetIntSize));
+    }
+    const seen = new Set<number>();
+    return { valid: true, value: readBinaryPlistObject(bytes, offsets, topObject, objectRefSize, seen) };
+  } catch (error) {
+    return { valid: false, error: error instanceof Error ? error.message : "Binary plist 解析失败。" };
+  }
+}
+
+function readBinaryPlistObject(
+  bytes: Uint8Array,
+  offsets: number[],
+  index: number,
+  objectRefSize: number,
+  seen: Set<number>
+): PlistValue {
+  const offset = offsets[index];
+  if (offset === undefined || offset < 0 || offset >= bytes.length) {
+    throw new Error(`Binary plist object #${index} 偏移异常。`);
+  }
+  if (seen.has(index)) {
+    throw new Error(`Binary plist object #${index} 存在循环引用。`);
+  }
+  seen.add(index);
+
+  const marker = bytes[offset];
+  const type = marker >> 4;
+  const info = marker & 0x0f;
+  const payloadOffset = offset + 1;
+
+  if (type === 0x0) {
+    seen.delete(index);
+    if (info === 0x8) return false;
+    if (info === 0x9) return true;
+    return null;
+  }
+  if (type === 0x1) {
+    const value = readBinaryPlistInt(bytes, payloadOffset, 1 << info);
+    seen.delete(index);
+    return value;
+  }
+  if (type === 0x4) {
+    const lengthInfo = readBinaryPlistLength(bytes, offset, info);
+    const length = lengthInfo.length;
+    const start = lengthInfo.offset;
+    seen.delete(index);
+    return bytes.slice(start, start + length);
+  }
+  if (type === 0x5 || type === 0x6) {
+    const lengthInfo = readBinaryPlistLength(bytes, offset, info);
+    const width = type === 0x6 ? 2 : 1;
+    const data = bytes.slice(lengthInfo.offset, lengthInfo.offset + lengthInfo.length * width);
+    seen.delete(index);
+    return type === 0x6 ? decodeBinaryPlistUtf16Be(data) : new TextDecoder("utf-8", { fatal: false }).decode(data);
+  }
+  if (type === 0x3) {
+    const seconds = readBinaryPlistFloat64(bytes, payloadOffset);
+    seen.delete(index);
+    return new Date(Date.UTC(2001, 0, 1) + seconds * 1000).toISOString();
+  }
+  if (type === 0xa || type === 0xc) {
+    const lengthInfo = readBinaryPlistLength(bytes, offset, info);
+    const values: PlistValue[] = [];
+    for (let item = 0; item < lengthInfo.length; item++) {
+      const ref = readBinaryPlistInt(bytes, lengthInfo.offset + item * objectRefSize, objectRefSize);
+      values.push(readBinaryPlistObject(bytes, offsets, ref, objectRefSize, new Set(seen)));
+    }
+    seen.delete(index);
+    return values;
+  }
+  if (type === 0xd) {
+    const lengthInfo = readBinaryPlistLength(bytes, offset, info);
+    const keyRefsStart = lengthInfo.offset;
+    const valueRefsStart = keyRefsStart + lengthInfo.length * objectRefSize;
+    const result: Record<string, PlistValue> = {};
+    for (let item = 0; item < lengthInfo.length; item++) {
+      const keyRef = readBinaryPlistInt(bytes, keyRefsStart + item * objectRefSize, objectRefSize);
+      const valueRef = readBinaryPlistInt(bytes, valueRefsStart + item * objectRefSize, objectRefSize);
+      const key = readBinaryPlistObject(bytes, offsets, keyRef, objectRefSize, new Set(seen));
+      if (typeof key === "string") {
+        result[key] = readBinaryPlistObject(bytes, offsets, valueRef, objectRefSize, new Set(seen));
+      }
+    }
+    seen.delete(index);
+    return result;
+  }
+
+  seen.delete(index);
+  return null;
+}
+
+function readBinaryPlistLength(bytes: Uint8Array, objectOffset: number, info: number): { length: number; offset: number } {
+  if (info < 0x0f) {
+    return { length: info, offset: objectOffset + 1 };
+  }
+  const marker = bytes[objectOffset + 1];
+  if ((marker >> 4) !== 0x1) {
+    throw new Error("Binary plist extended length 缺少整数对象。");
+  }
+  const intSize = 1 << (marker & 0x0f);
+  return {
+    length: readBinaryPlistInt(bytes, objectOffset + 2, intSize),
+    offset: objectOffset + 2 + intSize
+  };
+}
+
+function readBinaryPlistInt(bytes: Uint8Array, offset: number, length: number): number {
+  if (offset < 0 || offset + length > bytes.length || length <= 0 || length > 8) {
+    throw new Error("Binary plist integer 超出文件范围。");
+  }
+  let value = 0;
+  for (let index = 0; index < length; index++) {
+    value = value * 256 + bytes[offset + index];
+  }
+  return value;
+}
+
+function readBinaryPlistFloat64(bytes: Uint8Array, offset: number): number {
+  if (offset + 8 > bytes.length) {
+    throw new Error("Binary plist date 超出文件范围。");
+  }
+  return new DataView(bytes.buffer, bytes.byteOffset + offset, 8).getFloat64(0, false);
+}
+
+function decodeBinaryPlistUtf16Be(bytes: Uint8Array): string {
+  let value = "";
+  for (let index = 0; index + 1 < bytes.length; index += 2) {
+    value += String.fromCharCode((bytes[index] << 8) | bytes[index + 1]);
+  }
+  return value;
+}
+
 function decodeBase64Data(value: string): Uint8Array {
   const normalized = value.replace(/\s+/g, "");
   if (!normalized) {
@@ -1941,6 +2909,8 @@ function asciiAt(bytes: Uint8Array, offset: number, length: number): string {
 type PostScriptPreview = {
   valid: boolean;
   error?: string;
+  pdfCompatible?: boolean;
+  pdfOffset?: number;
   format?: string;
   title?: string;
   creator?: string;
@@ -1950,20 +2920,32 @@ type PostScriptPreview = {
   documentData?: string;
 };
 
-function createPostScriptPreview(bytes: Uint8Array): HTMLElement {
+async function createPostScriptPreview(
+  bytes: Uint8Array,
+  url: string,
+  fileName: string,
+  size: { width: number; height: number },
+  fit: string,
+  toolbar?: { setZoom(value: number | undefined): void }
+): Promise<{ element: HTMLElement; instance?: PreviewInstance; primaryRendered?: boolean }> {
+  const parsed = parsePostScript(bytes);
+  if (parsed.valid && parsed.pdfCompatible) {
+    const embedded = await createPdfCompatibleAiPreview(bytes, url, fileName, size, fit, toolbar, parsed.pdfOffset || 0);
+    return { element: embedded.element, instance: embedded.instance, primaryRendered: true };
+  }
+
   const preview = document.createElement("div");
   preview.className = "ofv-data-preview";
   const heading = document.createElement("strong");
   heading.textContent = "PostScript 结构";
   preview.append(heading);
 
-  const parsed = parsePostScript(bytes);
   if (!parsed.valid) {
     const error = document.createElement("p");
     error.className = "ofv-data-error";
     error.textContent = parsed.error || "不是有效的 PostScript/Illustrator 文档头。";
     preview.append(error);
-    return preview;
+    return { element: preview };
   }
 
   const summary = document.createElement("div");
@@ -1978,11 +2960,71 @@ function createPostScriptPreview(bytes: Uint8Array): HTMLElement {
     appendMeta(summary, "Data", parsed.documentData);
   }
   preview.append(summary);
-  return preview;
+  return { element: preview };
+}
+
+async function createPdfCompatibleAiPreview(
+  bytes: Uint8Array,
+  url: string,
+  fileName: string,
+  size: { width: number; height: number },
+  fit: string,
+  toolbar?: { setZoom(value: number | undefined): void },
+  pdfOffset = 0
+): Promise<{ element: HTMLElement; instance: PreviewInstance }> {
+  const wrapper = document.createElement("div");
+  wrapper.className = "ofv-ai-pdf-preview";
+  let pdfUrl = url;
+  let shouldRevokePdfUrl = false;
+  if (pdfOffset > 0) {
+    pdfUrl = createObjectUrl({ blob: new Blob([bytes.slice(pdfOffset)], { type: "application/pdf" }) });
+    shouldRevokePdfUrl = true;
+  }
+  const instance = await renderPdfDocumentPreview({
+    fileName,
+    fileUrl: pdfUrl,
+    viewport: wrapper,
+    size,
+    fit,
+    toolbar,
+    fallbackTitle: "AI PDF 兼容预览失败",
+    revokeUrlOnDestroy: false
+  });
+  hideSuccessfulPdfCompatibleAiDiagnostics(wrapper);
+  return {
+    element: wrapper,
+    instance: {
+      canCommand(command) {
+        return instance.canCommand(command);
+      },
+      command(command) {
+        return instance.command(command);
+      },
+      resize(size) {
+        instance.resize(size);
+      },
+      destroy() {
+        instance.destroy();
+        if (shouldRevokePdfUrl) {
+          revokeObjectUrl(pdfUrl, false);
+        }
+      }
+    }
+  };
+}
+
+function hideSuccessfulPdfCompatibleAiDiagnostics(wrapper: HTMLElement): void {
+  if (!wrapper.querySelector(".ofv-pdf-page-wrapper")) {
+    return;
+  }
+  for (const element of wrapper.querySelectorAll<HTMLElement>(".ofv-pdf-summary")) {
+    hideSupplementalInfo(element);
+  }
 }
 
 function parsePostScript(bytes: Uint8Array): PostScriptPreview {
-  const head = new TextDecoder("latin1").decode(bytes.slice(0, Math.min(bytes.length, 8192)));
+  const pdfOffset = findPdfHeaderOffset(bytes);
+  const head = new TextDecoder("latin1").decode(bytes.slice(pdfOffset >= 0 ? pdfOffset : 0, Math.min(bytes.length, (pdfOffset >= 0 ? pdfOffset : 0) + 8192)));
   const firstLine = head.split(/\r?\n/, 1)[0] || "";
   const isPdfCompatible = firstLine.startsWith("%PDF-");
   const isPostScript = firstLine.startsWith("%!");
@@ -1993,6 +3035,8 @@ function parsePostScript(bytes: Uint8Array): PostScriptPreview {
   const boundingBox = dscValue(head, "BoundingBox") || dscValue(head, "HiResBoundingBox");
   return {
     valid: true,
+    pdfCompatible: isPdfCompatible,
+    pdfOffset: isPdfCompatible ? Math.max(0, pdfOffset) : undefined,
     format: isPdfCompatible ? `PDF-compatible Illustrator (${firstLine.replace(/^%/, "")})` : firstLine.replace(/^%!/, "PostScript "),
     title: dscValue(head, "Title"),
     creator: dscValue(head, "Creator") || dscValue(head, "For"),
@@ -2001,6 +3045,16 @@ function parsePostScript(bytes: Uint8Array): PostScriptPreview {
     boundingBox: normalizeBoundingBox(boundingBox),
     documentData: dscValue(head, "DocumentData")
   };
+}
+
+function findPdfHeaderOffset(bytes: Uint8Array): number {
+  const max = Math.min(bytes.length - 4, 1024 * 1024);
+  for (let index = 0; index <= max; index += 1) {
+    if (bytes[index] === 0x25 && bytes[index + 1] === 0x50 && bytes[index + 2] === 0x44 && bytes[index + 3] === 0x46 && bytes[index + 4] === 0x2d) {
+      return index;
+    }
+  }
+  return -1;
 }
 
 function dscValue(text: string, key: string): string | undefined {
@@ -2029,6 +3083,39 @@ function createHexPreview(bytes: Uint8Array): HTMLElement | null {
   pre.className = "ofv-text-block ofv-asset-hex";
   pre.textContent = hexPreview(bytes);
   return pre;
+}
+
+function shouldShowHexPreview(extension: string, hasPrimaryPreview = false): boolean {
+  return !hasPrimaryPreview && !["ai", "eps", "ps"].includes(extension);
+}
+
+function hideSuccessfulSectionHeading(section: HTMLElement): void {
+  const heading = section.querySelector<HTMLElement>("h3");
+  if (heading) {
+    hideSupplementalInfo(heading);
+  }
+}
+
+function hideSuccessfulAssetDiagnostics(panel: HTMLElement): void {
+  const hasPrimaryPreview = Boolean(
+    panel.querySelector(
+      ".ofv-ai-pdf-preview .ofv-pdf-page-wrapper, .ofv-psd-canvas, .ofv-font-preview, .ofv-wasm-preview, .ofv-sqlite-data, .ofv-parquet-records, .ofv-avro-records, .ofv-webarchive-snippet"
+    )
+  );
+  if (!hasPrimaryPreview) {
+    return;
+  }
+  for (const element of panel.querySelectorAll<HTMLElement>(
+    ".ofv-section > h3, .ofv-asset-summary, .ofv-asset-download, .ofv-asset-hex, .ofv-data-preview, .ofv-pdf-summary"
+  )) {
+    hideSupplementalInfo(element);
+  }
+}
+
+function hideSupplementalInfo(element: HTMLElement): void {
+  element.hidden = true;
+  element.setAttribute("aria-hidden", "true");
+  element.style.display = "none";
 }
 
 function formatBytes(bytes: number): string {

@@ -25,6 +25,7 @@ describe("epubPlugin", () => {
     expect(container.textContent).toContain("测试书名");
     expect(container.textContent).toContain("作者 A");
     const summary = container.querySelector(".ofv-epub-meta");
+    expect((summary as HTMLElement | null)?.hidden).toBe(true);
     expect(summary?.textContent).toContain("出版方测试出版社");
     expect(summary?.textContent).toContain("标识urn:isbn:9780000000000");
     expect(summary?.textContent).toContain("修改时间2026-06-15T00:00:00Z");
@@ -36,11 +37,48 @@ describe("epubPlugin", () => {
     expect(summary?.textContent).toContain("图片1");
     expect(summary?.textContent).toContain("样式1");
     expect(summary?.textContent).toContain("字体1");
+    expect(visibleText(container)).not.toContain("EPUB 图书信息");
+    expect(visibleText(container)).not.toContain("EPUB 正文预览");
     expect(container.textContent).toContain("第一章");
     expect(container.textContent).toContain("Hello EPUB");
     expect(container.textContent).toContain("第二章");
     expect(container.querySelector("script")).toBeNull();
     expect(container.querySelector("img")?.getAttribute("src")).toMatch(/^data:image\/png;base64,/);
+  });
+
+  it("responds to shared toolbar zoom commands as reader font scaling", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    createViewer({
+      container,
+      file: await createMinimalEpub(),
+      fileName: "toolbar.epub",
+      toolbar: true,
+      plugins: [epubPlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-epub-reader")));
+
+    const reader = container.querySelector<HTMLElement>(".ofv-epub-reader");
+    const zoomIn = container.querySelector<HTMLButtonElement>('button[aria-label="Zoom in"]');
+    const zoomOut = container.querySelector<HTMLButtonElement>('button[aria-label="Zoom out"]');
+    const zoomReset = container.querySelector<HTMLButtonElement>('button[aria-label="Reset zoom"]');
+    const rotate = container.querySelector<HTMLButtonElement>('button[aria-label="Rotate right"]');
+    expect(zoomIn?.disabled).toBe(false);
+    expect(zoomOut?.disabled).toBe(false);
+    expect(rotate?.disabled).toBe(true);
+
+    zoomIn?.click();
+    expect(reader?.style.getPropertyValue("--ofv-epub-zoom")).toBe("1.12");
+    expect(zoomReset?.textContent).toBe("112%");
+
+    zoomOut?.click();
+    expect(reader?.style.getPropertyValue("--ofv-epub-zoom")).toBe("1");
+
+    zoomReset?.click();
+    expect(reader?.style.getPropertyValue("--ofv-epub-zoom")).toBe("1");
+    expect(zoomReset?.textContent).toBe("100%");
   });
 
   it("shows a local fallback for invalid EPUB packages", async () => {
@@ -135,4 +173,29 @@ async function waitFor(predicate: () => boolean, timeout = 1000): Promise<void> 
     }
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
+}
+
+function visibleText(root: HTMLElement): string {
+  const parts: string[] = [];
+  const walk = (node: Node, hidden: boolean) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      if (!hidden) {
+        parts.push(node.textContent || "");
+      }
+      return;
+    }
+    if (!(node instanceof HTMLElement)) {
+      node.childNodes.forEach((child) => walk(child, hidden));
+      return;
+    }
+    const isHidden =
+      hidden ||
+      node.hidden ||
+      node.getAttribute("aria-hidden") === "true" ||
+      node.style.display === "none" ||
+      node.style.visibility === "hidden";
+    node.childNodes.forEach((child) => walk(child, isHidden));
+  };
+  walk(root, false);
+  return parts.join(" ").replace(/\s+/g, " ").trim();
 }

@@ -247,6 +247,7 @@ const matrix: FormatCase[] = [
       "wps",
       "xlsx",
       "xls",
+      "xlt",
       "xlsm",
       "xlsb",
       "xltx",
@@ -316,6 +317,14 @@ describe("format support matrix", () => {
     const detectedExtensions = new Set(readDetectedExtensions());
     const documentedExtensions = [...new Set(matrix.flatMap((item) => item.extensions))].sort();
     const missing = documentedExtensions.filter((extension) => !detectedExtensions.has(extension));
+
+    expect(missing).toEqual([]);
+  });
+
+  it("keeps plugin-declared extensions covered by core MIME detection", () => {
+    const detectedExtensions = new Set(readDetectedExtensions());
+    const declaredExtensions = readPluginDeclaredExtensions();
+    const missing = declaredExtensions.filter((extension) => !detectedExtensions.has(extension));
 
     expect(missing).toEqual([]);
   });
@@ -642,6 +651,7 @@ function routingCases(): Array<{ extension: string; mimeType: string; expected: 
       "wps",
       "xlsx",
       "xls",
+      "xlt",
       "xlsm",
       "xlsb",
       "xltx",
@@ -990,6 +1000,32 @@ function readPluginDeclaredMimeTypes(): string[] {
   }
 
   return [...mimeTypes].sort();
+}
+
+function readPluginDeclaredExtensions(): string[] {
+  const declarations: Array<{ file: string; sets: string[] }> = [
+    { file: "archive.ts", sets: ["archiveExtensions"] },
+    { file: "asset.ts", sets: ["assetExtensions"] },
+    { file: "audio.ts", sets: ["audioExtensions"] },
+    { file: "cad.ts", sets: ["cadExtensions"] },
+    { file: "drawing.ts", sets: ["drawingExtensions"] },
+    { file: "email.ts", sets: ["emailExtensions"] },
+    { file: "image.ts", sets: ["imageExtensions", "nonRasterImageExtensions"] },
+    { file: "model3d.ts", sets: ["modelExtensions"] },
+    { file: "office.ts", sets: ["wordExtensions", "sheetExtensions", "presentationExtensions"] }
+  ];
+  const extensions = new Set<string>();
+
+  for (const declaration of declarations) {
+    const source = readFileSync(resolve(process.cwd(), "packages/core/src/plugins", declaration.file), "utf8");
+    for (const setName of declaration.sets) {
+      for (const extension of readStringSetValues(source, setName)) {
+        extensions.add(extension);
+      }
+    }
+  }
+
+  return [...extensions].sort();
 }
 
 function readStringSetValues(source: string, setName: string): string[] {

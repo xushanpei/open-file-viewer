@@ -15,6 +15,8 @@
   --brand-2: #ff7ab6;
   --brand-3: #33d6a6;
   --brand-4: #ffb545;
+  --button-gradient: linear-gradient(135deg, var(--brand) 0%, var(--brand-2) 100%);
+  --button-gradient-rich: linear-gradient(135deg, var(--brand) 0%, var(--brand-2) 62%, color-mix(in srgb, var(--brand-4) 72%, var(--brand-2)) 100%);
   --brand-soft: #f1eaff;
   --brand-ring: rgba(124, 92, 255, 0.2);
   --code-bg: #10131c;
@@ -40,6 +42,8 @@
   --brand-2: #ff8fc7;
   --brand-3: #5ee6bf;
   --brand-4: #ffc46b;
+  --button-gradient: linear-gradient(135deg, var(--brand) 0%, var(--brand-2) 100%);
+  --button-gradient-rich: linear-gradient(135deg, var(--brand) 0%, var(--brand-2) 62%, color-mix(in srgb, var(--brand-4) 68%, var(--brand-2)) 100%);
   --brand-soft: rgba(139, 124, 255, 0.14);
   --brand-ring: rgba(139, 124, 255, 0.28);
   --code-bg: #020617;
@@ -232,8 +236,9 @@ button {
 }
 
 .site-header {
-  position: sticky;
+  position: fixed;
   top: 14px;
+  left: 50%;
   z-index: 50;
   display: grid;
   grid-template-columns: minmax(210px, 1fr) auto minmax(210px, 1fr);
@@ -241,13 +246,14 @@ button {
   gap: 20px;
   width: min(1180px, calc(100vw - 40px));
   min-height: 72px;
-  margin: 0 auto;
+  margin: 0;
   padding: 0 12px;
   border: 1px solid var(--border);
   border-radius: 24px;
   background: color-mix(in srgb, var(--bg) 72%, transparent);
   backdrop-filter: blur(18px);
   box-shadow: 0 18px 58px rgba(41, 30, 14, 0.08);
+  transform: translateX(-50%);
   transition:
     width 260ms ease,
     min-height 260ms ease,
@@ -283,7 +289,7 @@ button {
   box-shadow:
     0 22px 70px rgba(41, 30, 14, 0.16),
     inset 0 1px 0 rgba(255, 255, 255, 0.3);
-  transform: translateY(-2px);
+  transform: translateX(-50%) translateY(-2px);
 }
 
 :root[data-nav-state="scrolled"] .site-header::before {
@@ -513,6 +519,7 @@ button {
   color: var(--accent-text);
   font-size: 14px;
   font-weight: 700;
+  overflow: hidden;
   white-space: nowrap;
   transition:
     min-height 260ms ease,
@@ -593,6 +600,7 @@ h1 {
 
 .primary-button,
 .secondary-button {
+  position: relative;
   display: inline-flex;
   min-width: 0;
   gap: 9px;
@@ -602,7 +610,11 @@ h1 {
   padding: 0 24px;
   font-weight: 800;
   line-height: 1;
+  overflow: hidden;
+  isolation: isolate;
+  transform: translate3d(0, 0, 0);
   white-space: nowrap;
+  will-change: transform;
   transition:
     transform 180ms ease,
     box-shadow 180ms ease,
@@ -625,8 +637,8 @@ h1 {
 }
 
 .primary-button {
-  border-color: transparent;
-  background: linear-gradient(135deg, var(--brand), var(--brand-2) 58%, var(--brand-4));
+  border: 0;
+  background: var(--button-gradient);
   color: #ffffff;
   box-shadow: 0 16px 38px var(--brand-ring);
 }
@@ -913,11 +925,12 @@ h1 {
   background: var(--surface-soft);
   color: var(--muted);
   font-weight: 800;
+  overflow: hidden;
 }
 
 .file-rail .active {
-  border-color: transparent;
-  background: linear-gradient(135deg, var(--brand), var(--brand-2));
+  border: 0;
+  background: var(--button-gradient);
   color: #ffffff;
 }
 
@@ -1484,7 +1497,7 @@ pre .token.important {
   margin-bottom: 28px;
   place-items: center;
   border-radius: 18px;
-  background: linear-gradient(135deg, var(--brand), var(--brand-2), var(--brand-4));
+  background: var(--button-gradient-rich);
   color: #ffffff;
 }
 
@@ -1529,8 +1542,10 @@ pre .token.important {
 }
 
 .framework-tabs button.active {
-  background: linear-gradient(135deg, var(--brand), var(--brand-2));
+  background: var(--button-gradient);
+  background-clip: border-box;
   color: #ffffff;
+  overflow: hidden;
   box-shadow: 0 8px 20px var(--brand-ring);
 }
 
@@ -1576,7 +1591,7 @@ pre .token.important {
   height: 42px;
   place-items: center;
   border-radius: 16px;
-  background: linear-gradient(135deg, var(--brand), var(--brand-2));
+  background: var(--button-gradient);
   color: #ffffff;
   box-shadow: 0 12px 28px var(--brand-ring);
 }
@@ -1607,18 +1622,23 @@ pre .token.important {
 }
 
 .file-picker-button {
+  position: relative;
   display: inline-flex;
   gap: 7px;
   min-height: 36px;
   align-items: center;
   justify-content: center;
   padding: 0 14px;
+  border: 0;
   border-radius: 11px;
-  background: linear-gradient(135deg, var(--brand), var(--brand-2));
+  background: var(--button-gradient);
   color: #ffffff;
   font-size: 13px;
   font-weight: 800;
   line-height: 1;
+  overflow: hidden;
+  isolation: isolate;
+  transform: translate3d(0, 0, 0);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.28),
     0 10px 24px var(--brand-ring);
@@ -2141,7 +2161,7 @@ pre .token.important {
   height: 52px;
   place-items: center;
   border-radius: 18px;
-  background: linear-gradient(135deg, var(--brand), var(--brand-2));
+  background: var(--button-gradient);
   color: #ffffff;
   box-shadow: 0 16px 36px var(--brand-ring);
 }
@@ -2742,7 +2762,7 @@ pre .token.important {
   :root[data-nav-state="scrolled"] .site-header {
     width: calc(100vw - 32px);
     border-radius: 18px;
-    transform: translateY(0);
+    transform: translateX(-50%) translateY(0);
   }
 
   .brand span:last-child,

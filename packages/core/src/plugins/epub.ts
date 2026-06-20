@@ -1,6 +1,6 @@
 import JSZip from "jszip";
 import DOMPurify from "dompurify";
-import type { PreviewPlugin } from "../types";
+import type { PreviewCommand, PreviewContext, PreviewPlugin } from "../types";
 import { createPanel, createSection, readArrayBuffer } from "./utils";
 
 const epubMimeTypes = new Set(["application/epub+zip", "application/x-epub+zip"]);
@@ -53,12 +53,68 @@ export function epubPlugin(): PreviewPlugin {
       } catch (error) {
         renderEpubFallback(panel, error);
       }
+      const controller = createEpubReaderController(panel, ctx);
 
       return {
+        canCommand(command) {
+          return controller?.canCommand(command) ?? false;
+        },
+        command(command) {
+          return controller?.command(command) ?? false;
+        },
         destroy() {
+          controller?.destroy();
           panel.remove();
         }
       };
+    }
+  };
+}
+
+function createEpubReaderController(
+  panel: HTMLElement,
+  ctx: Pick<PreviewContext, "toolbar">
+): {
+  canCommand: (command: PreviewCommand) => boolean;
+  command: (command: PreviewCommand) => boolean;
+  destroy: () => void;
+} | undefined {
+  const reader = panel.querySelector<HTMLElement>(".ofv-epub-reader");
+  if (!reader) {
+    return undefined;
+  }
+
+  let zoom = 1;
+  const apply = () => {
+    reader.style.setProperty("--ofv-epub-zoom", String(zoom));
+    ctx.toolbar?.setZoom(zoom);
+  };
+  apply();
+
+  return {
+    canCommand(command) {
+      return command === "zoom-in" || command === "zoom-out" || command === "zoom-reset";
+    },
+    command(command) {
+      if (command === "zoom-in") {
+        zoom = Math.min(2.5, Number((zoom + 0.12).toFixed(2)));
+        apply();
+        return true;
+      }
+      if (command === "zoom-out") {
+        zoom = Math.max(0.6, Number((zoom - 0.12).toFixed(2)));
+        apply();
+        return true;
+      }
+      if (command === "zoom-reset") {
+        zoom = 1;
+        apply();
+        return true;
+      }
+      return false;
+    },
+    destroy() {
+      ctx.toolbar?.setZoom(undefined);
     }
   };
 }
@@ -79,8 +135,18 @@ async function renderEpub(panel: HTMLElement, zip: JSZip): Promise<void> {
   const assets = await readEpubAssets(zip, basePath, manifest);
 
   const summary = createSection("EPUB 图书信息");
+  summary.hidden = spine.length > 0;
+  if (spine.length > 0) {
+    summary.setAttribute("aria-hidden", "true");
+    summary.style.display = "none";
+  }
   const meta = document.createElement("div");
   meta.className = "ofv-epub-meta";
+  meta.hidden = spine.length > 0;
+  if (spine.length > 0) {
+    meta.setAttribute("aria-hidden", "true");
+    meta.style.display = "none";
+  }
   appendMeta(meta, "标题", metadata.title || "未命名 EPUB");
   appendMeta(meta, "作者", metadata.creator || "未知");
   appendMeta(meta, "语言", metadata.language || "未声明");
@@ -114,6 +180,9 @@ async function renderEpub(panel: HTMLElement, zip: JSZip): Promise<void> {
   panel.append(summary);
 
   const chapters = createSection("EPUB 正文预览");
+  if (spine.length > 0) {
+    hideSupplementalInfo(chapters.querySelector<HTMLElement>("h3"));
+  }
   const article = document.createElement("article");
   article.className = "ofv-epub-reader";
 
@@ -368,6 +437,15 @@ function getXmlAttribute(element: Element, localName: string): string | null {
     }
   }
   return null;
+}
+
+function hideSupplementalInfo(element: HTMLElement | null): void {
+  if (!element) {
+    return;
+  }
+  element.hidden = true;
+  element.setAttribute("aria-hidden", "true");
+  element.style.display = "none";
 }
 
 function isChapterMediaType(mediaType: string): boolean {
