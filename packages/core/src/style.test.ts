@@ -194,6 +194,10 @@ describe("core responsive styles", () => {
     expect(rule(".ofv-email-attachments")).toContain("min-width: 0");
     expect(rule(".ofv-email-attachment-item")).toContain("max-width: 100%");
     expect(rule(".ofv-email-body-iframe")).toContain("max-width: 100%");
+    expect(rule(".ofv-layout-grid")).toContain("grid-template-columns");
+    expect(rule(".ofv-layout-grid")).toContain("minmax(180px, 260px)");
+    expect(rule(".ofv-layout-grid .ofv-layout-cells,\n.ofv-layout-grid .ofv-layout-layers")).toContain("overflow: auto");
+    expect(css).toContain(".ofv-layout-grid .ofv-layout-layers {\n  display: grid");
     expect(rule(".ofv-cad-layers")).toContain("flex-wrap: wrap");
     expect(rule(".ofv-cad-layers")).toContain("min-width: 0");
     expect(rule(".ofv-gis-viewer")).toContain("min-height: 320px");

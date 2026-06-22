@@ -3963,8 +3963,8 @@ function cleanPreviewCases(): CleanPreviewCase[] {
       plugins: [cadPlugin()],
       selector: ".ofv-layout-stage",
       text: "GDSII",
-      hiddenText: ["Cell", "几何", "引用", "文字"],
-      hiddenSelectors: [".ofv-layout-summary", ".ofv-layout-note", ".ofv-layout-cells", ".ofv-layout-layers"]
+      hiddenText: ["几何", "引用", "文字"],
+      hiddenSelectors: [".ofv-layout-summary", ".ofv-layout-note"]
     },
     {
       name: "OASIS layout",
@@ -3973,8 +3973,8 @@ function cleanPreviewCases(): CleanPreviewCase[] {
       plugins: [cadPlugin()],
       selector: ".ofv-layout-stage",
       text: "OASIS",
-      hiddenText: ["Cell", "几何", "引用", "文字"],
-      hiddenSelectors: [".ofv-layout-summary", ".ofv-layout-note", ".ofv-layout-cells", ".ofv-layout-layers"]
+      hiddenText: ["几何", "引用", "文字"],
+      hiddenSelectors: [".ofv-layout-summary", ".ofv-layout-note"]
     },
     {
       name: "3D model",

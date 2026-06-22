@@ -2010,6 +2010,27 @@
   color: var(--ofv-text);
 }
 
+.ofv-layout-grid {
+  display: grid;
+  grid-template-columns: minmax(180px, 260px) minmax(0, 1fr) minmax(180px, 260px);
+  gap: 12px;
+  align-items: start;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.ofv-layout-grid .ofv-layout-stage {
+  min-height: 420px;
+  height: min(620px, 68vh);
+}
+
+.ofv-layout-grid .ofv-layout-cells,
+.ofv-layout-grid .ofv-layout-layers {
+  max-height: min(620px, 68vh);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
 .ofv-drawing-summary {
   display: flex;
   flex-wrap: wrap;
@@ -2070,6 +2091,16 @@
 
 .ofv-cad-layers input {
   margin: 0;
+}
+
+.ofv-layout-grid .ofv-layout-layers {
+  display: grid;
+  align-content: start;
+  align-items: stretch;
+}
+
+.ofv-layout-grid .ofv-layout-layers label {
+  border-radius: 6px;
 }
 
 .ofv-cad-summary {
@@ -3101,6 +3132,17 @@
   color: var(--ofv-text);
   min-width: 0;
   max-width: 280px;
+}
+
+@container (max-width: 760px) {
+  .ofv-layout-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ofv-layout-grid .ofv-layout-stage {
+    min-height: 320px;
+    height: min(520px, 62vh);
+  }
 }
 
 .ofv-map-popup h4 {
