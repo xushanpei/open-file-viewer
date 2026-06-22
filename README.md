@@ -141,6 +141,22 @@ viewer.resize();
 viewer.destroy();
 ```
 
+### Umi / utoo 中 PDF 预览失败
+
+如果在 Umi Max、utoo pack 等环境中看到 PDF fallback，并且控制台里有 pdf.js 的
+`Cannot set properties of undefined (setting 'onPull')`，通常是构建器和 pdf.js worker
+的流式读取通道不兼容。可以开启 `useFetchData`，由主线程先把 PDF 拉成字节后再交给
+pdf.js 渲染：
+
+```ts
+pdfPlugin({
+  workerSrc,
+  useFetchData: true
+});
+```
+
+这个选项会多占用一份 PDF 文件内存，建议只在遇到上述兼容问题时开启。
+
 ### React
 
 ```tsx

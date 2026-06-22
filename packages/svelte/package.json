@@ -1,6 +1,6 @@
 {
   "name": "@open-file-viewer/svelte",
-  "version": "0.1.9",
+  "version": "0.1.11",
   "description": "Svelte adapter for Open File Viewer.",
   "license": "MIT",
   "type": "module",
@@ -34,7 +34,7 @@
     "typecheck": "svelte-check --tsconfig ./tsconfig.json"
   },
   "peerDependencies": {
-    "@open-file-viewer/core": "0.1.9",
+    "@open-file-viewer/core": "0.1.11",
     "svelte": ">=4"
   },
   "devDependencies": {

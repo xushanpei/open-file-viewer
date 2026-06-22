@@ -88,6 +88,7 @@ let libreDwgPromise: Promise<LibreDwgModule> | undefined;
 
 const defaultLibreDwgWasmBaseUrl = "/vendor/libredwg-web";
 const minReadableDrawingHeight = 420;
+const libreDwgPackageName = "@mlightcad/libredwg-web";
 const svgNumberPattern = /-?\d*\.?\d+(?:e[-+]?\d+)?/gi;
 
 export async function renderLibreDwgPreview(
@@ -222,8 +223,12 @@ export async function renderLibreDwgPreview(
 }
 
 function loadLibreDwg(): Promise<LibreDwgModule> {
-  libreDwgPromise ||= import("@mlightcad/libredwg-web") as Promise<LibreDwgModule>;
+  libreDwgPromise ||= importOptionalModule<LibreDwgModule>(libreDwgPackageName);
   return libreDwgPromise;
+}
+
+function importOptionalModule<T>(packageName: string): Promise<T> {
+  return new Function("packageName", "return import(packageName)")(packageName) as Promise<T>;
 }
 
 function createDwgStatusTitle(fileName: string, stats: DwgPreviewStats, reliability: DwgSvgReliability): HTMLElement {

@@ -21,7 +21,7 @@ type MpegtsLoader = () => Promise<MpegtsModule>;
 
 const mpegtsPackageName = "mpegts.js";
 
-let loadMpegts: MpegtsLoader = () => import(/* @vite-ignore */ mpegtsPackageName) as Promise<MpegtsModule>;
+let loadMpegts: MpegtsLoader = () => importOptionalModule<MpegtsModule>(mpegtsPackageName);
 
 const videoExtensions = new Set([
   "mp4",
@@ -212,7 +212,11 @@ export function videoPlugin(): PreviewPlugin {
 }
 
 export function __setMpegtsLoaderForTests(loader: MpegtsLoader | null): void {
-  loadMpegts = loader || (() => import(/* @vite-ignore */ mpegtsPackageName) as Promise<MpegtsModule>);
+  loadMpegts = loader || (() => importOptionalModule<MpegtsModule>(mpegtsPackageName));
+}
+
+function importOptionalModule<T>(packageName: string): Promise<T> {
+  return new Function("packageName", "return import(packageName)")(packageName) as Promise<T>;
 }
 
 function resolveMpegtsApi(module: MpegtsModule): MpegtsApi {

@@ -263,6 +263,17 @@ npm install mpegts.js</code></pre>
   }
 }</code></pre>
             </div>
+            <div class="doc-callout">
+              <strong>Umi / utoo PDF 兼容配置</strong>
+              <p>如果 PDF 文件和 worker 都能正常访问，但预览仍进入 fallback，并且控制台出现 <code>Cannot set properties of undefined (setting 'onPull')</code>，可以开启 <code>useFetchData</code>，让主线程先读取 PDF 字节再交给 pdf.js，绕开 worker 网络流兼容问题。</p>
+            </div>
+            <div class="editor-window doc-code-window">
+              <div class="editor-titlebar"><span></span><span></span><span></span><strong>viewer.ts</strong></div>
+              <pre><code data-language="typescript">pdfPlugin({
+  workerSrc,
+  useFetchData: true
+});</code></pre>
+            </div>
           </section>
 
           <section class="doc-panel" id="quick-start">

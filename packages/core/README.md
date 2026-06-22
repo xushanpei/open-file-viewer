@@ -106,6 +106,23 @@ viewer.resize();
 viewer.destroy();
 ```
 
+### PDF loading compatibility
+
+If PDF preview falls back in Umi Max, utoo pack or similar build environments and the console shows
+`Cannot set properties of undefined (setting 'onPull')` from pdf.js, enable `useFetchData`. It fetches
+the PDF bytes on the main thread and then passes `data` to pdf.js, avoiding the worker network stream
+path that can break in those bundlers:
+
+```ts
+pdfPlugin({
+  workerSrc: pdfWorkerSrc,
+  useFetchData: true
+});
+```
+
+This keeps compatibility at the cost of holding one extra copy of the PDF in memory, so use it only
+for affected environments.
+
 ## CAD Customization
 
 `cadPlugin()` has two CAD preview layers:

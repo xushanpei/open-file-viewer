@@ -173,6 +173,101 @@ describe("pdfPlugin", () => {
     viewer.destroy();
   });
 
+  it("forwards pdf.js loading options", async () => {
+    vi.stubGlobal("IntersectionObserver", undefined);
+    const container = createSizedContainer();
+    const pdfjs = createPdfJsMock();
+
+    const viewer = createViewer({
+      container,
+      file: new Blob(["pdf"], { type: "application/pdf" }),
+      fileName: "streaming.pdf",
+      plugins: [
+        pdfPlugin({
+          pdfjs,
+          disableStream: true,
+          disableAutoFetch: true,
+          disableRange: true,
+          rangeChunkSize: 131072
+        })
+      ]
+    });
+
+    await waitFor(() => container.querySelectorAll("canvas.ofv-pdf-page").length === 2);
+
+    expect(pdfjs.getDocument).toHaveBeenCalledWith(
+      expect.objectContaining({
+        disableAutoFetch: true,
+        disableRange: true,
+        disableStream: true,
+        rangeChunkSize: 131072
+      })
+    );
+
+    viewer.destroy();
+  });
+
+  it("can load PDF bytes in the main thread before passing them to pdf.js", async () => {
+    vi.stubGlobal("IntersectionObserver", undefined);
+    const container = createSizedContainer();
+    const pdfjs = createPdfJsMock();
+    const fetchMock = vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        arrayBuffer: () => Promise.resolve(new Uint8Array([37, 80, 68, 70]).buffer)
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const viewer = createViewer({
+      container,
+      file: "/dummy.pdf",
+      fileName: "dummy.pdf",
+      mimeType: "application/pdf",
+      plugins: [pdfPlugin({ pdfjs, useFetchData: true })]
+    });
+
+    await waitFor(() => container.querySelectorAll("canvas.ofv-pdf-page").length === 2);
+
+    expect(fetchMock).toHaveBeenCalledWith("/dummy.pdf");
+    expect(pdfjs.getDocument).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.any(Uint8Array)
+      })
+    );
+    expect(pdfjs.getDocument).toHaveBeenCalledWith(expect.not.objectContaining({ url: expect.anything() }));
+
+    viewer.destroy();
+  });
+
+  it("shows the PDF fallback when useFetchData cannot fetch the file", async () => {
+    const container = createSizedContainer();
+    const fetchMock = vi.fn(() =>
+      Promise.resolve({
+        ok: false,
+        status: 404,
+        statusText: "Not Found",
+        arrayBuffer: vi.fn()
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const viewer = createViewer({
+      container,
+      file: "/missing.pdf",
+      fileName: "missing.pdf",
+      mimeType: "application/pdf",
+      plugins: [pdfPlugin({ pdfjs: createPdfJsMock(), useFetchData: true })]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-fallback")));
+
+    expect(container.textContent).toContain("PDF 预览失败");
+    expect(container.querySelector<HTMLAnchorElement>(".ofv-fallback a")?.href).toBe("http://localhost:3000/missing.pdf");
+
+    viewer.destroy();
+  });
+
   it("fits rendered PDF pages inside narrow preview containers", async () => {
     vi.stubGlobal("IntersectionObserver", undefined);
     const container = createSizedContainer({ width: 120, height: 260 });

@@ -3,6 +3,11 @@ import type { PreviewPlugin, PreviewSize } from "../types";
 import { createEncryptedFallback, isEncryptedError } from "./encrypted";
 
 type PdfJsModule = typeof import("pdfjs-dist");
+type PdfDocumentProxyLike = {
+  numPages: number;
+  getPage(pageNumber: number): Promise<any>;
+  destroy?: () => void;
+};
 
 export interface PdfPluginOptions {
   pdfjs?: PdfJsModule;
@@ -11,6 +16,11 @@ export interface PdfPluginOptions {
   cMapPacked?: boolean;
   standardFontDataUrl?: string;
   useSystemFonts?: boolean;
+  disableStream?: boolean;
+  disableAutoFetch?: boolean;
+  disableRange?: boolean;
+  rangeChunkSize?: number;
+  useFetchData?: boolean;
 }
 
 export interface PdfDocumentPreviewOptions {
@@ -30,6 +40,11 @@ export interface PdfDocumentPreviewOptions {
   cMapPacked?: boolean;
   standardFontDataUrl?: string;
   useSystemFonts?: boolean;
+  disableStream?: boolean;
+  disableAutoFetch?: boolean;
+  disableRange?: boolean;
+  rangeChunkSize?: number;
+  useFetchData?: boolean;
   title?: string;
   fallbackTitle?: string;
   encryptedTitle?: string;
@@ -106,14 +121,7 @@ export async function renderPdfDocumentPreview(options: PdfDocumentPreviewOption
   viewer.append(summary, scroller);
   options.viewport.append(viewer);
 
-  const documentTask = pdf.getDocument({
-    url: options.fileUrl,
-    cMapUrl: options.cMapUrl ?? `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdf.version}/cmaps/`,
-    cMapPacked: options.cMapPacked ?? true,
-    standardFontDataUrl: options.standardFontDataUrl ?? `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdf.version}/standard_fonts/`,
-    useSystemFonts: options.useSystemFonts ?? true
-  });
-  const doc = await documentTask.promise.catch((error: unknown) => {
+  const showDocumentFallback = (error: unknown) => {
     viewer.remove();
     options.viewport.classList.add("ofv-center");
     const fileLike = {
@@ -132,8 +140,31 @@ export async function renderPdfDocumentPreview(options: PdfDocumentPreviewOption
         })
       : createPdfFallback(options.fileName, options.fileUrl, normalizePdfError(error), options.fallbackTitle);
     options.viewport.append(fallback);
-    return undefined;
-  });
+  };
+
+  let documentTask: ReturnType<PdfJsModule["getDocument"]> | undefined;
+  let doc: PdfDocumentProxyLike | undefined;
+  try {
+    const pdfData = options.useFetchData ? await loadPdfData(options.fileUrl) : undefined;
+    documentTask = pdf.getDocument({
+      ...(pdfData ? { data: pdfData } : { url: options.fileUrl }),
+      cMapUrl: options.cMapUrl ?? `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdf.version}/cmaps/`,
+      cMapPacked: options.cMapPacked ?? true,
+      standardFontDataUrl: options.standardFontDataUrl ?? `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdf.version}/standard_fonts/`,
+      useSystemFonts: options.useSystemFonts ?? true,
+      disableStream: options.disableStream,
+      disableAutoFetch: options.disableAutoFetch,
+      disableRange: options.disableRange,
+      rangeChunkSize: options.rangeChunkSize
+    });
+    doc = (await documentTask.promise.catch((error: unknown) => {
+      showDocumentFallback(error);
+      return undefined;
+    })) as PdfDocumentProxyLike | undefined;
+  } catch (error) {
+    showDocumentFallback(error);
+  }
+
   if (!doc) {
     return {
       canCommand() {
@@ -145,18 +176,19 @@ export async function renderPdfDocumentPreview(options: PdfDocumentPreviewOption
       resize() {},
       destroy() {
         options.viewport.classList.remove("ofv-center");
-        documentTask.destroy?.();
+        documentTask?.destroy?.();
         if (options.revokeUrlOnDestroy) {
           revokeObjectUrl(options.fileUrl, Boolean(options.isExternal));
         }
       }
     };
   }
+  const pdfDocument = doc;
 
   const pagesMeta: Array<{ width: number; height: number }> = [];
-  for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber += 1) {
+  for (let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber += 1) {
     try {
-      const page = await doc.getPage(pageNumber);
+      const page = await pdfDocument.getPage(pageNumber);
       const baseViewport = page.getViewport({ scale: 1 });
       pagesMeta.push({
         width: baseViewport.width,
@@ -180,7 +212,7 @@ export async function renderPdfDocumentPreview(options: PdfDocumentPreviewOption
   let rotation = 0;
 
   const updateSummary = () => {
-    renderPdfSummary(summary, doc.numPages, pagesMeta, options.fit, zoomFactor);
+    renderPdfSummary(summary, pdfDocument.numPages, pagesMeta, options.fit, zoomFactor);
     options.toolbar?.setZoom(zoomFactor);
   };
 
@@ -210,7 +242,7 @@ export async function renderPdfDocumentPreview(options: PdfDocumentPreviewOption
     state.rendered = true;
 
     try {
-      const page = await doc.getPage(pageIdx + 1);
+      const page = await pdfDocument.getPage(pageIdx + 1);
       const meta = pagesMeta[pageIdx];
       const scale =
         options.fit === "actual"
@@ -314,7 +346,7 @@ export async function renderPdfDocumentPreview(options: PdfDocumentPreviewOption
               if (!state.rendered) {
                 void renderPage(pageIdx, size);
               }
-            } else if (state.rendered && doc.numPages > 8) {
+            } else if (state.rendered && pdfDocument.numPages > 8) {
               clearPage(pageIdx);
             }
           });
@@ -326,7 +358,7 @@ export async function renderPdfDocumentPreview(options: PdfDocumentPreviewOption
       );
     }
 
-    for (let i = 0; i < doc.numPages; i++) {
+    for (let i = 0; i < pdfDocument.numPages; i++) {
       const meta = pagesMeta[i];
       const rotatedWidth = rotatedPdfWidth(meta, rotation);
       const rotatedHeight = rotatedPdfHeight(meta, rotation);
@@ -363,7 +395,7 @@ export async function renderPdfDocumentPreview(options: PdfDocumentPreviewOption
 
     if (observer) {
       window.setTimeout(() => {
-        const eagerPages = doc.numPages > 8 ? 2 : doc.numPages;
+        const eagerPages = pdfDocument.numPages > 8 ? 2 : pdfDocument.numPages;
         for (let i = 0; i < eagerPages; i++) {
           void renderPage(i, size);
         }
@@ -431,10 +463,10 @@ export async function renderPdfDocumentPreview(options: PdfDocumentPreviewOption
       });
       pageStates.length = 0;
 
+      void pdfDocument.destroy?.();
       if (options.revokeUrlOnDestroy) {
         revokeObjectUrl(options.fileUrl, Boolean(options.isExternal));
       }
-      void doc.destroy();
     }
   };
 }
@@ -516,6 +548,14 @@ function normalizePdfOptions(options: PdfJsModule | PdfPluginOptions): PdfPlugin
     return { pdfjs: options };
   }
   return options;
+}
+
+async function loadPdfData(url: string): Promise<Uint8Array> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to load PDF data: ${response.status} ${response.statusText}`);
+  }
+  return new Uint8Array(await response.arrayBuffer());
 }
 
 function isCanvasVisuallyBlank(canvas: HTMLCanvasElement, context: CanvasRenderingContext2D): boolean {

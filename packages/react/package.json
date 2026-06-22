@@ -1,6 +1,6 @@
 {
   "name": "@open-file-viewer/react",
-  "version": "0.1.9",
+  "version": "0.1.11",
   "description": "React adapter for Open File Viewer.",
   "license": "MIT",
   "type": "module",
@@ -35,7 +35,7 @@
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
-    "@open-file-viewer/core": "0.1.9",
+    "@open-file-viewer/core": "0.1.11",
     "react": ">=18",
     "react-dom": ">=18"
   },
