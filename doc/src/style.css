@@ -1734,6 +1734,14 @@ pre .token.important {
   box-shadow: 0 0 0 4px var(--brand-ring);
 }
 
+.file-drop.is-drag-over {
+  border-color: color-mix(in srgb, var(--brand) 66%, var(--border-strong));
+  background:
+    linear-gradient(135deg, rgba(99, 91, 255, 0.16), rgba(0, 194, 255, 0.12)),
+    var(--surface-soft);
+  box-shadow: 0 0 0 4px var(--brand-ring);
+}
+
 .file-drop:hover .file-picker-button {
   transform: translateY(-1px);
 }

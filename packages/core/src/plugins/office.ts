@@ -1259,13 +1259,62 @@ function repairDocxHeadingShapeAlignment(page: HTMLElement): void {
     if (!svg) {
       continue;
     }
-    const width = parseCssPixelValue(svg.getAttribute("width") || svg.style.width);
+    const width = parseCssPixelValue(svg.style.width) || parseCssPixelValue(svg.getAttribute("width") || "");
     const marginLeft = parseCssPixelValue(svg.style.marginLeft);
     if (width < 300 || marginLeft < 28 || marginLeft > 44) {
       continue;
     }
-    svg.style.marginLeft = "48px";
+    const textWidth = getDocxParagraphVisibleTextWidth(paragraph);
+    svg.style.marginLeft = `${formatCssNumber(Math.max(48, marginLeft + textWidth * 0.68))}pt`;
+    svg.style.marginTop = `${formatCssNumber(parseCssPixelValue(svg.style.marginTop) - 4)}pt`;
+    normalizeDocxHeadingShapeFill(svg);
+    repairDocxHeadingTextBackground(paragraph);
   }
+}
+
+function normalizeDocxHeadingShapeFill(svg: SVGSVGElement): void {
+  const headingFill = "#3f4aa3";
+  const fillNodes = svg.querySelectorAll<SVGElement>("image[fill], rect[data-ofv-docx-shape-fill]");
+  for (const node of fillNodes) {
+    const fill = node.getAttribute("fill") || "";
+    if (fill.toLowerCase() === "#38449a") {
+      node.setAttribute("fill", headingFill);
+    }
+  }
+}
+
+function repairDocxHeadingTextBackground(paragraph: HTMLElement): void {
+  const textSpans = Array.from(paragraph.querySelectorAll<HTMLElement>("span")).filter((element) =>
+    normalizePreviewText(element.textContent || "")
+  );
+  const lastTextSpan = textSpans.at(-1);
+  if (!lastTextSpan || !hasWhiteBackground(lastTextSpan)) {
+    return;
+  }
+  lastTextSpan.style.paddingRight = "3pt";
+  lastTextSpan.style.paddingTop = "2pt";
+  lastTextSpan.style.paddingBottom = "2pt";
+  lastTextSpan.style.boxDecorationBreak = "clone";
+}
+
+function hasWhiteBackground(element: HTMLElement): boolean {
+  const background = element.style.backgroundColor.replace(/\s+/g, "").toLowerCase();
+  return background === "white" || background === "#fff" || background === "#ffffff" || background === "rgb(255,255,255)";
+}
+
+function getDocxParagraphVisibleTextWidth(paragraph: HTMLElement): number {
+  let textWidth = 0;
+  for (const element of paragraph.querySelectorAll<HTMLElement>("span")) {
+    if (!normalizePreviewText(element.textContent || "")) {
+      continue;
+    }
+    textWidth += pxToPt(element.getBoundingClientRect().width);
+  }
+  return textWidth;
+}
+
+function pxToPt(value: number): number {
+  return value * 0.75;
 }
 
 function repairDocxListIndentAlignment(page: HTMLElement): void {

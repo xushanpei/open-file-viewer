@@ -1468,6 +1468,7 @@ function crc32(bytes: Uint8Array): number {
 
 const container = requiredElement<HTMLElement>("#viewer");
 const fileInput = requiredElement<HTMLInputElement>("#file");
+const fileDrop = requiredElement<HTMLElement>(".file-drop");
 const sampleInput = requiredElement<HTMLSelectElement>("#sample");
 const fileUrlInput = requiredElement<HTMLInputElement>("#fileUrl");
 const previewUrlButton = requiredElement<HTMLButtonElement>("#previewUrl");
@@ -1754,9 +1755,9 @@ function syncNavigationState(): void {
 }
 
 function updateFilePickerLabel(): void {
-  const files = Array.from(fileInput.files || []);
+  const files = currentFiles.filter((file): file is File => file instanceof File);
   if (!files.length) {
-    filePickerName.textContent = translations[language]["playground.noFile"];
+    filePickerName.textContent = currentFileName || translations[language]["playground.noFile"];
     return;
   }
 
@@ -1768,8 +1769,7 @@ function updateFilePickerLabel(): void {
         : `${files.length} files selected`;
 }
 
-fileInput.addEventListener("change", () => {
-  const files = Array.from(fileInput.files || []);
+function previewLocalFiles(files: File[]): void {
   if (!files.length) {
     updateFilePickerLabel();
     return;
@@ -1779,12 +1779,48 @@ fileInput.addEventListener("change", () => {
   fileUrlInput.value = "";
   updateFilePickerLabel();
   renderViewer();
+}
+
+fileInput.addEventListener("change", () => {
+  previewLocalFiles(Array.from(fileInput.files || []));
+});
+
+function setDropActive(active: boolean): void {
+  fileDrop.classList.toggle("is-drag-over", active);
+}
+
+fileDrop.addEventListener("dragenter", (event) => {
+  event.preventDefault();
+  if (event.dataTransfer?.types.includes("Files")) {
+    setDropActive(true);
+  }
+});
+
+fileDrop.addEventListener("dragover", (event) => {
+  event.preventDefault();
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = "copy";
+  }
+  setDropActive(true);
+});
+
+fileDrop.addEventListener("dragleave", (event) => {
+  if (event.currentTarget === event.target || !fileDrop.contains(event.relatedTarget as Node | null)) {
+    setDropActive(false);
+  }
+});
+
+fileDrop.addEventListener("drop", (event) => {
+  event.preventDefault();
+  setDropActive(false);
+  previewLocalFiles(Array.from(event.dataTransfer?.files || []));
 });
 
 sampleInput.addEventListener("change", () => {
   const demo = demoFiles[Number(sampleInput.value)] || demoFiles[0];
   currentFiles = [demo.file];
   currentFileName = demo.file.name;
+  fileInput.value = "";
   fileUrlInput.value = "";
   updateFilePickerLabel();
   renderViewer();

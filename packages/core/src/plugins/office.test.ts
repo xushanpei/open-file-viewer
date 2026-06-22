@@ -932,7 +932,7 @@ describe("officePlugin", () => {
       page.innerHTML = `
         <p><span><div style="display:inline-block;position:relative;width:68pt;height:95.25pt;float:left"><img src="data:image/jpeg;base64,AA==" /></div></span></p>
         <p><span style="font-weight:bold">颜琪</span></p>
-        <p><span><div><svg width="658" height="39"><image width="100%" height="100%" fill="#38449A" stroke="null"></image></svg></div></span><span>个人信息</span></p>
+        <p><span><svg width="0" height="0" style="position:absolute;left:0pt;margin-left:29.4pt;margin-top:1.65pt;height:29.05pt;width:493pt;"><image width="100%" height="100%" fill="#38449A" stroke="null"></image></svg></span><span style="background-color: rgb(255, 255, 255);">工作经</span><span style="background-color: rgb(255, 255, 255);">历</span></p>
       `;
       wrapper.append(page);
       bodyContainer.append(wrapper);
@@ -948,9 +948,16 @@ describe("officePlugin", () => {
     await waitFor(() => Boolean(container.querySelector("rect[data-ofv-docx-shape-fill]")));
 
     const rect = container.querySelector("rect[data-ofv-docx-shape-fill]");
+    const headingShape = container.querySelector<SVGSVGElement>(".ofv-docx-document p svg");
+    const headingSpans = container.querySelectorAll<HTMLElement>(".ofv-docx-document p span");
     const imageWrapper = container.querySelector<HTMLElement>(".ofv-docx-document img")?.parentElement as HTMLElement;
     expect(renderDocxAsync).toHaveBeenCalledTimes(callsBefore + 1);
-    expect(rect?.getAttribute("fill")).toBe("#38449A");
+    expect(rect?.getAttribute("fill")).toBe("#3f4aa3");
+    expect(headingShape?.style.marginLeft).toBe("48pt");
+    expect(headingShape?.style.marginTop).toBe("-2.35pt");
+    expect(headingSpans[headingSpans.length - 1]?.style.paddingRight).toBe("3pt");
+    expect(headingSpans[headingSpans.length - 1]?.style.paddingTop).toBe("2pt");
+    expect(headingSpans[headingSpans.length - 1]?.style.paddingBottom).toBe("2pt");
     expect(imageWrapper.dataset.ofvDocxFloatRepaired).toBe("true");
     expect(imageWrapper.style.position).toBe("absolute");
     expect(imageWrapper.style.float).toBe("none");
