@@ -6,7 +6,8 @@ type PdfJsModule = typeof import("pdfjs-dist");
 type PdfDocumentProxyLike = {
   numPages: number;
   getPage(pageNumber: number): Promise<any>;
-  destroy?: () => void;
+  destroy?: unknown;
+  cleanup?: unknown;
 };
 
 export interface PdfPluginOptions {
@@ -176,7 +177,7 @@ export async function renderPdfDocumentPreview(options: PdfDocumentPreviewOption
       resize() {},
       destroy() {
         options.viewport.classList.remove("ofv-center");
-        documentTask?.destroy?.();
+        destroyPdfResource(documentTask);
         if (options.revokeUrlOnDestroy) {
           revokeObjectUrl(options.fileUrl, Boolean(options.isExternal));
         }
@@ -463,12 +464,27 @@ export async function renderPdfDocumentPreview(options: PdfDocumentPreviewOption
       });
       pageStates.length = 0;
 
-      void pdfDocument.destroy?.();
+      destroyPdfResource(pdfDocument);
+      destroyPdfResource(documentTask);
       if (options.revokeUrlOnDestroy) {
         revokeObjectUrl(options.fileUrl, Boolean(options.isExternal));
       }
     }
   };
+}
+
+function destroyPdfResource(resource: unknown): void {
+  if (!resource || typeof resource !== "object") {
+    return;
+  }
+  const candidate = resource as { destroy?: unknown; cleanup?: unknown };
+  if (typeof candidate.destroy === "function") {
+    void candidate.destroy();
+    return;
+  }
+  if (typeof candidate.cleanup === "function") {
+    void candidate.cleanup();
+  }
 }
 
 function getPdfOutputScale(): number {

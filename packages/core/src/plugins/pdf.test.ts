@@ -394,6 +394,92 @@ describe("pdfPlugin", () => {
 
     viewer.destroy();
   });
+
+  it("does not throw when a pdf.js document exposes a non-callable destroy property", async () => {
+    vi.stubGlobal("IntersectionObserver", undefined);
+    const container = createSizedContainer();
+    const page = createPdfPageMock();
+    const cleanup = vi.fn();
+    const taskDestroy = vi.fn();
+    const pdfjs = {
+      version: "6.0.227-test",
+      GlobalWorkerOptions: { workerSrc: "" },
+      getDocument: vi.fn(() => ({
+        promise: Promise.resolve({
+          numPages: 1,
+          getPage: vi.fn(() => Promise.resolve(page)),
+          destroy: undefined,
+          cleanup
+        }),
+        destroy: taskDestroy
+      }))
+    };
+
+    const viewer = createViewer({
+      container,
+      file: new Blob(["pdf"], { type: "application/pdf" }),
+      fileName: "pdfjs-6.pdf",
+      plugins: [pdfPlugin({ pdfjs: pdfjs as any })]
+    });
+
+    await waitFor(() => container.querySelectorAll("canvas.ofv-pdf-page").length === 1);
+
+    expect(() => viewer.destroy()).not.toThrow();
+    expect(cleanup).toHaveBeenCalledTimes(1);
+    expect(taskDestroy).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps multi-file navigation working after leaving a PDF preview", async () => {
+    vi.stubGlobal("IntersectionObserver", undefined);
+    const container = createSizedContainer();
+    const page = createPdfPageMock();
+    const cleanup = vi.fn();
+    const taskDestroy = vi.fn();
+    const pdfjs = {
+      version: "6.0.227-test",
+      GlobalWorkerOptions: { workerSrc: "" },
+      getDocument: vi.fn(() => ({
+        promise: Promise.resolve({
+          numPages: 1,
+          getPage: vi.fn(() => Promise.resolve(page)),
+          destroy: undefined,
+          cleanup
+        }),
+        destroy: taskDestroy
+      }))
+    };
+
+    const viewer = createViewer({
+      container,
+      files: [
+        { file: new Blob(["pdf"], { type: "application/pdf" }), fileName: "first.pdf" },
+        { file: new Blob(["next"], { type: "text/plain" }), fileName: "next.txt" }
+      ],
+      toolbar: true,
+      plugins: [
+        pdfPlugin({ pdfjs: pdfjs as any }),
+        {
+          name: "txt-fixture",
+          match: (file) => file.extension === "txt",
+          render(ctx) {
+            ctx.viewport.textContent = `txt:${ctx.file.name}`;
+            return { destroy: vi.fn() };
+          }
+        }
+      ]
+    });
+
+    await waitFor(() => container.querySelectorAll("canvas.ofv-pdf-page").length === 1);
+
+    await expect(viewer.next()).resolves.toBeUndefined();
+    await waitFor(() => container.textContent?.includes("txt:next.txt") === true);
+
+    expect(viewer.getCurrentIndex()).toBe(1);
+    expect(cleanup).toHaveBeenCalledTimes(1);
+    expect(taskDestroy).toHaveBeenCalledTimes(1);
+
+    viewer.destroy();
+  });
 });
 
 function createPdfJsMock(): any {

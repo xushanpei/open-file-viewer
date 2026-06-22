@@ -566,6 +566,46 @@ describe("createViewer", () => {
     expect(destroyed).toContain("preview.doc");
   });
 
+  it("continues queued navigation when the previous preview destroy hook throws", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const plugin: PreviewPlugin = {
+      name: "fragile-destroy",
+      match: (file) => file.extension === "txt",
+      render(ctx) {
+        ctx.viewport.textContent = ctx.file.name;
+        return {
+          destroy() {
+            if (ctx.file.name === "first.txt") {
+              throw new Error("destroy failed");
+            }
+          }
+        };
+      }
+    };
+
+    const viewer = createViewer({
+      container,
+      files: [
+        { file: new Blob(["first"], { type: "text/plain" }), fileName: "first.txt" },
+        { file: new Blob(["second"], { type: "text/plain" }), fileName: "second.txt" }
+      ],
+      plugins: [plugin]
+    });
+
+    await waitFor(() => container.textContent?.includes("first.txt") === true);
+
+    await expect(viewer.next()).resolves.toBeUndefined();
+    await waitFor(() => container.textContent?.includes("second.txt") === true);
+
+    expect(viewer.getCurrentIndex()).toBe(1);
+    expect(consoleError).toHaveBeenCalledWith("Failed to destroy file preview instance:", expect.any(Error));
+
+    viewer.destroy();
+  });
+
   it("searches accessible iframe body text", async () => {
     const container = document.createElement("div");
     document.body.append(container);

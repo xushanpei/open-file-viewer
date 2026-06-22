@@ -94,7 +94,7 @@ export function createViewer(options: PreviewOptions): FileViewer {
     if (destroyed || token !== renderToken) {
       return;
     }
-    currentInstance?.destroy();
+    destroyPreviewInstance(currentInstance);
     currentInstance = undefined;
     viewport.replaceChildren();
     setLoading(true);
@@ -118,7 +118,7 @@ export function createViewer(options: PreviewOptions): FileViewer {
         setError
       });
       if (destroyed || token !== renderToken) {
-        nextInstance.destroy();
+        destroyPreviewInstance(nextInstance);
         return;
       }
       currentInstance = nextInstance;
@@ -178,7 +178,7 @@ export function createViewer(options: PreviewOptions): FileViewer {
       destroyed = true;
       renderToken += 1;
       resizeObserver.destroy();
-      currentInstance?.destroy();
+      destroyPreviewInstance(currentInstance);
       toolbar?.destroy();
       theme.destroy();
       container.replaceChildren();
@@ -188,6 +188,17 @@ export function createViewer(options: PreviewOptions): FileViewer {
       }
     }
   };
+}
+
+function destroyPreviewInstance(instance: PreviewInstance | undefined): void {
+  if (!instance) {
+    return;
+  }
+  try {
+    instance.destroy();
+  } catch (error) {
+    console.error("Failed to destroy file preview instance:", error);
+  }
 }
 
 function normalizeQueue(options: PreviewOptions): PreviewItem[] {
