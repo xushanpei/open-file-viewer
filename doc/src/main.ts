@@ -209,7 +209,16 @@ const translations: Record<Language, Record<string, string>> = {
 
 const formats = [
   { title: "PDF / Office", icon: "document", level: { zh: "高频业务文档", en: "Business documents" }, items: "pdf docx docm dotx dotm rtf odt xlsx xlsm ods pptx pptm odp ofd epub xps" },
-  { title: "Image / Media", icon: "media", level: { zh: "浏览器原生与增强", en: "Native and enhanced" }, items: "jpg jpeg png gif webp avif jxl svg bmp ico heic heif mp4 webm m3u8 mp3 wav flac midi" },
+  {
+    title: "Image / Media",
+    icon: "media",
+    level: { zh: "浏览器原生与增强", en: "Native and enhanced" },
+    note: {
+      zh: "FLV、M2TS 需要业务项目按需安装 mpegts.js；未安装时展示下载降级。",
+      en: "FLV and M2TS require optional mpegts.js in the host app; otherwise a download fallback is shown."
+    },
+    items: "jpg jpeg png gif webp avif jxl svg bmp ico heic heif mp4 webm m3u8 flv m2ts mp3 wav flac midi"
+  },
   { title: "Text / Code", icon: "code", level: { zh: "高亮与编辑器模式", en: "Highlight and editor mode" }, items: "txt md json jsonc json5 ipynb yaml toml ini proto hcl tex gv http js ts vue react css html py go rs rb swift kt" },
   { title: "Engineering", icon: "engineering", level: { zh: "工程资料、芯片版图与结构预览", en: "Engineering, layout and structure" }, items: "dxf dwg step ifc gds oas oasis gltf glb obj stl fbx dae 3mf usdz geojson kml kmz gpx shp drawio excalidraw" },
   { title: "Archive / Email", icon: "archive", level: { zh: "目录、正文与附件", en: "Structure, body and attachments" }, items: "zip rar 7z tar gz tgz bz2 xz eml msg mbox" },
@@ -1612,6 +1621,11 @@ function populateFormats() {
       title.textContent = format.title;
       const level = document.createElement("p");
       level.textContent = format.level[language];
+      const note = format.note ? document.createElement("p") : null;
+      if (note && format.note) {
+        note.className = "format-note";
+        note.textContent = format.note[language];
+      }
       const tags = document.createElement("div");
       tags.className = "tag-list";
       for (const item of format.items.split(" ")) {
@@ -1619,7 +1633,7 @@ function populateFormats() {
         tag.textContent = item;
         tags.append(tag);
       }
-      card.append(icon, title, level, tags);
+      card.append(icon, title, level, ...(note ? [note] : []), tags);
       return card;
     })
   );

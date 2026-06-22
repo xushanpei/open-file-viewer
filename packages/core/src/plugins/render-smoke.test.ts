@@ -20,7 +20,7 @@ import { officePlugin } from "./office";
 import { ofdPlugin } from "./ofd";
 import { pdfPlugin } from "./pdf";
 import { textPlugin } from "./text";
-import { videoPlugin } from "./video";
+import { __setMpegtsLoaderForTests, videoPlugin } from "./video";
 import { xpsPlugin } from "./xps";
 
 const nativeFetch = globalThis.fetch;
@@ -161,20 +161,6 @@ vi.mock("hls.js", () => ({
     attachMedia = vi.fn();
     on = vi.fn();
     destroy = vi.fn();
-  }
-}));
-
-vi.mock("mpegts.js", () => ({
-  default: {
-    Events: { ERROR: "error" },
-    isSupported: vi.fn(() => true),
-    createPlayer: vi.fn(() => ({
-      attachMediaElement: vi.fn(),
-      load: vi.fn(),
-      on: vi.fn(),
-      unload: vi.fn(),
-      destroy: vi.fn()
-    }))
   }
 }));
 
@@ -541,6 +527,19 @@ describe("default plugin render smoke", () => {
       }
     });
     vi.stubGlobal("fetch", vi.fn(mockRemoteFetch));
+    __setMpegtsLoaderForTests(async () => ({
+      default: {
+        Events: { ERROR: "error" },
+        isSupported: vi.fn(() => true),
+        createPlayer: vi.fn(() => ({
+          attachMediaElement: vi.fn(),
+          load: vi.fn(),
+          on: vi.fn(),
+          unload: vi.fn(),
+          destroy: vi.fn()
+        }))
+      }
+    }));
     vi.stubGlobal(
       "ImageData",
       vi.fn(function ImageDataMock(this: ImageData, data: Uint8ClampedArray, width: number, height: number) {
@@ -552,6 +551,7 @@ describe("default plugin render smoke", () => {
   afterEach(() => {
     document.head.querySelector("#ofv-leaflet-css")?.remove();
     document.body.replaceChildren();
+    __setMpegtsLoaderForTests(null);
     if (originalDocumentFontsDescriptor) {
       Object.defineProperty(Document.prototype, "fonts", originalDocumentFontsDescriptor);
       Reflect.deleteProperty(document, "fonts");

@@ -283,6 +283,20 @@ const plugins = [
 
 复杂格式的预览质量会受浏览器能力、文件结构和依赖解析器影响。当前版本优先保证所有格式都在容器内走可控预览路径；高保真 Office、CAD、设计稿和专有二进制格式可以继续接入专用引擎或服务端转换。
 
+视频预览中，MP4、WebM、MOV 等浏览器原生格式不需要额外依赖；HLS 由内置的 `hls.js` 处理；FLV 和 MPEG-TS/M2TS 属于可选增强能力，需要业务项目自行安装 `mpegts.js`。未安装时会展示下载 fallback，避免安装 `@open-file-viewer/core` 时被 `mpegts.js` 的 git 子依赖影响。
+
+如果业务确实需要 FLV/M2TS，并且 pnpm 11 开启了 `blockExoticSubdeps`，可以在业务项目中覆盖 `mpegts.js` 的传递依赖：
+
+```json
+{
+  "pnpm": {
+    "overrides": {
+      "webworkify-webpack": "2.1.5"
+    }
+  }
+}
+```
+
 ### DWG / DWF 两层预览模型
 
 DWG 是 AutoCAD 专有二进制格式，`cadPlugin()` 采用“两层能力”设计：默认内置能力负责尽可能本地预览，外部增强能力负责业务高保真渲染。

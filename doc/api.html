@@ -161,6 +161,7 @@
           <a href="#overview">能力概览</a>
           <a href="#frameworks">支持框架</a>
           <a href="#install">安装</a>
+          <a href="#optional-deps">可选依赖</a>
           <a href="#quick-start">快速接入</a>
           <a href="#options">核心 API</a>
           <a href="#instance">实例方法</a>
@@ -221,6 +222,46 @@ npm install @open-file-viewer/svelte</code></pre>
             <div class="doc-callout">
               <strong>样式必须引入</strong>
               <p>默认 UI、工具栏、错误态、各类插件容器都依赖 <code>@open-file-viewer/core/style.css</code>。业务项目可在它之后覆盖 CSS 变量或 class。</p>
+            </div>
+          </section>
+
+          <section class="doc-panel" id="optional-deps">
+            <p class="doc-eyebrow">Optional Dependencies</p>
+            <h2>按需安装的增强能力</h2>
+            <p>core 默认安装只包含通用预览能力。少数专有格式或流媒体格式需要业务项目按需安装额外依赖；未安装时，插件会展示元信息或下载降级，不会阻塞普通文件预览。</p>
+            <div class="doc-card-grid">
+              <article>
+                <strong>PDF</strong>
+                <p><code>pdfPlugin()</code> 需要业务项目提供 <code>pdfjs-dist</code> worker 地址，适合 Vite、Webpack、Next.js 等不同构建环境自行处理 worker 资源。</p>
+              </article>
+              <article>
+                <strong>DWG</strong>
+                <p><code>cadPlugin()</code> 默认会尝试 LibreDWG WASM。需要 DWG 线稿预览时安装 <code>@mlightcad/libredwg-web</code> 并配置 <code>wasmBaseUrl</code>。</p>
+              </article>
+              <article>
+                <strong>FLV / M2TS</strong>
+                <p><code>videoPlugin()</code> 对 MP4、WebM、MOV 等原生格式不需要额外依赖；FLV、MPEG-TS/M2TS 需要业务项目安装 <code>mpegts.js</code>，未安装时展示下载 fallback。</p>
+              </article>
+            </div>
+            <div class="editor-window doc-code-window">
+              <div class="editor-titlebar"><span></span><span></span><span></span><strong>terminal</strong></div>
+              <pre><code data-language="bash">npm install pdfjs-dist
+npm install @mlightcad/libredwg-web
+npm install mpegts.js</code></pre>
+            </div>
+            <div class="doc-callout">
+              <strong>pnpm 11 / blockExoticSubdeps 说明</strong>
+              <p><code>mpegts.js</code> 的上游依赖中包含 git 形式的 <code>webworkify-webpack</code>。因此 Open File Viewer 不再把它作为 core 强制依赖。只有确实需要 FLV/M2TS 播放时才安装它；如果你的 pnpm 配置阻止 git 子依赖，可以在业务项目中覆盖到 npm 版本，或继续使用内置下载降级。</p>
+            </div>
+            <div class="editor-window doc-code-window">
+              <div class="editor-titlebar"><span></span><span></span><span></span><strong>package.json</strong></div>
+              <pre><code data-language="json">{
+  "pnpm": {
+    "overrides": {
+      "webworkify-webpack": "2.1.5"
+    }
+  }
+}</code></pre>
             </div>
           </section>
 

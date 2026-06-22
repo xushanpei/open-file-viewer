@@ -1,6 +1,28 @@
 import { createObjectUrl, revokeObjectUrl } from "../dom";
 import type { PreviewCommand, PreviewContext, PreviewPlugin } from "../types";
 
+type MpegtsModule = {
+  default?: MpegtsApi;
+} & Partial<MpegtsApi>;
+
+type MpegtsApi = {
+  Events: { ERROR: string };
+  isSupported(): boolean;
+  createPlayer(options: { type: "flv" | "mpegts"; url: string }): {
+    attachMediaElement(video: HTMLVideoElement): void;
+    load(): void;
+    on(event: string, callback: (...args: unknown[]) => void): void;
+    unload(): void;
+    destroy(): void;
+  };
+};
+
+type MpegtsLoader = () => Promise<MpegtsModule>;
+
+const mpegtsPackageName = "mpegts.js";
+
+let loadMpegts: MpegtsLoader = () => import(/* @vite-ignore */ mpegtsPackageName) as Promise<MpegtsModule>;
+
 const videoExtensions = new Set([
   "mp4",
   "mpg",
@@ -131,7 +153,8 @@ export function videoPlugin(): PreviewPlugin {
             showTranscodeFallback();
           }
         } else if (isFlv || isMpegTs) {
-          const mpegts = (await import("mpegts.js")).default;
+          const mpegtsModule = await loadMpegts();
+          const mpegts = resolveMpegtsApi(mpegtsModule);
           if (mpegts.isSupported()) {
             mpegtsPlayer = mpegts.createPlayer({
               type: isFlv ? "flv" : "mpegts",
@@ -186,6 +209,18 @@ export function videoPlugin(): PreviewPlugin {
       };
     }
   };
+}
+
+export function __setMpegtsLoaderForTests(loader: MpegtsLoader | null): void {
+  loadMpegts = loader || (() => import(/* @vite-ignore */ mpegtsPackageName) as Promise<MpegtsModule>);
+}
+
+function resolveMpegtsApi(module: MpegtsModule): MpegtsApi {
+  const api = module.default || module;
+  if (!api.Events || !api.isSupported || !api.createPlayer) {
+    throw new Error("mpegts.js is not available.");
+  }
+  return api as MpegtsApi;
 }
 
 function createVideoTransformController(video: HTMLVideoElement, ctx: Pick<PreviewContext, "toolbar">) {

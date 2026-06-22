@@ -1,7 +1,7 @@
 {
   "name": "open-file-viewer-workspace",
   "private": true,
-  "version": "0.1.6",
+  "version": "0.1.9",
   "description": "Container-first file preview library for browser, React, Vue, Svelte and vanilla JavaScript.",
   "license": "MIT",
   "type": "module",

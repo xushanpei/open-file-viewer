@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createViewer } from "../viewer";
 import { audioPlugin } from "./audio";
-import { videoPlugin } from "./video";
+import { __setMpegtsLoaderForTests, videoPlugin } from "./video";
 
 const hlsLoadSource = vi.hoisted(() => vi.fn());
 const hlsAttachMedia = vi.hoisted(() => vi.fn());
@@ -25,17 +25,10 @@ vi.mock("hls.js", () => {
   return { default: Hls };
 });
 
-vi.mock("mpegts.js", () => ({
-  default: {
-    Events: { ERROR: "error" },
-    isSupported: vi.fn(() => true),
-    createPlayer: mpegtsCreatePlayer
-  }
-}));
-
 describe("media plugins", () => {
   afterEach(() => {
     document.body.replaceChildren();
+    __setMpegtsLoaderForTests(null);
     vi.restoreAllMocks();
     hlsLoadSource.mockClear();
     hlsAttachMedia.mockClear();
@@ -592,6 +585,13 @@ describe("media plugins", () => {
       createObjectURL: vi.fn(() => objectUrl),
       revokeObjectURL: vi.fn()
     });
+    __setMpegtsLoaderForTests(async () => ({
+      default: {
+        Events: { ERROR: "error" },
+        isSupported: vi.fn(() => true),
+        createPlayer: mpegtsCreatePlayer
+      }
+    }));
     mpegtsCreatePlayer.mockReturnValue({
       attachMediaElement: mpegtsAttachMedia,
       load: mpegtsLoad,
@@ -627,6 +627,13 @@ describe("media plugins", () => {
       createObjectURL: vi.fn(() => objectUrl),
       revokeObjectURL: vi.fn()
     });
+    __setMpegtsLoaderForTests(async () => ({
+      default: {
+        Events: { ERROR: "error" },
+        isSupported: vi.fn(() => true),
+        createPlayer: mpegtsCreatePlayer
+      }
+    }));
     mpegtsCreatePlayer.mockReturnValue({
       attachMediaElement: mpegtsAttachMedia,
       load: mpegtsLoad,

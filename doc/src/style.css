@@ -1931,6 +1931,16 @@ pre .token.important {
     var(--surface);
 }
 
+.format-note {
+  margin-top: -2px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--format-accent, var(--brand)) 22%, var(--border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--format-accent, var(--brand)) 8%, transparent);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
 .tag-list {
   display: flex;
   flex-wrap: wrap;

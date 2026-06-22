@@ -36,6 +36,24 @@ Copy `libredwg-web.wasm` to a public directory and point `cadPlugin` to it:
 cadPlugin({ libreDwg: { wasmBaseUrl: "/vendor/libredwg-web" } });
 ```
 
+Native browser video formats such as MP4, WebM and MOV do not need extra dependencies. HLS uses `hls.js`, which is bundled with the core package. FLV and MPEG-TS/M2TS playback is optional: install `mpegts.js` in your application only if you need those formats. If it is not installed, `videoPlugin()` shows the built-in download fallback for FLV/M2TS files.
+
+```bash
+npm install mpegts.js
+```
+
+`mpegts.js` currently depends on a git-based `webworkify-webpack` fork. pnpm 11 users with `blockExoticSubdeps` enabled can keep `@open-file-viewer/core` installed normally because `mpegts.js` is no longer a required dependency. If your app really needs FLV/M2TS playback, either allow that dependency in your app or override it to the npm release:
+
+```json
+{
+  "pnpm": {
+    "overrides": {
+      "webworkify-webpack": "2.1.5"
+    }
+  }
+}
+```
+
 ## Quick Start
 
 ```ts
