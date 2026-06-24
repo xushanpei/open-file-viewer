@@ -2,7 +2,7 @@ import JSZip from "jszip";
 import DOMPurify from "dompurify";
 import type { WorkBook } from "xlsx";
 import type { PreviewCommand, PreviewContext, PreviewInstance, PreviewPlugin } from "../types";
-import { createPanel, createSection, decodeTextBuffer, readArrayBuffer, resolveFormat } from "./utils";
+import { createPanel, createSection, decodeTextBuffer, getInitialZoom, readArrayBuffer, resolveFormat } from "./utils";
 import { renderPdfDocumentPreview, type PdfPluginOptions } from "./pdf";
 
 const wordExtensions = new Set(["docx", "docm", "doc", "dotx", "dotm", "dot", "rtf", "odt", "fodt", "wps"]);
@@ -272,6 +272,7 @@ async function renderConvertedOfficePreview(
     viewport: panel,
     size: ctx.size,
     fit: ctx.options.fit,
+    zoom: ctx.options.zoom,
     toolbar: ctx.toolbar,
     title: "Office 高保真转换预览",
     fallbackTitle: "Office 转换后的 PDF 无法预览",
@@ -337,7 +338,7 @@ function stripFileExtension(fileName: string): string {
 
 function createOfficeZoomController(
   panel: HTMLElement,
-  ctx: Pick<PreviewContext, "toolbar">
+  ctx: Pick<PreviewContext, "options" | "toolbar">
 ): {
   canCommand: (command: PreviewCommand) => boolean;
   command: (command: PreviewCommand) => boolean;
@@ -350,7 +351,7 @@ function createOfficeZoomController(
     return undefined;
   }
 
-  let zoom = 1;
+  let zoom = getInitialZoom(ctx, 0.5, 3);
   const apply = () => {
     panel.style.setProperty("--ofv-office-zoom", String(zoom));
     panel.dispatchEvent(new CustomEvent("ofv-office-zoom"));

@@ -308,6 +308,7 @@ createViewer(options: PreviewOptions): FileViewer;
 | `mimeType` | `string` | 自動推論 | MIME タイプ |
 | `width` | `number \| string` | 元のコンテナ幅 | プレビューコンテナの幅 |
 | `height` | `number \| string` | 元のコンテナ高さ | プレビューコンテナの高さ |
+| `zoom` | `number` | `1` | 初期ズーム倍率。`1` は 100% を表します |
 | `fit` | `contain \| cover \| width \| height \| actual \| scale-down` | `contain` | コンテンツのフィット方式 |
 | `plugins` | `PreviewPlugin[]` | `[]` | 順番にマッチするプラグインリスト |
 | `fallback` | `inline \| download \| custom` | `inline` | 非対応形式の fallback 戦略 |

@@ -99,6 +99,26 @@ describe("textPlugin", () => {
     expect(reset.textContent).toBe("100%");
   });
 
+  it("applies the initial zoom option to markdown previews", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    createViewer({
+      container,
+      file: new Blob(["# Zoomable\n\nMarkdown body"], { type: "text/markdown" }),
+      fileName: "zoom.md",
+      zoom: 1.5,
+      plugins: [textPlugin()],
+      toolbar: true
+    });
+
+    const markdown = await waitFor(() => container.querySelector<HTMLElement>(".ofv-markdown-body"));
+    const reset = await waitFor(() => findToolbarButton(container, "Reset zoom"));
+
+    expect(markdown.style.getPropertyValue("--ofv-markdown-zoom")).toBe("1.5");
+    expect(reset.textContent).toBe("150%");
+  });
+
   it("shows a local fallback when remote text cannot be fetched", async () => {
     const container = document.createElement("div");
     const onError = vi.fn();

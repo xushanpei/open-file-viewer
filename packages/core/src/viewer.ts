@@ -62,9 +62,10 @@ export function createViewer(options: PreviewOptions): FileViewer {
   container.replaceChildren(host);
 
   const normalizedOptions = {
+    ...options,
     fit: options.fit || "contain",
     fallback: options.fallback || "inline",
-    ...options
+    zoom: normalizeInitialZoom(options.zoom)
   };
 
   let destroyed = false;
@@ -247,6 +248,10 @@ function clampIndex(index: number, length: number): number {
     return 0;
   }
   return Math.min(Math.max(index, 0), length - 1);
+}
+
+function normalizeInitialZoom(zoom: PreviewOptions["zoom"]): number {
+  return typeof zoom === "number" && Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
 }
 
 function applyTheme(

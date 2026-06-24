@@ -67,6 +67,36 @@ describe("imagePlugin", () => {
     expect(URL.revokeObjectURL).toHaveBeenCalledWith(objectUrl);
   });
 
+  it("applies the initial zoom option to image previews", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    vi.stubGlobal("URL", {
+      ...URL,
+      createObjectURL: vi.fn(() => "blob:initial-zoom-image"),
+      revokeObjectURL: vi.fn()
+    });
+
+    const viewer = createViewer({
+      container,
+      file: new Blob(["<svg></svg>"], { type: "image/svg+xml" }),
+      fileName: "image.svg",
+      zoom: 1.5,
+      toolbar: true,
+      plugins: [imagePlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-image-content")));
+
+    const image = container.querySelector<HTMLImageElement>(".ofv-image-content");
+    const zoomReset = container.querySelector<HTMLButtonElement>('button[aria-label="Reset zoom"]');
+
+    expect(image?.style.transform).toContain("scale(1.5)");
+    expect(zoomReset?.textContent).toBe("150%");
+
+    viewer.destroy();
+  });
+
   it("renders inline image controls only when the shared toolbar is disabled", async () => {
     const container = document.createElement("div");
     document.body.append(container);

@@ -347,6 +347,7 @@ createViewer(options: PreviewOptions): FileViewer;
 | `mimeType` | `string` | Auto inferred | MIME type |
 | `width` | `number \| string` | Original container width | Preview container width |
 | `height` | `number \| string` | Original container height | Preview container height |
+| `zoom` | `number` | `1` | Initial zoom level, where `1` means 100% |
 | `fit` | `contain \| cover \| width \| height \| actual \| scale-down` | `contain` | Content fitting mode |
 | `plugins` | `PreviewPlugin[]` | `[]` | Plugin list, matched in order |
 | `fallback` | `inline \| download \| custom` | `inline` | Fallback strategy for unsupported formats |

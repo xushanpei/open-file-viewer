@@ -1,7 +1,7 @@
 /// <reference path="../shims-text.d.ts" />
 import { isTextLike } from "../detect";
 import type { PreviewCommand, PreviewContext, PreviewPlugin } from "../types";
-import { decodeTextBuffer } from "./utils";
+import { decodeTextBuffer, getInitialZoom } from "./utils";
 
 const langMap: Record<string, string> = {
   js: "javascript",
@@ -519,7 +519,7 @@ export function textPlugin(): PreviewPlugin {
 }
 
 function createTextZoomController(target: HTMLElement, cssVariable: string, ctx: PreviewContext) {
-  let zoom = 1;
+  let zoom = getInitialZoom(ctx, 0.5, 3);
 
   const apply = () => {
     const normalized = Math.round(zoom * 100) / 100;

@@ -308,6 +308,7 @@ createViewer(options: PreviewOptions): FileViewer;
 | `mimeType` | `string` | 자동 추론 | MIME 타입 |
 | `width` | `number \| string` | 원래 컨테이너 너비 | 미리보기 컨테이너 너비 |
 | `height` | `number \| string` | 원래 컨테이너 높이 | 미리보기 컨테이너 높이 |
+| `zoom` | `number` | `1` | 초기 확대/축소 배율, `1`은 100%를 의미 |
 | `fit` | `contain \| cover \| width \| height \| actual \| scale-down` | `contain` | 콘텐츠 맞춤 방식 |
 | `plugins` | `PreviewPlugin[]` | `[]` | 순서대로 매칭되는 플러그인 목록 |
 | `fallback` | `inline \| download \| custom` | `inline` | 지원되지 않는 형식의 fallback 전략 |

@@ -406,6 +406,7 @@ createViewer(options: PreviewOptions): FileViewer;
 | `mimeType` | `string` | 自动推断 | MIME 类型 |
 | `width` | `number \| string` | 容器原始宽度 | 预览容器宽度 |
 | `height` | `number \| string` | 容器原始高度 | 预览容器高度 |
+| `zoom` | `number` | `1` | 初始缩放比例，`1` 表示 100% |
 | `fit` | `contain \| cover \| width \| height \| actual \| scale-down` | `contain` | 内容适配方式 |
 | `plugins` | `PreviewPlugin[]` | `[]` | 插件列表，按顺序匹配 |
 | `fallback` | `inline \| download \| custom` | `inline` | 不支持时的兜底策略 |

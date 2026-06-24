@@ -145,6 +145,61 @@ describe("createViewer", () => {
     viewer.destroy();
   });
 
+  it("passes a normalized initial zoom to plugins", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    const render = vi.fn((ctx) => {
+      ctx.viewport.textContent = String(ctx.options.zoom);
+      return { destroy: vi.fn() };
+    });
+
+    const viewer = createViewer({
+      container,
+      file: new Blob(["hello"], { type: "text/plain" }),
+      fileName: "hello.txt",
+      zoom: 1.5,
+      plugins: [
+        {
+          name: "initial-zoom",
+          match: () => true,
+          render
+        }
+      ]
+    });
+
+    await waitFor(() => container.textContent === "1.5");
+    expect(render).toHaveBeenCalledWith(expect.objectContaining({ options: expect.objectContaining({ zoom: 1.5 }) }));
+
+    viewer.destroy();
+  });
+
+  it("defaults invalid initial zoom values to 100%", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    const viewer = createViewer({
+      container,
+      file: new Blob(["hello"], { type: "text/plain" }),
+      fileName: "hello.txt",
+      zoom: 0,
+      plugins: [
+        {
+          name: "default-zoom",
+          match: () => true,
+          render(ctx) {
+            ctx.viewport.textContent = String(ctx.options.zoom);
+            return { destroy: vi.fn() };
+          }
+        }
+      ]
+    });
+
+    await waitFor(() => container.textContent === "1");
+
+    viewer.destroy();
+  });
+
   it("clears partial plugin output before showing render errors", async () => {
     const container = document.createElement("div");
     document.body.append(container);

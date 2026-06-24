@@ -103,6 +103,7 @@ export interface PreviewOptions {
   mimeType?: string;
   width?: number | string;
   height?: number | string;
+  zoom?: number;
   fit?: PreviewFit;
   plugins?: PreviewPlugin[];
   fallback?: PreviewFallback;
@@ -120,7 +121,7 @@ export interface PreviewContext {
   viewport: HTMLElement;
   file: PreviewFile;
   size: PreviewSize;
-  options: Required<Pick<PreviewOptions, "fit" | "fallback">> & PreviewOptions;
+  options: Required<Pick<PreviewOptions, "fit" | "fallback" | "zoom">> & PreviewOptions;
   toolbar?: PreviewToolbarRenderContext;
   setLoading: (loading: boolean) => void;
   setError: (error: Error | string) => void;

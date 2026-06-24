@@ -1,6 +1,7 @@
 import { createObjectUrl, revokeObjectUrl } from "../dom";
 import type { PreviewPlugin, PreviewSize } from "../types";
 import { createEncryptedFallback, isEncryptedError } from "./encrypted";
+import { getInitialZoom } from "./utils";
 
 type PdfJsModule = typeof import("pdfjs-dist");
 type PdfDocumentProxyLike = {
@@ -32,6 +33,7 @@ export interface PdfDocumentPreviewOptions {
   viewport: HTMLElement;
   size: PreviewSize;
   fit: string;
+  zoom?: number;
   toolbar?: {
     setZoom(value: number | undefined): void;
   };
@@ -85,6 +87,7 @@ export function pdfPlugin(options: PdfJsModule | PdfPluginOptions = {}): Preview
         viewport: ctx.viewport,
         size: ctx.size,
         fit: ctx.options.fit,
+        zoom: ctx.options.zoom,
         toolbar: ctx.toolbar,
         encryptedTitle: "PDF 已加密，无法在线预览",
         encryptedMessage: "请下载后使用密码打开，或上传解密后的 PDF 文件。",
@@ -209,7 +212,7 @@ export async function renderPdfDocumentPreview(options: PdfDocumentPreviewOption
 
   let observer: IntersectionObserver | null = null;
   let currentSize = options.size;
-  let zoomFactor = 1;
+  let zoomFactor = getInitialZoom({ options: { zoom: options.zoom ?? 1 } }, 0.25, 4);
   let rotation = 0;
 
   const updateSummary = () => {

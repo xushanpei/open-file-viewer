@@ -2970,7 +2970,8 @@ async function createPdfCompatibleAiPreview(
   size: { width: number; height: number },
   fit: string,
   toolbar?: { setZoom(value: number | undefined): void },
-  pdfOffset = 0
+  pdfOffset = 0,
+  zoom = 1
 ): Promise<{ element: HTMLElement; instance: PreviewInstance }> {
   const wrapper = document.createElement("div");
   wrapper.className = "ofv-ai-pdf-preview";
@@ -2986,6 +2987,7 @@ async function createPdfCompatibleAiPreview(
     viewport: wrapper,
     size,
     fit,
+    zoom,
     toolbar,
     fallbackTitle: "AI PDF 兼容预览失败",
     revokeUrlOnDestroy: false

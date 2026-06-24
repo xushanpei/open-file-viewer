@@ -41,6 +41,10 @@ export function createPanel(className = ""): HTMLElement {
   return panel;
 }
 
+export function getInitialZoom(ctx: { options: { zoom: number } }, min = 0.1, max = 8): number {
+  return Math.min(max, Math.max(min, ctx.options.zoom));
+}
+
 export function createSection(title: string): HTMLElement {
   const section = document.createElement("section");
   section.className = "ofv-section";

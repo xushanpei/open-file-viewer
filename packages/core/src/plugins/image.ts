@@ -1,6 +1,7 @@
 /// <reference path="../shims-heic.d.ts" />
 import { createObjectUrl, revokeObjectUrl } from "../dom";
 import type { PreviewPlugin, PreviewSize } from "../types";
+import { getInitialZoom } from "./utils";
 
 const imageExtensions = new Set([
   "jpg",
@@ -126,7 +127,7 @@ export function imagePlugin(): PreviewPlugin {
         canvasSource.setAttribute("aria-label", ctx.file.name);
       }
 
-      let scale = 1;
+      let scale = getInitialZoom(ctx);
       let rotation = 0;
       let offsetX = 0;
       let offsetY = 0;

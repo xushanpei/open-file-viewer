@@ -308,6 +308,7 @@ createViewer(options: PreviewOptions): FileViewer;
 | `mimeType` | `string` | Inferido automaticamente | Tipo MIME |
 | `width` | `number \| string` | Largura original do contêiner | Largura do contêiner |
 | `height` | `number \| string` | Altura original do contêiner | Altura do contêiner |
+| `zoom` | `number` | `1` | Zoom inicial, em que `1` significa 100% |
 | `fit` | `contain \| cover \| width \| height \| actual \| scale-down` | `contain` | Modo de ajuste do conteúdo |
 | `plugins` | `PreviewPlugin[]` | `[]` | Lista de plugins, avaliada em ordem |
 | `fallback` | `inline \| download \| custom` | `inline` | Estratégia fallback para formatos não suportados |
