@@ -171,6 +171,27 @@ describe("officePlugin", () => {
     expect(visibleText(container)).not.toContain("B4: =SUM(B2:B3)");
   });
 
+  it("renders embedded XLSX drawing images in their anchored cells", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    createViewer({
+      container,
+      file: await createWorkbookWithImage(),
+      fileName: "image-cell.xlsx",
+      plugins: [officePlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-workbook-image img")));
+
+    const imageCell = container.querySelector<HTMLTableCellElement>('[data-cell="A1"]');
+    const image = imageCell?.querySelector<HTMLImageElement>("img");
+    expect(imageCell?.classList.contains("ofv-cell-image")).toBe(true);
+    expect(imageCell?.textContent).not.toContain("#VALUE!");
+    expect(image?.src).toContain("data:image/png;base64,");
+    expect(image?.alt).toBe("Inserted logo");
+  });
+
   it("responds to shared toolbar zoom for workbook previews", async () => {
     const xlsx = await import("xlsx");
     const sheet = xlsx.utils.aoa_to_sheet([
@@ -1760,6 +1781,92 @@ async function createWorkbookWithChart(): Promise<Blob> {
         </c:chart>
       </c:chartSpace>`
   );
+  return zip.generateAsync({
+    type: "blob",
+    mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+  });
+}
+
+async function createWorkbookWithImage(): Promise<Blob> {
+  const zip = new JSZip();
+  zip.file(
+    "[Content_Types].xml",
+    `<?xml version="1.0" encoding="UTF-8"?>
+      <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+        <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+        <Default Extension="xml" ContentType="application/xml"/>
+        <Default Extension="png" ContentType="image/png"/>
+        <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+        <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+        <Override PartName="/xl/drawings/drawing1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>
+      </Types>`
+  );
+  zip.file(
+    "_rels/.rels",
+    `<?xml version="1.0" encoding="UTF-8"?>
+      <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+        <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+      </Relationships>`
+  );
+  zip.file(
+    "xl/_rels/workbook.xml.rels",
+    `<?xml version="1.0" encoding="UTF-8"?>
+      <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+        <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+      </Relationships>`
+  );
+  zip.file(
+    "xl/workbook.xml",
+    `<?xml version="1.0" encoding="UTF-8"?>
+      <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+        xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+        <sheets><sheet name="Images" sheetId="1" r:id="rId1"/></sheets>
+      </workbook>`
+  );
+  zip.file(
+    "xl/worksheets/sheet1.xml",
+    `<?xml version="1.0" encoding="UTF-8"?>
+      <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+        xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+        <sheetData>
+          <row r="1" ht="90" customHeight="1"><c r="A1" t="e"><v>#VALUE!</v></c><c r="B1" t="inlineStr"><is><t>Product</t></is></c></row>
+        </sheetData>
+        <drawing r:id="rIdDrawing1"/>
+      </worksheet>`
+  );
+  zip.file(
+    "xl/worksheets/_rels/sheet1.xml.rels",
+    `<?xml version="1.0" encoding="UTF-8"?>
+      <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+        <Relationship Id="rIdDrawing1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing1.xml"/>
+      </Relationships>`
+  );
+  zip.file(
+    "xl/drawings/drawing1.xml",
+    `<?xml version="1.0" encoding="UTF-8"?>
+      <xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"
+        xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+        xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+        <xdr:twoCellAnchor>
+          <xdr:from><xdr:col>0</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>0</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from>
+          <xdr:to><xdr:col>1</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>3</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to>
+          <xdr:pic>
+            <xdr:nvPicPr><xdr:cNvPr id="2" name="Inserted logo"/><xdr:cNvPicPr/></xdr:nvPicPr>
+            <xdr:blipFill><a:blip r:embed="rIdImage1"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill>
+            <xdr:spPr><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr>
+          </xdr:pic>
+          <xdr:clientData/>
+        </xdr:twoCellAnchor>
+      </xdr:wsDr>`
+  );
+  zip.file(
+    "xl/drawings/_rels/drawing1.xml.rels",
+    `<?xml version="1.0" encoding="UTF-8"?>
+      <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+        <Relationship Id="rIdImage1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image1.png"/>
+      </Relationships>`
+  );
+  zip.file("xl/media/image1.png", Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]));
   return zip.generateAsync({
     type: "blob",
     mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"

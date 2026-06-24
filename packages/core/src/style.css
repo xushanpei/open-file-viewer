@@ -1301,6 +1301,26 @@
   text-overflow: clip;
 }
 
+.ofv-cell-image {
+  padding: 6px;
+  vertical-align: middle;
+}
+
+.ofv-workbook-image {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 100%;
+  margin: 2px 0;
+}
+
+.ofv-workbook-image img {
+  display: block;
+  max-width: 100%;
+  max-height: 220px;
+  object-fit: contain;
+}
+
 .ofv-column-resize-handle {
   position: absolute;
   top: 0;

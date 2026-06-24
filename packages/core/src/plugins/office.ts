@@ -1731,6 +1731,7 @@ async function renderSheet(
     return;
   }
   const chartPreviews = await readWorkbookCharts(arrayBuffer).catch(() => []);
+  const workbookImages = await readWorkbookSheetImages(arrayBuffer).catch(() => new Map<string, WorkbookSheetImage[]>());
   const tabs = document.createElement("div");
   tabs.className = "ofv-tabs";
   tabs.setAttribute("role", "tablist");
@@ -1751,6 +1752,7 @@ async function renderSheet(
     const heading = document.createElement("h3");
     heading.textContent = sheetName;
     const sheet = workbook.Sheets[sheetName];
+    const sheetImages = workbookImages.get(sheetName) || [];
     const range = trimWorkbookSheetRange(sheet, xlsx.utils.decode_range(sheet["!ref"] || "A1:A1"), xlsx.utils.decode_cell);
     const rowCount = range.e.r - range.s.r + 1;
     const columnCount = range.e.c - range.s.c + 1;
@@ -1780,7 +1782,8 @@ async function renderSheet(
           xlsx.utils.encode_cell,
           xlsx.utils.format_cell,
           columnSizing,
-          renderTableWindow
+          renderTableWindow,
+          sheetImages
         )
       );
       windowControls?.update();
@@ -1854,6 +1857,167 @@ function renderSheetFallback(panel: HTMLElement, extension: string, detail: stri
   support.textContent = "请确认文件未加密、未损坏，或先转换为 XLSX/CSV/ODS 后再预览。";
   section.append(title, meta, support);
   panel.append(section);
+}
+
+async function readWorkbookSheetImages(arrayBuffer: ArrayBuffer): Promise<Map<string, WorkbookSheetImage[]>> {
+  const zip = await JSZip.loadAsync(arrayBuffer);
+  const fileNames = Object.keys(zip.files);
+  if (!fileNames.some((name) => /^xl\/drawings\/.+\.xml$/i.test(name)) || !fileNames.some((name) => /^xl\/media\//i.test(name))) {
+    return new Map();
+  }
+  const workbookXml = await zip.file("xl/workbook.xml")?.async("text");
+  if (!workbookXml || typeof DOMParser === "undefined") {
+    return new Map();
+  }
+  const workbookDoc = parseOfficeXml(workbookXml);
+  if (!workbookDoc) {
+    return new Map();
+  }
+
+  const workbookRels = await readOfficeRelationships(zip, "xl/workbook.xml");
+  const result = new Map<string, WorkbookSheetImage[]>();
+  const sheetElements = Array.from(workbookDoc.getElementsByTagName("*")).filter((element) => element.localName === "sheet");
+  for (const sheetElement of sheetElements) {
+    const sheetName = sheetElement.getAttribute("name") || "";
+    const relationshipId = getXmlAttribute(sheetElement, "id");
+    const sheetRel = workbookRels.find((rel) => rel.id === relationshipId && /\/worksheet$/i.test(rel.type));
+    const sheetPath = resolveOfficeRelationshipTarget("xl/workbook.xml", sheetRel?.target);
+    if (!sheetName || !sheetPath) {
+      continue;
+    }
+    const images = await readWorksheetImages(zip, sheetPath);
+    if (images.length > 0) {
+      result.set(sheetName, images);
+    }
+  }
+  return result;
+}
+
+async function readWorksheetImages(zip: JSZip, sheetPath: string): Promise<WorkbookSheetImage[]> {
+  const sheetXml = await zip.file(sheetPath)?.async("text");
+  const sheetDoc = sheetXml ? parseOfficeXml(sheetXml) : undefined;
+  if (!sheetDoc) {
+    return [];
+  }
+
+  const sheetRels = await readOfficeRelationships(zip, sheetPath);
+  const drawingIds = Array.from(sheetDoc.getElementsByTagName("*"))
+    .filter((element) => element.localName === "drawing")
+    .map((element) => getXmlAttribute(element, "id"))
+    .filter((id): id is string => Boolean(id));
+  const images: WorkbookSheetImage[] = [];
+  for (const drawingId of drawingIds) {
+    const drawingRel = sheetRels.find((rel) => rel.id === drawingId && /\/drawing$/i.test(rel.type));
+    const drawingPath = resolveOfficeRelationshipTarget(sheetPath, drawingRel?.target);
+    if (drawingPath) {
+      images.push(...(await readWorksheetDrawingImages(zip, drawingPath)));
+    }
+  }
+  return images;
+}
+
+async function readWorksheetDrawingImages(zip: JSZip, drawingPath: string): Promise<WorkbookSheetImage[]> {
+  const drawingXml = await zip.file(drawingPath)?.async("text");
+  const drawingDoc = drawingXml ? parseOfficeXml(drawingXml) : undefined;
+  if (!drawingDoc) {
+    return [];
+  }
+
+  const drawingRels = await readOfficeRelationships(zip, drawingPath);
+  const anchors = Array.from(drawingDoc.getElementsByTagName("*")).filter(
+    (element) => element.localName === "twoCellAnchor" || element.localName === "oneCellAnchor"
+  );
+  const images: WorkbookSheetImage[] = [];
+  for (const anchor of anchors) {
+    const from = Array.from(anchor.children).find((element) => element.localName === "from");
+    const embedId = findDrawingImageRelationshipId(anchor);
+    const mediaRel = drawingRels.find((rel) => rel.id === embedId && /\/image$/i.test(rel.type));
+    const mediaPath = resolveOfficeRelationshipTarget(drawingPath, mediaRel?.target);
+    const mediaFile = mediaPath ? zip.file(mediaPath) : undefined;
+    if (!from || !mediaPath || !mediaFile) {
+      continue;
+    }
+    const mimeType = mimeTypeFromImagePath(mediaPath);
+    images.push({
+      row: readDrawingMarkerIndex(from, "row"),
+      column: readDrawingMarkerIndex(from, "col"),
+      fileName: mediaPath.split("/").pop() || "image",
+      mimeType,
+      dataUrl: `data:${mimeType};base64,${await mediaFile.async("base64")}`,
+      title: readDrawingImageTitle(anchor)
+    });
+  }
+  return images;
+}
+
+function findDrawingImageRelationshipId(anchor: Element): string | undefined {
+  for (const element of Array.from(anchor.getElementsByTagName("*"))) {
+    if (element.localName === "blip") {
+      return getXmlAttribute(element, "embed") || getXmlAttribute(element, "link") || undefined;
+    }
+  }
+  return undefined;
+}
+
+function readDrawingImageTitle(anchor: Element): string | undefined {
+  const nonVisualProperties = Array.from(anchor.getElementsByTagName("*")).find((element) => element.localName === "cNvPr");
+  return nonVisualProperties?.getAttribute("descr") || nonVisualProperties?.getAttribute("name") || undefined;
+}
+
+function readDrawingMarkerIndex(marker: Element, localName: "row" | "col"): number {
+  const element = Array.from(marker.children).find((child) => child.localName === localName);
+  const value = Number.parseInt(element?.textContent || "0", 10);
+  return Number.isFinite(value) && value >= 0 ? value : 0;
+}
+
+type OfficeRelationship = {
+  id: string;
+  type: string;
+  target: string;
+};
+
+async function readOfficeRelationships(zip: JSZip, partPath: string): Promise<OfficeRelationship[]> {
+  const xml = await zip.file(relationshipPathForPart(partPath))?.async("text");
+  const doc = xml ? parseOfficeXml(xml) : undefined;
+  if (!doc) {
+    return [];
+  }
+  return Array.from(doc.getElementsByTagName("*"))
+    .filter((element) => element.localName === "Relationship")
+    .map((element) => ({
+      id: element.getAttribute("Id") || "",
+      type: element.getAttribute("Type") || "",
+      target: element.getAttribute("Target") || ""
+    }));
+}
+
+function parseOfficeXml(xml: string): Document | undefined {
+  const doc = new DOMParser().parseFromString(xml, "application/xml");
+  return doc.querySelector("parsererror") ? undefined : doc;
+}
+
+function resolveOfficeRelationshipTarget(sourcePath: string, target?: string): string | undefined {
+  return resolvePptxRelationshipTarget(sourcePath, target);
+}
+
+function mimeTypeFromImagePath(path: string): string {
+  const extension = path.split(".").pop()?.toLowerCase();
+  switch (extension) {
+    case "jpg":
+    case "jpeg":
+      return "image/jpeg";
+    case "gif":
+      return "image/gif";
+    case "webp":
+      return "image/webp";
+    case "bmp":
+      return "image/bmp";
+    case "svg":
+      return "image/svg+xml";
+    case "png":
+    default:
+      return "image/png";
+  }
 }
 
 function renderEncryptedOfficeByFileInfo(panel: HTMLElement, fileLabel: string, title: string): void {
@@ -2236,6 +2400,15 @@ type SheetColumnSizing = {
   widths: Map<number, number>;
 };
 
+type WorkbookSheetImage = {
+  row: number;
+  column: number;
+  fileName: string;
+  mimeType: string;
+  dataUrl: string;
+  title?: string;
+};
+
 function trimWorkbookSheetRange(
   sheet: Record<string, any>,
   range: SheetRange,
@@ -2364,7 +2537,8 @@ function createWorkbookSheetTable(
   encodeCell: (cell: { r: number; c: number }) => string,
   formatCell: (cell: any) => string,
   columnSizing: SheetColumnSizing,
-  rerender: () => void
+  rerender: () => void,
+  images: WorkbookSheetImage[] = []
 ): HTMLTableElement {
   const table = document.createElement("table");
   table.id = `ofv-sheet-${sheetIndex + 1}`;
@@ -2374,6 +2548,7 @@ function createWorkbookSheetTable(
   const columnStart = range.s.c + viewport.columnStart;
   const rowStart = range.s.r + viewport.rowStart;
   const mergePlan = createSheetMergePlan(sheet["!merges"] || [], rowStart, rowEnd, columnStart, columnEnd);
+  const imagesByCell = groupWorkbookImagesByCell(images);
 
   const colGroup = document.createElement("colgroup");
   let tableWidth = 0;
@@ -2430,6 +2605,7 @@ function createWorkbookSheetTable(
       if (text.includes("\n")) {
         cell.classList.add("ofv-cell-multiline");
       }
+      appendWorkbookCellImages(cell, imagesByCell.get(`${rowIndex}:${columnIndex}`), text);
       appendColumnResizeHandle(cell, columnIndex, columnSizing);
       row.append(cell);
     }
@@ -2531,6 +2707,42 @@ function createSheetMergePlan(
   }
 
   return { anchors, covered };
+}
+
+function groupWorkbookImagesByCell(images: WorkbookSheetImage[]): Map<string, WorkbookSheetImage[]> {
+  const grouped = new Map<string, WorkbookSheetImage[]>();
+  for (const image of images) {
+    const key = `${image.row}:${image.column}`;
+    const items = grouped.get(key) || [];
+    items.push(image);
+    grouped.set(key, items);
+  }
+  return grouped;
+}
+
+function appendWorkbookCellImages(cell: HTMLTableCellElement, images: WorkbookSheetImage[] | undefined, text: string): void {
+  if (!images?.length) {
+    return;
+  }
+  if (isWorkbookImagePlaceholderValue(text)) {
+    cell.textContent = "";
+    cell.removeAttribute("title");
+  }
+  cell.classList.add("ofv-cell-image");
+  for (const image of images) {
+    const figure = document.createElement("figure");
+    figure.className = "ofv-workbook-image";
+    const element = document.createElement("img");
+    element.src = image.dataUrl;
+    element.alt = image.title || image.fileName || "Excel embedded image";
+    element.loading = "lazy";
+    figure.append(element);
+    cell.append(figure);
+  }
+}
+
+function isWorkbookImagePlaceholderValue(text: string): boolean {
+  return /^#(?:VALUE|NAME|REF|N\/A|NULL|NUM|DIV\/0)!?$/i.test(text.trim());
 }
 
 function getSheetColumnWidth(column: { hidden?: boolean; wpx?: number; width?: number; wch?: number } | undefined): number {
