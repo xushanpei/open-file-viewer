@@ -1,6 +1,6 @@
 {
   "name": "@open-file-viewer/vue",
-  "version": "0.1.14",
+  "version": "0.1.15",
   "description": "Vue adapter for Open File Viewer.",
   "license": "MIT",
   "type": "module",
@@ -35,7 +35,7 @@
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
-    "@open-file-viewer/core": "0.1.14",
+    "@open-file-viewer/core": "0.1.15",
     "vue": ">=3"
   },
   "devDependencies": {
