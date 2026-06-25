@@ -769,18 +769,22 @@ function renderLayoutPreview(
     svg.append(text);
   }
 
+  const layoutGrid = document.createElement("div");
+  layoutGrid.className = "ofv-layout-grid";
+
   const layers = [...data.layers.keys()].sort((a, b) => a.localeCompare(b));
+  const cellList = data.cells.length > 0 ? createLayoutCellList(data.cells, data.references) : undefined;
+  if (cellList) {
+    layoutGrid.append(cellList);
+  }
+
+  layoutGrid.append(svg);
+
   if (layers.length > 0) {
     const layerControls = createLayoutLayerControls(svg, layers, data.layers);
-    if (hasDrawableLayout(data)) {
-      hideSupplementalInfo(layerControls);
-    }
-    section.append(layerControls);
+    layoutGrid.append(layerControls);
   }
-  section.append(svg);
-  if (data.cells.length > 0) {
-    section.append(createLayoutCellList(data.cells, data.references, hasDrawableLayout(data)));
-  }
+  section.append(layoutGrid);
   panel.append(section);
 
   const updateToolbarZoom = () => ctx.toolbar?.setZoom(initialViewBox.width / currentViewBox.width);

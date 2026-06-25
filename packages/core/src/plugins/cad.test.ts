@@ -403,12 +403,26 @@ describe("cadPlugin", () => {
     expect(container.textContent).toContain("几何1");
     expect(container.querySelector<HTMLElement>(".ofv-layout-summary")?.hidden).toBe(true);
     expect(container.querySelector<HTMLElement>(".ofv-layout-note")?.hidden).toBe(true);
-    expect(container.querySelector<HTMLElement>(".ofv-layout-cells")?.hidden).toBe(true);
-    expect(container.querySelector<HTMLElement>(".ofv-layout-layers")?.hidden).toBe(true);
+    expect(container.querySelector<HTMLElement>(".ofv-layout-cells")?.hidden).toBe(false);
+    expect(container.querySelector<HTMLDetailsElement>(".ofv-layout-cells")?.open).toBe(true);
+    expect(container.querySelector<HTMLElement>(".ofv-layout-layers")?.hidden).toBe(false);
+    expect(container.querySelector(".ofv-layout-grid")?.children).toHaveLength(3);
+    expect(container.querySelector(".ofv-layout-grid")?.children[0].classList.contains("ofv-layout-cells")).toBe(true);
+    expect(container.querySelector(".ofv-layout-grid")?.children[1].classList.contains("ofv-layout-stage")).toBe(true);
+    expect(container.querySelector(".ofv-layout-grid")?.children[2].classList.contains("ofv-layout-layers")).toBe(true);
     expect(visibleText(container)).not.toContain("已从 GDSII Stream");
-    expect(visibleText(container)).not.toContain("Cell 结构");
-    expect(visibleText(container)).not.toContain("图层 1");
+    expect(visibleText(container)).toContain("Cell 结构");
+    expect(visibleText(container)).toContain("图层 1");
     expect(svg?.querySelectorAll("polygon")).toHaveLength(1);
+
+    const layerToggle = container.querySelector<HTMLInputElement>(".ofv-layout-layers input");
+    const polygon = svg?.querySelector<SVGElement>("polygon");
+    expect(layerToggle).not.toBeNull();
+    expect(polygon?.style.display).toBe("");
+    layerToggle?.click();
+    expect(polygon?.style.display).toBe("none");
+    layerToggle?.click();
+    expect(polygon?.style.display).toBe("");
 
     container.querySelector<HTMLButtonElement>('button[aria-label="Zoom in"]')?.click();
     expect(svg?.getAttribute("viewBox")).not.toBe(initialViewBox);
@@ -434,8 +448,8 @@ describe("cadPlugin", () => {
     expect(container.textContent).toContain("引用2");
     expect(container.textContent).toContain("展开几何2");
     expect(container.textContent).toContain("1 (3)");
-    expect(container.querySelector<HTMLElement>(".ofv-layout-cells")?.hidden).toBe(true);
-    expect(visibleText(container)).not.toContain("Cell 结构");
+    expect(container.querySelector<HTMLElement>(".ofv-layout-cells")?.hidden).toBe(false);
+    expect(visibleText(container)).toContain("Cell 结构");
     expect(container.querySelectorAll(".ofv-layout-stage polygon")).toHaveLength(3);
   });
 
@@ -478,10 +492,10 @@ describe("cadPlugin", () => {
     expect(container.textContent).toContain("CBLOCK");
     expect(container.querySelector<HTMLElement>(".ofv-layout-summary")?.hidden).toBe(true);
     expect(container.querySelector<HTMLElement>(".ofv-layout-note")?.hidden).toBe(true);
-    expect(container.querySelector<HTMLElement>(".ofv-layout-cells")?.hidden).toBe(true);
-    expect(container.querySelector<HTMLElement>(".ofv-layout-layers")?.hidden).toBe(true);
+    expect(container.querySelector<HTMLElement>(".ofv-layout-cells")?.hidden).toBe(false);
+    expect(container.querySelector<HTMLElement>(".ofv-layout-layers")?.hidden).toBe(false);
     expect(visibleText(container)).not.toContain("OASIS 是高压缩芯片版图格式");
-    expect(visibleText(container)).not.toContain("Cell 结构");
+    expect(visibleText(container)).toContain("Cell 结构");
     expect(container.querySelector(".ofv-layout-stage polygon")).not.toBeNull();
   });
 
