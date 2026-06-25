@@ -249,6 +249,23 @@ createViewer({
 
 Use `toolbar.render(ctx)` when you need to replace the toolbar completely. The context exposes file metadata, queue navigation, preview commands, download, fullscreen, print and search helpers.
 
+## Locale and Fallback Text
+
+Fallback text defaults to Simplified Chinese for compatibility. Set `locale: "en-US"` for English built-in loading and unsupported-file messages, or override individual strings with `messages`:
+
+```ts
+createViewer({
+  container: "#viewer",
+  file,
+  locale: "en-US",
+  messages: {
+    unsupportedTitle: "No inline preview available",
+    downloadFile: "Download original file"
+  },
+  plugins
+});
+```
+
 ## License
 
 MIT

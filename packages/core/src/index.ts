@@ -28,6 +28,8 @@ export type {
   PreviewFit,
   PreviewInstance,
   PreviewItem,
+  PreviewLocale,
+  PreviewMessages,
   PreviewOptions,
   PreviewPlugin,
   PreviewSize,

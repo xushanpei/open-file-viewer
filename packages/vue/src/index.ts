@@ -60,6 +60,8 @@ export const OpenFileViewer = defineComponent({
       type: String as PropType<PreviewOptions["fallback"]>,
       default: "inline"
     },
+    locale: String as PropType<PreviewOptions["locale"]>,
+    messages: Object as PropType<PreviewOptions["messages"]>,
     renderFallback: Function as PropType<PreviewOptions["renderFallback"]>,
     className: String,
     onLoad: Function as PropType<PreviewOptions["onLoad"]>,
@@ -115,6 +117,8 @@ export const OpenFileViewer = defineComponent({
           : props.toolbar,
         theme: props.theme,
         fallback: props.fallback,
+        locale: props.locale,
+        messages: props.messages,
         renderFallback: props.renderFallback,
         className: props.className,
         onLoad(file) {
@@ -149,6 +153,8 @@ export const OpenFileViewer = defineComponent({
         props.fit,
         props.plugins,
         props.fallback,
+        props.locale,
+        props.messages,
         props.renderFallback,
         props.toolbar,
         props.theme,

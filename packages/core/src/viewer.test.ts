@@ -228,6 +228,47 @@ describe("createViewer", () => {
     expect(container.querySelector(".ofv-status")?.textContent).toContain("preview failed");
   });
 
+  it("can render fallback messages in English", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    createViewer({
+      container,
+      file: new Blob(["unknown"], { type: "application/octet-stream" }),
+      fileName: "unknown.bin",
+      locale: "en-US"
+    });
+
+    await waitFor(() => container.textContent?.includes("Preview is not available for this file") === true);
+
+    expect(container.textContent).toContain("Download file");
+    expect(container.textContent).toContain("File");
+    expect(container.textContent).toContain("Format");
+    expect(container.textContent).toContain("Local or in-memory file");
+    expect(container.textContent).not.toContain("当前文件暂不支持在线预览");
+  });
+
+  it("allows fallback messages to be customized", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    createViewer({
+      container,
+      file: new Blob(["unknown"], { type: "application/octet-stream" }),
+      fileName: "unknown.bin",
+      locale: "en-US",
+      messages: {
+        unsupportedTitle: "No inline preview",
+        downloadFile: "Save locally"
+      }
+    });
+
+    await waitFor(() => container.textContent?.includes("No inline preview") === true);
+
+    expect(container.textContent).toContain("Save locally");
+    expect(container.textContent).not.toContain("Preview is not available for this file");
+  });
+
   it("customizes toolbar labels, order, icons, and business actions", async () => {
     const container = document.createElement("div");
     document.body.append(container);

@@ -77,6 +77,8 @@ export function FileViewer({
     options.fit,
     options.plugins,
     options.fallback,
+    options.locale,
+    options.messages,
     options.renderFallback,
     options.toolbar,
     renderToolbar,

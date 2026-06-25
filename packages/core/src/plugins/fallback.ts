@@ -21,15 +21,15 @@ export function fallbackPlugin(): PreviewPlugin {
       const title = document.createElement("strong");
       title.textContent =
         ctx.options.fallback === "download"
-          ? "当前文件可下载后查看"
-          : "当前文件暂不支持在线预览";
+          ? ctx.options.messages.downloadTitle
+          : ctx.options.messages.unsupportedTitle;
 
-      const meta = createFallbackMeta(ctx.file);
+      const meta = createFallbackMeta(ctx.file, ctx.options.messages);
 
       const download = document.createElement("a");
       download.href = url;
       download.download = ctx.file.name;
-      download.textContent = "下载文件";
+      download.textContent = ctx.options.messages.downloadFile;
 
       panel.append(title, meta, download);
       ctx.viewport.classList.add("ofv-center");
@@ -49,14 +49,28 @@ export function fallbackPlugin(): PreviewPlugin {
   };
 }
 
-function createFallbackMeta(file: { name: string; extension: string; mimeType: string; size?: number; url?: string }): HTMLElement {
+function createFallbackMeta(
+  file: { name: string; extension: string; mimeType: string; size?: number; url?: string },
+  messages: {
+    file: string;
+    unnamedFile: string;
+    format: string;
+    unknown: string;
+    mime: string;
+    undeclared: string;
+    size: string;
+    source: string;
+    remoteUrl: string;
+    localFile: string;
+  }
+): HTMLElement {
   const meta = document.createElement("dl");
   meta.className = "ofv-fallback-meta";
-  appendFallbackMeta(meta, "文件", file.name || "未命名文件");
-  appendFallbackMeta(meta, "格式", file.extension ? `.${file.extension}` : "未知");
-  appendFallbackMeta(meta, "MIME", file.mimeType || "未声明");
-  appendFallbackMeta(meta, "大小", file.size === undefined ? "未知" : formatFallbackBytes(file.size));
-  appendFallbackMeta(meta, "来源", file.url ? "远程 URL" : "本地/内存文件");
+  appendFallbackMeta(meta, messages.file, file.name || messages.unnamedFile);
+  appendFallbackMeta(meta, messages.format, file.extension ? `.${file.extension}` : messages.unknown);
+  appendFallbackMeta(meta, messages.mime, file.mimeType || messages.undeclared);
+  appendFallbackMeta(meta, messages.size, file.size === undefined ? messages.unknown : formatFallbackBytes(file.size));
+  appendFallbackMeta(meta, messages.source, file.url ? messages.remoteUrl : messages.localFile);
   return meta;
 }
 

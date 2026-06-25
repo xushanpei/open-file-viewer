@@ -54,6 +54,23 @@ describe("OpenFileViewer Vue adapter", () => {
     expect(await screen.findByText("当前文件暂不支持在线预览")).toBeTruthy();
   });
 
+  it("passes locale and messages through to the core viewer", async () => {
+    render(OpenFileViewer, {
+      props: {
+        file: new Blob(["unknown"], { type: "application/octet-stream" }),
+        fileName: "unknown.bin",
+        fallback: "inline",
+        locale: "en-US",
+        messages: {
+          unsupportedTitle: "No preview available"
+        }
+      }
+    });
+
+    expect(await screen.findByText("No preview available")).toBeTruthy();
+    expect(await screen.findByText("Download file")).toBeTruthy();
+  });
+
   it("applies and cleans the className style hook", async () => {
     const view = render(OpenFileViewer, {
       props: {

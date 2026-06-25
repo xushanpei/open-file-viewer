@@ -1,5 +1,6 @@
 import { normalizeFile } from "./detect";
 import { applyBoxSize, createObjectUrl, getElementSize, resolveContainer, revokeObjectUrl } from "./dom";
+import { resolveMessages } from "./messages";
 import { fallbackPlugin } from "./plugins/fallback";
 import type {
   FileViewer,
@@ -65,7 +66,8 @@ export function createViewer(options: PreviewOptions): FileViewer {
     ...options,
     fit: options.fit || "contain",
     fallback: options.fallback || "inline",
-    zoom: normalizeInitialZoom(options.zoom)
+    zoom: normalizeInitialZoom(options.zoom),
+    messages: resolveMessages(options)
   };
 
   let destroyed = false;
@@ -73,7 +75,7 @@ export function createViewer(options: PreviewOptions): FileViewer {
 
   const setLoading = (loading: boolean) => {
     status.hidden = !loading;
-    status.textContent = loading ? "Loading preview..." : "";
+    status.textContent = loading ? normalizedOptions.messages.loading : "";
   };
 
   const setError = (error: Error | string) => {

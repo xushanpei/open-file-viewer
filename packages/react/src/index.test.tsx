@@ -48,6 +48,21 @@ describe("FileViewer React adapter", () => {
     expect(await screen.findByText("当前文件暂不支持在线预览")).toBeTruthy();
   });
 
+  it("passes locale and messages through to the core viewer", async () => {
+    render(
+      <FileViewer
+        file={new Blob(["unknown"], { type: "application/octet-stream" })}
+        fileName="unknown.bin"
+        fallback="inline"
+        locale="en-US"
+        messages={{ unsupportedTitle: "No preview available" }}
+      />
+    );
+
+    expect(await screen.findByText("No preview available")).toBeTruthy();
+    expect(await screen.findByText("Download file")).toBeTruthy();
+  });
+
   it("passes className through as the core viewer style hook", async () => {
     const destroy = vi.fn();
     const { container, unmount } = render(

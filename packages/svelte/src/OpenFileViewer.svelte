@@ -18,6 +18,8 @@
   export let toolbar: PreviewOptions["toolbar"] = false;
   export let theme: PreviewOptions["theme"] = "light";
   export let fallback: PreviewOptions["fallback"] = "inline";
+  export let locale: PreviewOptions["locale"] = undefined;
+  export let messages: PreviewOptions["messages"] = undefined;
   export let renderFallback: PreviewOptions["renderFallback"] = undefined;
   export let className: string | undefined = undefined;
   export let onLoad: PreviewOptions["onLoad"] = undefined;
@@ -74,6 +76,8 @@
       toolbar,
       theme,
       fallback,
+      locale,
+      messages,
       renderFallback,
       className,
       onLoad,
@@ -115,6 +119,8 @@
       toolbar: buildToolbar(),
       theme,
       fallback,
+      locale,
+      messages,
       renderFallback,
       className,
       onLoad,

@@ -410,6 +410,8 @@ createViewer(options: PreviewOptions): FileViewer;
 | `fit` | `contain \| cover \| width \| height \| actual \| scale-down` | `contain` | 内容适配方式 |
 | `plugins` | `PreviewPlugin[]` | `[]` | 插件列表，按顺序匹配 |
 | `fallback` | `inline \| download \| custom` | `inline` | 不支持时的兜底策略 |
+| `locale` | `zh-CN \| en-US` | `zh-CN` | 内置状态和 fallback 文案语言 |
+| `messages` | `Partial<PreviewMessages>` | - | 覆盖 loading、unsupported、download fallback 等基础文案 |
 | `renderFallback` | `(ctx) => PreviewInstance` | - | 自定义 fallback 渲染器 |
 | `toolbar` | `boolean \| PreviewToolbarOptions` | `false` | 工具栏配置 |
 | `theme` | `light \| dark \| auto` | `light` | 预览器主题 |
@@ -417,6 +419,23 @@ createViewer(options: PreviewOptions): FileViewer;
 | `onLoad` | `(file) => void` | - | 加载完成回调 |
 | `onError` | `(error, file) => void` | - | 错误回调 |
 | `onUnsupported` | `(file) => void` | - | 不支持格式回调 |
+
+### 多语言和 fallback 文案
+
+默认 fallback 文案保持中文。英文产品可以设置 `locale: "en-US"`，也可以用 `messages` 覆盖单条文案：
+
+```ts
+createViewer({
+  container: "#viewer",
+  file,
+  locale: "en-US",
+  messages: {
+    unsupportedTitle: "No inline preview available",
+    downloadFile: "Download original file"
+  },
+  plugins
+});
+```
 
 ## 工具栏自定义
 

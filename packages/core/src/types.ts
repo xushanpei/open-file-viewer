@@ -10,6 +10,7 @@ export type PreviewFit =
 
 export type PreviewFallback = "inline" | "download" | "custom";
 export type PreviewTheme = "light" | "dark" | "auto";
+export type PreviewLocale = "zh-CN" | "en-US";
 export type PreviewToolbarBuiltInAction =
   | "previous"
   | "next"
@@ -107,6 +108,8 @@ export interface PreviewOptions {
   fit?: PreviewFit;
   plugins?: PreviewPlugin[];
   fallback?: PreviewFallback;
+  locale?: PreviewLocale;
+  messages?: Partial<PreviewMessages>;
   renderFallback?: (ctx: PreviewContext) => Promise<PreviewInstance> | PreviewInstance;
   toolbar?: boolean | PreviewToolbarOptions;
   theme?: PreviewTheme;
@@ -116,12 +119,29 @@ export interface PreviewOptions {
   onUnsupported?: (file: PreviewFile) => void;
 }
 
+export interface PreviewMessages {
+  loading: string;
+  unsupportedTitle: string;
+  downloadTitle: string;
+  downloadFile: string;
+  file: string;
+  unnamedFile: string;
+  format: string;
+  unknown: string;
+  mime: string;
+  undeclared: string;
+  size: string;
+  source: string;
+  remoteUrl: string;
+  localFile: string;
+}
+
 export interface PreviewContext {
   host: HTMLElement;
   viewport: HTMLElement;
   file: PreviewFile;
   size: PreviewSize;
-  options: Required<Pick<PreviewOptions, "fit" | "fallback" | "zoom">> & PreviewOptions;
+  options: Omit<PreviewOptions, "messages"> & Required<Pick<PreviewOptions, "fit" | "fallback" | "zoom">> & { messages: PreviewMessages };
   toolbar?: PreviewToolbarRenderContext;
   setLoading: (loading: boolean) => void;
   setError: (error: Error | string) => void;
