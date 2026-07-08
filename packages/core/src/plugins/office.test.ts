@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
 import JSZip from "jszip";
 import { createViewer } from "../viewer";
+import { renderLegacyWordDocument, type LegacyWordDocument } from "./msdoc";
 import { officePlugin } from "./office";
 
 const shouldFailDocxPreview = vi.hoisted(() => ({ value: false }));
@@ -1364,6 +1365,69 @@ describe("officePlugin", () => {
     expect(container.querySelector(".ofv-msdoc-document")?.textContent).not.toContain("HYPERLINK");
     expect(container.querySelector(".ofv-msdoc-document")?.textContent).not.toContain("PAGEREF");
     expect(container.querySelector(".ofv-msdoc-document")?.textContent).not.toContain("REF rfc2119");
+  });
+
+  it("expands recovered legacy Word form tables into styled section rows", () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const documentModel: LegacyWordDocument = {
+      title: "实训一 纯电动汽车高压断电流程实训",
+      paragraphs: [],
+      blocks: [
+        { type: "title", text: "实训一 纯电动汽车高压断电流程实训" },
+        {
+          type: "table",
+          rows: [
+            ["学院", "专业", "姓名"],
+            ["学号", "小组成员", "组长姓名"],
+            ["一、接受工作任务", "成绩：", "企业工作任务"],
+            [
+              "新能源汽车服务有限公司昨日接收一辆北汽新能源EV系列纯电动汽车，需完成作业前准备及高压断电流程。",
+              "二、信息收集",
+              "成绩：",
+              "请查阅相关资料，完成以下信息的填写。"
+            ]
+          ]
+        }
+      ],
+      layout: { lineNumbers: false },
+      assets: [],
+      styles: [],
+      stats: {
+        streamCount: 7,
+        pieceCount: 4,
+        characterCount: 120,
+        styleCount: 0,
+        tableStream: "1Table"
+      },
+      warnings: []
+    };
+
+    renderLegacyWordDocument(container, documentModel);
+
+    const table = container.querySelector<HTMLTableElement>(".ofv-msdoc-form-table");
+    expect(table).not.toBeNull();
+    const rows = Array.from(table?.rows || []);
+    expect(rows).toHaveLength(8);
+    expect(Array.from(rows[0].cells).map((cell) => cell.textContent)).toEqual(["学院", "", "专业", ""]);
+    expect(rows[0].cells[0].classList.contains("ofv-msdoc-form-label")).toBe(true);
+    expect(rows[0].cells[1].classList.contains("ofv-msdoc-form-empty")).toBe(true);
+    expect(Array.from(rows[2].cells).map((cell) => cell.textContent)).toEqual(["小组成员", "", "组长姓名", ""]);
+    expect(rows[3].cells[0].textContent).toBe("一、接受工作任务");
+    expect(rows[3].cells[0].colSpan).toBe(2);
+    expect(rows[3].cells[1].textContent).toBe("成绩：");
+    expect(rows[3].cells[1].colSpan).toBe(2);
+    expect(rows[3].cells[0].classList.contains("ofv-msdoc-form-section")).toBe(true);
+    expect(rows[4].cells[0].textContent).toBe("企业工作任务");
+    expect(rows[4].cells[0].colSpan).toBe(4);
+    expect(rows[4].cells[0].classList.contains("ofv-msdoc-form-caption")).toBe(true);
+    expect(rows[5].cells[0].textContent).toContain("新能源汽车服务有限公司");
+    expect(rows[5].cells[0].colSpan).toBe(4);
+    expect(rows[5].cells[0].classList.contains("ofv-msdoc-form-body")).toBe(true);
+    expect(rows[6].cells[0].textContent).toBe("二、信息收集");
+    expect(rows[6].cells[0].colSpan).toBe(2);
+    expect(rows[7].cells[0].textContent).toContain("请查阅相关资料");
+    expect(rows[7].cells[0].colSpan).toBe(4);
   });
 
   it("keeps literal ASCII text from legacy Word binaries even when it looks random", async () => {

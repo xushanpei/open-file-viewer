@@ -61,8 +61,17 @@ export type LegacyWordBlock =
   | { type: "listItem"; text: string; level: 1 | 2 }
   | { type: "heading"; text: string; level: 1 | 2 | 3; indent?: boolean }
   | { type: "toc"; title: string; page?: string; level: number }
-  | { type: "table"; rows: string[][] }
+  | { type: "table"; rows: LegacyWordTableRow[] }
   | { type: "pageBreak" };
+
+export type LegacyWordTableCell =
+  | string
+  | { text: string; colSpan?: number; variant?: "label" | "section" | "caption" | "body" | "empty" };
+
+export type LegacyWordTableRow = LegacyWordTableCell[];
+
+type LegacyWordTableCellData = Extract<LegacyWordTableCell, { text: string }>;
+type LegacyWordTableCellVariant = NonNullable<LegacyWordTableCellData["variant"]>;
 
 type CompoundDirectoryEntry = {
   name: string;
@@ -307,6 +316,8 @@ function renderWordBlock(block: LegacyWordBlock): HTMLElement {
     const table = window.document.createElement("table");
     table.className = "ofv-msdoc-table";
     const revisionColumnWidths = getRevisionTableColumnWidths(block.rows);
+    const renderRows = revisionColumnWidths ? block.rows : normalizeLegacyFormTableRows(block.rows);
+    const isFormTable = renderRows.some((row) => row.some((cell) => getTableCellVariant(cell) !== undefined));
     if (revisionColumnWidths) {
       table.classList.add("ofv-msdoc-revision-table");
       const colgroup = window.document.createElement("colgroup");
@@ -317,13 +328,23 @@ function renderWordBlock(block: LegacyWordBlock): HTMLElement {
       }
       table.append(colgroup);
     }
+    if (isFormTable) {
+      table.classList.add("ofv-msdoc-form-table");
+    }
     const tbody = window.document.createElement("tbody");
-    for (const row of block.rows) {
+    for (const row of renderRows) {
       const tr = window.document.createElement("tr");
-      const cellTag = row === block.rows[0] && block.rows.length > 1 ? "th" : "td";
-      for (const cellText of row) {
+      const cellTag = !isFormTable && row === renderRows[0] && renderRows.length > 1 ? "th" : "td";
+      for (const cellData of row) {
+        const cellInfo = normalizeTableCell(cellData);
         const cell = window.document.createElement(cellTag);
-        cell.textContent = cellText;
+        cell.textContent = cellInfo.text;
+        if (cellInfo.colSpan && cellInfo.colSpan > 1) {
+          cell.colSpan = cellInfo.colSpan;
+        }
+        if (cellInfo.variant) {
+          cell.classList.add(`ofv-msdoc-form-${cellInfo.variant}`);
+        }
         tr.append(cell);
       }
       tbody.append(tr);
@@ -414,8 +435,8 @@ function appendBracketRun(element: HTMLElement, value: string): void {
   element.append(run);
 }
 
-function getRevisionTableColumnWidths(rows: string[][]): number[] | undefined {
-  const header = rows[0]?.map((cell) => cell.toLowerCase());
+function getRevisionTableColumnWidths(rows: LegacyWordTableRow[]): number[] | undefined {
+  const header = rows[0]?.map((cell) => getTableCellText(cell).toLowerCase());
   if (!header || header.length !== 4) {
     return undefined;
   }
@@ -423,6 +444,116 @@ function getRevisionTableColumnWidths(rows: string[][]): number[] | undefined {
     return [59, 81, 106, 191];
   }
   return undefined;
+}
+
+function normalizeLegacyFormTableRows(rows: LegacyWordTableRow[]): LegacyWordTableRow[] {
+  if (rows.length === 0) {
+    return rows;
+  }
+  const normalized: LegacyWordTableRow[] = [];
+  let index = 0;
+  const leadingLabels = getLeadingFormLabels(rows);
+  if (leadingLabels) {
+    for (let offset = 0; offset < leadingLabels.length; offset += 2) {
+      normalized.push([
+        createFormCell(leadingLabels[offset] || "", "label"),
+        createFormCell("", "empty"),
+        createFormCell(leadingLabels[offset + 1] || "", "label"),
+        createFormCell("", "empty")
+      ]);
+    }
+    index = 2;
+  }
+
+  for (; index < rows.length; index += 1) {
+    const sectionRows = splitFormSectionRow(rows[index]);
+    if (sectionRows) {
+      normalized.push(...sectionRows);
+      continue;
+    }
+    normalized.push(rows[index].map((cell) => normalizeTableCell(cell)));
+  }
+
+  return normalized;
+}
+
+function getLeadingFormLabels(rows: LegacyWordTableRow[]): string[] | undefined {
+  if (rows.length < 3 || rows[0].length !== 3 || rows[1].length !== 3 || !isFormSectionRow(rows[2])) {
+    return undefined;
+  }
+  const labels = [...rows[0], ...rows[1]].map(getTableCellText);
+  if (labels.length !== 6 || !labels.every(isShortChineseFormLabel)) {
+    return undefined;
+  }
+  return labels;
+}
+
+function splitFormSectionRow(row: LegacyWordTableRow): LegacyWordTableRow[] | undefined {
+  const cells = row.map((cell) => normalizeTableCell(cell)).filter((cell) => cell.text.length > 0);
+  const sectionIndex = cells.findIndex((cell) => isChineseSectionTitle(cell.text));
+  if (sectionIndex < 0) {
+    return undefined;
+  }
+  const gradeIndex = cells.findIndex((cell, index) => index > sectionIndex && isGradeCell(cell.text));
+  if (gradeIndex < 0) {
+    return undefined;
+  }
+
+  const output: LegacyWordTableRow[] = [];
+  const leadingText = cells
+    .slice(0, sectionIndex)
+    .map((cell) => cell.text)
+    .join(" ")
+    .trim();
+  if (leadingText) {
+    output.push([createFormCell(leadingText, "body", 4)]);
+  }
+
+  output.push([createFormCell(cells[sectionIndex].text, "section", 2), createFormCell(cells[gradeIndex].text, "section", 2)]);
+
+  const trailingText = cells
+    .slice(gradeIndex + 1)
+    .map((cell) => cell.text)
+    .join(" ")
+    .trim();
+  if (trailingText) {
+    output.push([createFormCell(trailingText, "caption", 4)]);
+  }
+
+  return output;
+}
+
+function isFormSectionRow(row: LegacyWordTableRow): boolean {
+  return splitFormSectionRow(row) !== undefined;
+}
+
+function createFormCell(text: string, variant: LegacyWordTableCellVariant, colSpan?: number): LegacyWordTableCell {
+  return { text, variant, colSpan };
+}
+
+function normalizeTableCell(cell: LegacyWordTableCell): LegacyWordTableCellData {
+  return typeof cell === "string" ? { text: cell } : cell;
+}
+
+function getTableCellText(cell: LegacyWordTableCell): string {
+  return normalizeTableCell(cell).text.trim();
+}
+
+function getTableCellVariant(cell: LegacyWordTableCell): LegacyWordTableCellVariant | undefined {
+  return normalizeTableCell(cell).variant;
+}
+
+function isShortChineseFormLabel(text: string): boolean {
+  const value = text.trim();
+  return value.length > 0 && value.length <= 8 && /\p{Script=Han}/u.test(value) && !/[。；，、：:]/.test(value);
+}
+
+function isChineseSectionTitle(text: string): boolean {
+  return /^[一二三四五六七八九十]+、\S+/.test(text.trim());
+}
+
+function isGradeCell(text: string): boolean {
+  return /^成绩[:：]?$/.test(text.trim());
 }
 
 function appendInlineText(element: HTMLElement, text: string, preserveTabs: boolean): void {

@@ -1025,6 +1025,14 @@
   table-layout: fixed;
 }
 
+.ofv-msdoc-form-table {
+  width: 100%;
+  table-layout: fixed;
+  border: 2px solid #111827;
+  color: #111827;
+  font-family: "Microsoft YaHei", "PingFang SC", Arial, Helvetica, sans-serif;
+}
+
 .ofv-msdoc-table th,
 .ofv-msdoc-table td {
   padding: 0 calc(5px * var(--ofv-office-zoom, 1));
@@ -1037,6 +1045,37 @@
 .ofv-msdoc-table th {
   background: #f8fafc;
   font-weight: 700;
+}
+
+.ofv-msdoc-form-table th,
+.ofv-msdoc-form-table td {
+  min-height: calc(34px * var(--ofv-office-zoom, 1));
+  padding: calc(6px * var(--ofv-office-zoom, 1)) calc(8px * var(--ofv-office-zoom, 1));
+  border-color: #111827;
+  font-size: calc(11pt * var(--ofv-office-zoom, 1));
+  line-height: 1.45;
+}
+
+.ofv-msdoc-form-label,
+.ofv-msdoc-form-section {
+  background: #b7e63a;
+  font-weight: 700;
+}
+
+.ofv-msdoc-form-label {
+  text-align: center;
+}
+
+.ofv-msdoc-form-section {
+  font-size: calc(12pt * var(--ofv-office-zoom, 1));
+}
+
+.ofv-msdoc-form-caption {
+  font-weight: 700;
+}
+
+.ofv-msdoc-form-empty {
+  background: #fff;
 }
 
 .ofv-msdoc-meta,
