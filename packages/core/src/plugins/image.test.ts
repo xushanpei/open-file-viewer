@@ -292,9 +292,9 @@ describe("imagePlugin", () => {
     await waitFor(() => Boolean(container.querySelector(".ofv-image-info")));
 
     expect(container.querySelector<HTMLElement>(".ofv-image-info")?.hidden).toBe(true);
-    expect(container.textContent).toContain("格式PNG");
-    expect(container.textContent).toContain("尺寸320 x 180px");
-    expect(container.textContent).toContain("位深8 bit");
+    expect(container.textContent).toContain("FormatPNG");
+    expect(container.textContent).toContain("Dimensions320 x 180px");
+    expect(container.textContent).toContain("Bit depth8 bit");
     expect(container.textContent).toContain("Truecolor + alpha");
 
     viewer.destroy();
@@ -318,8 +318,8 @@ describe("imagePlugin", () => {
 
     await waitFor(() => Boolean(svgContainer.querySelector(".ofv-image-info")));
     expect(svgContainer.querySelector<HTMLElement>(".ofv-image-info")?.hidden).toBe(true);
-    expect(svgContainer.textContent).toContain("格式SVG");
-    expect(svgContainer.textContent).toContain("尺寸640 x 360px");
+    expect(svgContainer.textContent).toContain("FormatSVG");
+    expect(svgContainer.textContent).toContain("Dimensions640 x 360px");
     expect(svgContainer.textContent).toContain("viewBox 0 0 640 360");
     svgViewer.destroy();
 
@@ -334,9 +334,9 @@ describe("imagePlugin", () => {
 
     await waitFor(() => Boolean(icoContainer.querySelector(".ofv-image-info")));
     expect(icoContainer.querySelector<HTMLElement>(".ofv-image-info")?.hidden).toBe(true);
-    expect(icoContainer.textContent).toContain("格式ICO");
-    expect(icoContainer.textContent).toContain("尺寸32 x 32px");
-    expect(icoContainer.textContent).toContain("图像2");
+    expect(icoContainer.textContent).toContain("FormatICO");
+    expect(icoContainer.textContent).toContain("Dimensions32 x 32px");
+    expect(icoContainer.textContent).toContain("Images2");
     icoViewer.destroy();
   });
 
@@ -359,8 +359,8 @@ describe("imagePlugin", () => {
     await waitFor(() => Boolean(container.querySelector(".ofv-image-info")));
 
     expect(container.querySelector<HTMLElement>(".ofv-image-info")?.hidden).toBe(true);
-    expect(container.textContent).toContain("格式APNG");
-    expect(container.textContent).toContain("帧2");
+    expect(container.textContent).toContain("FormatAPNG");
+    expect(container.textContent).toContain("Frames2");
 
     viewer.destroy();
   });
@@ -384,8 +384,8 @@ describe("imagePlugin", () => {
     await waitFor(() => Boolean(container.querySelector(".ofv-image-info")));
 
     expect(container.querySelector<HTMLElement>(".ofv-image-info")?.hidden).toBe(true);
-    expect(container.textContent).toContain("格式AVIF");
-    expect(container.textContent).toContain("尺寸1024 x 576px");
+    expect(container.textContent).toContain("FormatAVIF");
+    expect(container.textContent).toContain("Dimensions1024 x 576px");
     expect(container.textContent).toContain("brand avif");
     expect(container.textContent).toContain("mif1");
 
@@ -421,8 +421,8 @@ describe("imagePlugin", () => {
     expect(canvas?.width).toBe(2);
     expect(canvas?.height).toBe(1);
     expect(container.querySelector<HTMLElement>(".ofv-image-info")?.hidden).toBe(true);
-    expect(container.textContent).toContain("格式TIFF");
-    expect(container.textContent).toContain("尺寸2 x 1px");
+    expect(container.textContent).toContain("FormatTIFF");
+    expect(container.textContent).toContain("Dimensions2 x 1px");
     expect(utifMock.decodeImage).toHaveBeenCalledWith(expect.any(ArrayBuffer), ifd);
 
     viewer.destroy();
@@ -464,9 +464,9 @@ describe("imagePlugin", () => {
     expect(container.querySelector(".ofv-tiff-pages")).not.toBeNull();
     expect(container.querySelector(".ofv-image-stage-pages")).not.toBeNull();
     expect(canvases.map((canvas) => `${canvas.width}x${canvas.height}`)).toEqual(["2x1", "1x2"]);
-    expect(container.textContent).toContain("第 1 / 2 页");
-    expect(container.textContent).toContain("第 2 / 2 页");
-    expect(container.textContent).toContain("图像2");
+    expect(container.textContent).toContain("Page 1 / 2");
+    expect(container.textContent).toContain("Page 2 / 2");
+    expect(container.textContent).toContain("Images2");
     expect(utifMock.decodeImage).toHaveBeenCalledWith(expect.any(ArrayBuffer), first);
     expect(utifMock.decodeImage).toHaveBeenCalledWith(expect.any(ArrayBuffer), second);
 
@@ -501,7 +501,7 @@ describe("imagePlugin", () => {
 
     await waitFor(() => Boolean(container.querySelector(".ofv-fallback")));
 
-    expect(container.textContent).toContain("图片预览失败");
+    expect(container.textContent).toContain("Image preview failed");
     expect(container.querySelector<HTMLElement>(".ofv-image-info")?.hidden).toBe(false);
     expect(container.querySelector<HTMLAnchorElement>(".ofv-fallback a")?.href).toBe("blob:raw-tiff");
 
@@ -651,7 +651,7 @@ describe("imagePlugin", () => {
 
     await waitFor(() => Boolean(container.querySelector(".ofv-fallback")));
 
-    expect(container.textContent).toContain("图片预览失败");
+    expect(container.textContent).toContain("Image preview failed");
     expect(container.querySelector<HTMLAnchorElement>(".ofv-fallback a")?.href).toBe(objectUrl);
     expect(container.querySelector<HTMLButtonElement>('button[aria-label="Zoom in"]')?.disabled).toBe(true);
     expect(container.querySelector<HTMLButtonElement>('button[aria-label="Zoom out"]')?.disabled).toBe(true);
@@ -684,7 +684,7 @@ describe("imagePlugin", () => {
 
     await waitFor(() => Boolean(container.querySelector(".ofv-fallback")));
 
-    expect(container.textContent).toContain("图片预览失败");
+    expect(container.textContent).toContain("Image preview failed");
     expect(container.querySelector<HTMLAnchorElement>(".ofv-fallback a")?.href).toBe("blob:raw-heic");
 
     viewer.destroy();
@@ -879,3 +879,50 @@ function pointerEvent(type: string, init: PointerEventInit): Event {
   Object.defineProperty(event, "pointerId", { value: init.pointerId ?? 1 });
   return event;
 }
+
+describe("imagePlugin messages", () => {
+  afterEach(() => {
+    document.body.replaceChildren();
+    vi.restoreAllMocks();
+  });
+
+  it("renders the zh-CN info bar when the locale asks for it", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    const viewer = createViewer({
+      container,
+      file: minimalPng({ width: 320, height: 180 }),
+      fileName: "photo.png",
+      locale: "zh-CN",
+      plugins: [imagePlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-image-info")));
+
+    expect(container.textContent).toContain("格式PNG");
+    expect(container.textContent).toContain("尺寸320 x 180px");
+
+    viewer.destroy();
+  });
+
+  it("overrides a single image key without dropping the rest of the namespace", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    const viewer = createViewer({
+      container,
+      file: minimalPng({ width: 320, height: 180 }),
+      fileName: "photo.png",
+      messages: { image: { labelFormat: "Kind" } },
+      plugins: [imagePlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-image-info")));
+
+    expect(container.textContent).toContain("KindPNG");
+    expect(container.textContent).toContain("Dimensions320 x 180px");
+
+    viewer.destroy();
+  });
+});

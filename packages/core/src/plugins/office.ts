@@ -277,6 +277,7 @@ async function renderConvertedOfficePreview(
     fit: ctx.options.fit,
     zoom: ctx.options.zoom,
     toolbar: ctx.toolbar,
+    messages: ctx.options.messages.pdf,
     title: "Office 高保真转换预览",
     fallbackTitle: "Office 转换后的 PDF 无法预览",
     revokeUrlOnDestroy: converted.revokeUrlOnDestroy

@@ -1,5 +1,6 @@
 import { createObjectUrl, revokeObjectUrl } from "../dom";
-import type { PreviewPlugin, PreviewSize } from "../types";
+import { defaultMessages, formatMessage } from "../messages";
+import type { PdfMessages, PreviewPlugin, PreviewSize } from "../types";
 import { createEncryptedFallback, isEncryptedError } from "./encrypted";
 import { getInitialZoom } from "./utils";
 
@@ -48,7 +49,14 @@ export interface PdfDocumentPreviewOptions {
   disableRange?: boolean;
   rangeChunkSize?: number;
   useFetchData?: boolean;
+  /**
+   * Copy used by the PDF surface. Defaults to the `en-US` messages, matching
+   * `resolveMessages()`. Plugins that own a `PreviewContext` should forward
+   * `ctx.options.messages.pdf`.
+   */
+  messages?: PdfMessages;
   title?: string;
+  /** Overrides `messages.fallbackTitle`, so embedding plugins can name their own surface. */
   fallbackTitle?: string;
   encryptedTitle?: string;
   encryptedMessage?: string;
@@ -89,9 +97,7 @@ export function pdfPlugin(options: PdfJsModule | PdfPluginOptions = {}): Preview
         fit: ctx.options.fit,
         zoom: ctx.options.zoom,
         toolbar: ctx.toolbar,
-        encryptedTitle: "PDF 已加密，无法在线预览",
-        encryptedMessage: "请下载后使用密码打开，或上传解密后的 PDF 文件。",
-        encryptedAction: "下载 PDF",
+        messages: ctx.options.messages.pdf,
         revokeUrlOnDestroy: true
       });
     }
@@ -106,6 +112,8 @@ export async function renderPdfDocumentPreview(options: PdfDocumentPreviewOption
 }> {
   const pdf = options.pdfjs || (await import("pdfjs-dist"));
   configurePdfWorker(pdf, options.workerSrc);
+
+  const messages = options.messages || defaultMessages["en-US"].pdf;
 
   const viewer = document.createElement("div");
   viewer.className = "ofv-pdf-viewer";
@@ -138,11 +146,17 @@ export async function renderPdfDocumentPreview(options: PdfDocumentPreviewOption
     };
     const fallback = isEncryptedError(error)
       ? createEncryptedFallback(fileLike, options.fileUrl, {
-          title: options.encryptedTitle || "PDF 已加密，无法在线预览",
-          message: options.encryptedMessage || "请下载后使用密码打开，或上传解密后的 PDF 文件。",
-          action: options.encryptedAction || "下载 PDF"
+          title: options.encryptedTitle || messages.encryptedTitle,
+          message: options.encryptedMessage || messages.encryptedMessage,
+          action: options.encryptedAction || messages.encryptedAction
         })
-      : createPdfFallback(options.fileName, options.fileUrl, normalizePdfError(error), options.fallbackTitle);
+      : createPdfFallback(
+          options.fileName,
+          options.fileUrl,
+          normalizePdfError(error, messages),
+          messages,
+          options.fallbackTitle
+        );
     options.viewport.append(fallback);
   };
 
@@ -217,7 +231,7 @@ export async function renderPdfDocumentPreview(options: PdfDocumentPreviewOption
   let rotation = 0;
 
   const updateSummary = () => {
-    renderPdfSummary(summary, pdfDocument.numPages, pagesMeta, options.fit, zoomFactor);
+    renderPdfSummary(summary, pdfDocument.numPages, pagesMeta, options.fit, zoomFactor, messages);
     options.toolbar?.setZoom(zoomFactor);
   };
 
@@ -237,7 +251,9 @@ export async function renderPdfDocumentPreview(options: PdfDocumentPreviewOption
     state.canvas = null;
     state.rendered = false;
     state.wrapper.replaceChildren();
-    state.wrapper.append(createPageStatus("ofv-pdf-skeleton", `页面 ${pageIdx + 1} 加载中...`));
+    state.wrapper.append(
+      createPageStatus("ofv-pdf-skeleton", formatMessage(messages.pageLoading, { page: pageIdx + 1 }))
+    );
   };
 
   const renderPage = async (pageIdx: number, size: PreviewSize) => {
@@ -319,19 +335,12 @@ export async function renderPdfDocumentPreview(options: PdfDocumentPreviewOption
         }
       }
       if (textLayer.childElementCount === 0 && isCanvasVisuallyBlank(canvas, context)) {
-        state.wrapper.appendChild(
-          createPageStatus(
-            "ofv-pdf-empty",
-            "该页没有检测到可显示的 PDF 兼容内容。若这是 Illustrator/AI 文件，可能只包含私有编辑数据，建议导出为 PDF/SVG/PNG 后预览。"
-          )
-        );
+        state.wrapper.appendChild(createPageStatus("ofv-pdf-empty", messages.pageEmpty));
       }
     } catch (err) {
       console.error(`Failed to render PDF page ${pageIdx + 1}:`, err);
       state.rendered = false;
-      state.wrapper.replaceChildren(
-        createPageStatus("ofv-pdf-error", "无法渲染该页面。该页可能包含浏览器 PDF 引擎暂不支持的图形、字体或压缩特性。")
-      );
+      state.wrapper.replaceChildren(createPageStatus("ofv-pdf-error", messages.pageError));
     }
   };
 
@@ -382,7 +391,7 @@ export async function renderPdfDocumentPreview(options: PdfDocumentPreviewOption
       wrapper.setAttribute("data-page-index", String(i));
       wrapper.style.width = `${w}px`;
       wrapper.style.height = `${h}px`;
-      wrapper.append(createPageStatus("ofv-pdf-skeleton", `页面 ${i + 1} 加载中...`));
+      wrapper.append(createPageStatus("ofv-pdf-skeleton", formatMessage(messages.pageLoading, { page: i + 1 })));
 
       scroller.appendChild(wrapper);
 
@@ -513,16 +522,17 @@ function renderPdfSummary(
   pages: number,
   pagesMeta: Array<{ width: number; height: number }>,
   fit: string,
-  zoomFactor: number
+  zoomFactor: number,
+  messages: PdfMessages
 ): void {
   summary.replaceChildren();
-  appendPdfSummary(summary, "页数", String(pages));
+  appendPdfSummary(summary, messages.summaryPages, String(pages));
   const pageSizes = formatPdfPageSizes(pagesMeta);
   if (pageSizes) {
-    appendPdfSummary(summary, "页面尺寸", pageSizes);
+    appendPdfSummary(summary, messages.summaryPageSize, pageSizes);
   }
-  appendPdfSummary(summary, "适配", fit === "actual" ? "原始大小" : "适合宽度");
-  appendPdfSummary(summary, "缩放", `${Math.round(zoomFactor * 100)}%`);
+  appendPdfSummary(summary, messages.summaryFit, fit === "actual" ? messages.summaryFitActual : messages.summaryFitWidth);
+  appendPdfSummary(summary, messages.summaryZoom, `${Math.round(zoomFactor * 100)}%`);
 }
 
 function appendPdfSummary(parent: HTMLElement, label: string, value: string): void {
@@ -629,7 +639,13 @@ function createPageStatus(className: string, text: string): HTMLDivElement {
   return status;
 }
 
-function createPdfFallback(fileName: string, url: string, message: string, titleText = "PDF 预览失败"): HTMLElement {
+function createPdfFallback(
+  fileName: string,
+  url: string,
+  message: string,
+  messages: PdfMessages,
+  titleText = messages.fallbackTitle
+): HTMLElement {
   const fallback = document.createElement("div");
   fallback.className = "ofv-fallback";
 
@@ -642,20 +658,20 @@ function createPdfFallback(fileName: string, url: string, message: string, title
   const download = document.createElement("a");
   download.href = url;
   download.download = fileName;
-  download.textContent = "下载 PDF";
+  download.textContent = messages.download;
 
   fallback.append(title, meta, download);
   return fallback;
 }
 
-function normalizePdfError(error: unknown): string {
+function normalizePdfError(error: unknown, messages: PdfMessages): string {
   const message = error instanceof Error ? error.message : String(error || "");
   const name = typeof error === "object" && error !== null && "name" in error ? String((error as { name?: unknown }).name) : "";
   const lower = `${name} ${message}`.toLowerCase();
   if (lower.includes("invalid") || lower.includes("missing") || lower.includes("corrupt")) {
-    return "该 PDF 文件可能已损坏或格式无效。";
+    return messages.errorCorrupted;
   }
-  return "当前浏览器无法加载该 PDF。";
+  return messages.errorUnsupported;
 }
 
 function configurePdfWorker(pdf: PdfJsModule, workerSrc?: string): void {

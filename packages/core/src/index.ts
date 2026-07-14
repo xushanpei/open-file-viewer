@@ -19,8 +19,11 @@ export { model3dPlugin } from "./plugins/model3d";
 export { gisPlugin } from "./plugins/gis";
 export { assetPlugin } from "./plugins/asset";
 export { fallbackPlugin } from "./plugins/fallback";
+export { defaultMessages, formatMessage, resolveMessages } from "./messages";
 export type {
   FileViewer,
+  ImageMessages,
+  PdfMessages,
   PreviewCommand,
   PreviewContext,
   PreviewFallback,
@@ -30,6 +33,7 @@ export type {
   PreviewItem,
   PreviewLocale,
   PreviewMessages,
+  PreviewMessagesInput,
   PreviewOptions,
   PreviewPlugin,
   PreviewSize,
@@ -39,5 +43,6 @@ export type {
   PreviewToolbarBuiltInAction,
   PreviewToolbarCustomAction,
   PreviewToolbarOptions,
-  PreviewToolbarRenderContext
+  PreviewToolbarRenderContext,
+  TextMessages
 } from "./types";

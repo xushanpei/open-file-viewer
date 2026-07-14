@@ -138,7 +138,7 @@ describe("textPlugin", () => {
 
     await waitFor(() => Boolean(container.querySelector(".ofv-fallback")));
 
-    expect(container.textContent).toContain("文本预览失败");
+    expect(container.textContent).toContain("Text preview failed");
     expect(container.querySelector<HTMLAnchorElement>(".ofv-fallback a")?.href).toBe("https://example.com/missing.txt");
     expect(onError).not.toHaveBeenCalled();
   });
@@ -269,10 +269,10 @@ describe("textPlugin", () => {
 
     const summary = container.querySelector<HTMLElement>(".ofv-text-structure");
     expect(summary?.hidden).toBe(true);
-    expect(summary?.textContent).toContain("结构Object");
-    expect(summary?.textContent).toContain("键3");
-    expect(visibleText(container)).not.toContain("结构Object");
-    expect(visibleText(container)).not.toContain("键3");
+    expect(summary?.textContent).toContain("StructureObject");
+    expect(summary?.textContent).toContain("Keys3");
+    expect(visibleText(container)).not.toContain("StructureObject");
+    expect(visibleText(container)).not.toContain("Keys3");
   });
 
   it("renders notebook cell summaries", async () => {
@@ -322,10 +322,10 @@ describe("textPlugin", () => {
     const summary = container.querySelector<HTMLElement>(".ofv-text-structure");
     expect(summary?.hidden).toBe(true);
     expect(summary?.textContent).toContain("NDJSON4 lines");
-    expect(summary?.textContent).toContain("可解析3");
+    expect(summary?.textContent).toContain("Parsed3");
     expect(summary?.textContent).toContain("object 2, array 1");
     expect(visibleText(container)).not.toContain("NDJSON4 lines");
-    expect(visibleText(container)).not.toContain("可解析3");
+    expect(visibleText(container)).not.toContain("Parsed3");
   });
 
   it.each([
@@ -582,7 +582,7 @@ describe("textPlugin", () => {
 
     await waitFor(() => Boolean(container.querySelector(".ofv-code-container.is-truncated")));
 
-    expect(container.querySelector(".ofv-code-notice")?.textContent).toContain("文件较大");
+    expect(container.querySelector(".ofv-code-notice")?.textContent).toContain("This file is large");
     expect(container.querySelector(".ofv-code-container code")?.textContent).not.toContain("TAIL");
 
     const copy = Array.from(container.querySelectorAll<HTMLButtonElement>(".ofv-code-action")).find(
@@ -637,3 +637,52 @@ function visibleText(root: HTMLElement): string {
   walk(root, false);
   return parts.join(" ").replace(/\s+/g, " ").trim();
 }
+
+describe("textPlugin messages", () => {
+  afterEach(() => {
+    document.body.replaceChildren();
+    vi.restoreAllMocks();
+  });
+
+  it("renders the zh-CN code header and summary when the locale asks for it", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    const viewer = createViewer({
+      container,
+      file: new Blob(['{"a":1,"b":2,"c":3}'], { type: "application/json" }),
+      fileName: "data.json",
+      locale: "zh-CN",
+      plugins: [textPlugin()]
+    });
+
+    await waitFor(() => container.querySelector(".ofv-code-container"));
+
+    expect(container.querySelector(".ofv-code-actions")?.textContent).toContain("复制");
+    expect(container.querySelector(".ofv-text-structure")?.textContent).toContain("结构Object");
+
+    viewer.destroy();
+  });
+
+  it("overrides a single text key without dropping the rest of the namespace", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    const viewer = createViewer({
+      container,
+      file: new Blob(['{"a":1,"b":2,"c":3}'], { type: "application/json" }),
+      fileName: "data.json",
+      messages: { text: { actionCopy: "Duplicate" } },
+      plugins: [textPlugin()]
+    });
+
+    await waitFor(() => container.querySelector(".ofv-code-container"));
+
+    const actions = container.querySelector(".ofv-code-actions")?.textContent;
+    expect(actions).toContain("Duplicate");
+    expect(actions).toContain("Wrap");
+    expect(actions).toContain("Download");
+
+    viewer.destroy();
+  });
+});

@@ -1370,7 +1370,7 @@ function smokeCases(): SmokeCase[] {
       fileName: "locked.pdf",
       plugins: [pdfPlugin({ pdfjs: failingPdfJs() as any })],
       selector: ".ofv-fallback",
-      text: "PDF 预览失败"
+      text: "PDF preview failed"
     },
     {
       name: "EPUB",

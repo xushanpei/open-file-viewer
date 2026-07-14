@@ -1,6 +1,6 @@
 import { createObjectUrl, revokeObjectUrl } from "../dom";
 import type { Psd } from "ag-psd";
-import type { PreviewCommand, PreviewInstance, PreviewPlugin, PreviewSize } from "../types";
+import type { PdfMessages, PreviewCommand, PreviewInstance, PreviewPlugin, PreviewSize } from "../types";
 import { renderPdfDocumentPreview } from "./pdf";
 import { appendMeta, createPanel, createSection, readArrayBuffer, resolveFormat } from "./utils";
 
@@ -79,7 +79,15 @@ export function assetPlugin(): PreviewPlugin {
       }
 
       if (extension === "ai" || extension === "eps" || extension === "ps") {
-        const postScriptPreview = await createPostScriptPreview(bytes, url, ctx.file.name, ctx.size, ctx.options.fit, ctx.toolbar);
+        const postScriptPreview = await createPostScriptPreview(
+          bytes,
+          url,
+          ctx.file.name,
+          ctx.size,
+          ctx.options.fit,
+          ctx.options.messages.pdf,
+          ctx.toolbar
+        );
         panel.append(postScriptPreview.element);
         if (postScriptPreview.primaryRendered) {
           hideSuccessfulAssetDiagnostics(panel);
@@ -2926,11 +2934,21 @@ async function createPostScriptPreview(
   fileName: string,
   size: { width: number; height: number },
   fit: string,
+  messages: PdfMessages,
   toolbar?: { setZoom(value: number | undefined): void }
 ): Promise<{ element: HTMLElement; instance?: PreviewInstance; primaryRendered?: boolean }> {
   const parsed = parsePostScript(bytes);
   if (parsed.valid && parsed.pdfCompatible) {
-    const embedded = await createPdfCompatibleAiPreview(bytes, url, fileName, size, fit, toolbar, parsed.pdfOffset || 0);
+    const embedded = await createPdfCompatibleAiPreview(
+      bytes,
+      url,
+      fileName,
+      size,
+      fit,
+      messages,
+      toolbar,
+      parsed.pdfOffset || 0
+    );
     return { element: embedded.element, instance: embedded.instance, primaryRendered: true };
   }
 
@@ -2969,6 +2987,7 @@ async function createPdfCompatibleAiPreview(
   fileName: string,
   size: { width: number; height: number },
   fit: string,
+  messages: PdfMessages,
   toolbar?: { setZoom(value: number | undefined): void },
   pdfOffset = 0,
   zoom = 1
@@ -2989,6 +3008,7 @@ async function createPdfCompatibleAiPreview(
     fit,
     zoom,
     toolbar,
+    messages,
     fallbackTitle: "AI PDF 兼容预览失败",
     revokeUrlOnDestroy: false
   });

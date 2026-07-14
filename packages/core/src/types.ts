@@ -109,7 +109,7 @@ export interface PreviewOptions {
   plugins?: PreviewPlugin[];
   fallback?: PreviewFallback;
   locale?: PreviewLocale;
-  messages?: Partial<PreviewMessages>;
+  messages?: PreviewMessagesInput;
   renderFallback?: (ctx: PreviewContext) => Promise<PreviewInstance> | PreviewInstance;
   toolbar?: boolean | PreviewToolbarOptions;
   theme?: PreviewTheme;
@@ -134,7 +134,114 @@ export interface PreviewMessages {
   source: string;
   remoteUrl: string;
   localFile: string;
+  pdf: PdfMessages;
+  image: ImageMessages;
+  text: TextMessages;
 }
+
+/**
+ * Messages consumed by the `pdf` plugin.
+ *
+ * Values wrapped in braces are placeholders filled in by `formatMessage`,
+ * e.g. `pageLoading: "Loading page {page}..."`.
+ */
+export interface PdfMessages {
+  /** Placeholders: `{page}` */
+  pageLoading: string;
+  pageEmpty: string;
+  pageError: string;
+  summaryPages: string;
+  summaryPageSize: string;
+  summaryFit: string;
+  summaryFitActual: string;
+  summaryFitWidth: string;
+  summaryZoom: string;
+  fallbackTitle: string;
+  download: string;
+  errorCorrupted: string;
+  errorUnsupported: string;
+  encryptedTitle: string;
+  encryptedMessage: string;
+  encryptedAction: string;
+}
+
+/** Messages consumed by the `image` plugin. */
+export interface ImageMessages {
+  fallbackTitle: string;
+  fallbackMessage: string;
+  download: string;
+  labelFormat: string;
+  labelDimensions: string;
+  labelBitDepth: string;
+  labelColor: string;
+  labelFrames: string;
+  labelImages: string;
+  labelNote: string;
+  noteUnreadableHeader: string;
+  noteUnrecognizedHeader: string;
+  noteJpegMissingSof: string;
+  /** Placeholders: `{chunk}` */
+  noteWebpUnknownChunk: string;
+  noteBmpHeaderTooShort: string;
+  noteTiffIfdOutOfRange: string;
+  tiffEmpty: string;
+  tiffNoImageDirectory: string;
+  tiffIncompletePixels: string;
+  tiffCanvasUnsupported: string;
+  /** Placeholders: `{name}`, `{total}` */
+  tiffPagesLabel: string;
+  /** Placeholders: `{page}`, `{total}`, `{width}`, `{height}` */
+  tiffPageCaption: string;
+  /** Placeholders: `{name}`, `{page}` */
+  tiffPageLabel: string;
+}
+
+/** Messages consumed by the `text` plugin. */
+export interface TextMessages {
+  fallbackTitle: string;
+  fallbackMessage: string;
+  openOriginal: string;
+  plainText: string;
+  /** Placeholders: `{count}` */
+  lines: string;
+  actionWrap: string;
+  actionCopy: string;
+  actionDownload: string;
+  statusCopied: string;
+  statusCopyFailed: string;
+  statusDownloadReady: string;
+  /** Placeholders: `{size}` */
+  truncatedNotice: string;
+  highlightSkippedNotice: string;
+  labelStructure: string;
+  labelEntries: string;
+  labelKeys: string;
+  labelPreview: string;
+  labelTypes: string;
+  labelParsed: string;
+  labelNotebook: string;
+  labelKernel: string;
+  labelNdjson: string;
+  noKeys: string;
+  unknown: string;
+  /** Placeholders: `{count}` */
+  notebookCells: string;
+  /** Placeholders: `{count}` */
+  ndjsonLines: string;
+}
+
+/**
+ * Shape accepted by `PreviewOptions.messages`.
+ *
+ * Every key is optional, and the plugin namespaces are merged one level deep so
+ * that overriding a single key (e.g. `{ pdf: { download: "Save" } }`) keeps the
+ * remaining defaults for that namespace intact.
+ */
+export type PreviewMessagesInput = Partial<Omit<PreviewMessages, "pdf" | "image" | "text">> & {
+  pdf?: Partial<PdfMessages>;
+  image?: Partial<ImageMessages>;
+  text?: Partial<TextMessages>;
+};
 
 export interface PreviewContext {
   host: HTMLElement;

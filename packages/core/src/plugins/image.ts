@@ -1,6 +1,7 @@
 /// <reference path="../shims-heic.d.ts" />
 import { createObjectUrl, revokeObjectUrl } from "../dom";
-import type { PreviewPlugin, PreviewSize } from "../types";
+import { formatMessage } from "../messages";
+import type { ImageMessages, PreviewPlugin, PreviewSize } from "../types";
 import { getInitialZoom } from "./utils";
 
 const imageExtensions = new Set([
@@ -38,6 +39,7 @@ export function imagePlugin(): PreviewPlugin {
       return file.mimeType.startsWith("image/") || imageExtensions.has(file.extension);
     },
     async render(ctx) {
+      const messages = ctx.options.messages.image;
       const ext = ctx.file.extension.toLowerCase();
       const isHeic = ext === "heic" || ext === "heif" || heicMimeTypes.has(ctx.file.mimeType.toLowerCase());
       const isTiff = ext === "tif" || ext === "tiff" || ctx.file.mimeType.toLowerCase() === "image/tiff";
@@ -52,7 +54,7 @@ export function imagePlugin(): PreviewPlugin {
         ctx.setLoading(true);
         try {
           const bytes = await sourceBytesPromise;
-          tiffSource = await createTiffPreview(bytes, ctx.file.name);
+          tiffSource = await createTiffPreview(bytes, ctx.file.name, messages);
         } catch (err: any) {
           console.error("TIFF image conversion failed:", err);
           url = createObjectUrl(ctx.file);
@@ -106,7 +108,7 @@ export function imagePlugin(): PreviewPlugin {
 
       const stage = document.createElement("div");
       stage.className = "ofv-image-stage";
-      const infoBar = createImageInfoBar(await sourceBytesPromise, ext, ctx.file.mimeType, ctx.file.name);
+      const infoBar = createImageInfoBar(await sourceBytesPromise, ext, ctx.file.mimeType, ctx.file.name, messages);
       infoBar.hidden = true;
       infoBar.setAttribute("aria-hidden", "true");
       infoBar.style.display = "none";
@@ -174,7 +176,7 @@ export function imagePlugin(): PreviewPlugin {
         infoBar.hidden = false;
         infoBar.removeAttribute("aria-hidden");
         infoBar.style.removeProperty("display");
-        stage.replaceChildren(createImageFallback(ctx.file.name, url));
+        stage.replaceChildren(createImageFallback(ctx.file.name, url, messages));
         ctx.toolbar?.refreshCommandSupport();
       };
 
@@ -388,19 +390,21 @@ export function imagePlugin(): PreviewPlugin {
   };
 }
 
-async function createTiffPreview(bytes: Uint8Array, fileName: string): Promise<HTMLElement> {
+async function createTiffPreview(bytes: Uint8Array, fileName: string, messages: ImageMessages): Promise<HTMLElement> {
   if (bytes.byteLength === 0) {
-    throw new Error("无法读取 TIFF 文件内容。");
+    throw new Error(messages.tiffEmpty);
   }
   const UTIF = await import("utif");
   const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
   const ifds = UTIF.decode(buffer);
   const imageIfds = ifds.filter((item) => hasTiffDimensions(item));
   if (imageIfds.length === 0) {
-    throw new Error("TIFF 文件没有可解码的图像目录。");
+    throw new Error(messages.tiffNoImageDirectory);
   }
 
-  const pages = imageIfds.map((ifd, index) => createTiffPage(UTIF, buffer, ifd, index, imageIfds.length, fileName));
+  const pages = imageIfds.map((ifd, index) =>
+    createTiffPage(UTIF, buffer, ifd, index, imageIfds.length, fileName, messages)
+  );
   if (pages.length === 1) {
     return pages[0].canvas;
   }
@@ -408,13 +412,18 @@ async function createTiffPreview(bytes: Uint8Array, fileName: string): Promise<H
   const container = document.createElement("div");
   container.className = "ofv-tiff-pages";
   container.setAttribute("role", "group");
-  container.setAttribute("aria-label", `${fileName}，共 ${pages.length} 页`);
+  container.setAttribute("aria-label", formatMessage(messages.tiffPagesLabel, { name: fileName, total: pages.length }));
 
   for (const page of pages) {
     const figure = document.createElement("figure");
     figure.className = "ofv-tiff-page";
     const caption = document.createElement("figcaption");
-    caption.textContent = `第 ${page.index + 1} / ${pages.length} 页 · ${page.width} x ${page.height}px`;
+    caption.textContent = formatMessage(messages.tiffPageCaption, {
+      page: page.index + 1,
+      total: pages.length,
+      width: page.width,
+      height: page.height
+    });
     figure.append(page.canvas, caption);
     container.append(figure);
   }
@@ -428,13 +437,14 @@ function createTiffPage(
   ifd: Record<string, unknown>,
   index: number,
   total: number,
-  fileName: string
+  fileName: string,
+  messages: ImageMessages
 ): { canvas: HTMLCanvasElement; width: number; height: number; index: number } {
   UTIF.decodeImage(buffer, ifd);
   const rgba = UTIF.toRGBA8(ifd);
   const { width, height } = getTiffDimensions(ifd);
   if (!width || !height || rgba.length < width * height * 4) {
-    throw new Error("TIFF 图像像素数据不完整。");
+    throw new Error(messages.tiffIncompletePixels);
   }
 
   const canvas = document.createElement("canvas");
@@ -442,10 +452,13 @@ function createTiffPage(
   canvas.width = width;
   canvas.height = height;
   canvas.setAttribute("role", "img");
-  canvas.setAttribute("aria-label", total > 1 ? `${fileName} 第 ${index + 1} 页` : fileName);
+  canvas.setAttribute(
+    "aria-label",
+    total > 1 ? formatMessage(messages.tiffPageLabel, { name: fileName, page: index + 1 }) : fileName
+  );
   const context = canvas.getContext("2d");
   if (!context) {
-    throw new Error("当前环境不支持 Canvas 2D，无法展示 TIFF。");
+    throw new Error(messages.tiffCanvasUnsupported);
   }
   context.putImageData(new ImageData(new Uint8ClampedArray(rgba), width, height), 0, 0);
   return { canvas, width, height, index };
@@ -463,20 +476,20 @@ function getTiffDimensions(ifd: Record<string, unknown>): { width: number; heigh
   };
 }
 
-function createImageFallback(fileName: string, url: string): HTMLElement {
+function createImageFallback(fileName: string, url: string, messages: ImageMessages): HTMLElement {
   const fallback = document.createElement("div");
   fallback.className = "ofv-fallback";
 
   const title = document.createElement("strong");
-  title.textContent = "图片预览失败";
+  title.textContent = messages.fallbackTitle;
 
   const meta = document.createElement("span");
-  meta.textContent = "当前浏览器无法直接显示该图片，文件可能已损坏或编码暂不受支持。";
+  meta.textContent = messages.fallbackMessage;
 
   const download = document.createElement("a");
   download.href = url;
   download.download = fileName;
-  download.textContent = "下载图片";
+  download.textContent = messages.download;
 
   fallback.append(title, meta, download);
   return fallback;
@@ -512,28 +525,34 @@ async function readImageBytes(file: { blob?: Blob; url?: string; source?: unknow
   }
 }
 
-function createImageInfoBar(bytes: Uint8Array, extension: string, mimeType: string, fileName: string): HTMLElement {
-  const info = parseImageInfo(bytes, extension, mimeType, fileName);
+function createImageInfoBar(
+  bytes: Uint8Array,
+  extension: string,
+  mimeType: string,
+  fileName: string,
+  messages: ImageMessages
+): HTMLElement {
+  const info = parseImageInfo(bytes, extension, mimeType, fileName, messages);
   const bar = document.createElement("div");
   bar.className = "ofv-image-info";
-  appendImageInfo(bar, "格式", info.format);
+  appendImageInfo(bar, messages.labelFormat, info.format);
   if (info.width && info.height) {
-    appendImageInfo(bar, "尺寸", `${info.width} x ${info.height}px`);
+    appendImageInfo(bar, messages.labelDimensions, `${info.width} x ${info.height}px`);
   }
   if (info.bitDepth) {
-    appendImageInfo(bar, "位深", info.bitDepth);
+    appendImageInfo(bar, messages.labelBitDepth, info.bitDepth);
   }
   if (info.color) {
-    appendImageInfo(bar, "颜色", info.color);
+    appendImageInfo(bar, messages.labelColor, info.color);
   }
   if (info.frames !== undefined) {
-    appendImageInfo(bar, "帧", String(info.frames));
+    appendImageInfo(bar, messages.labelFrames, String(info.frames));
   }
   if (info.count !== undefined) {
-    appendImageInfo(bar, "图像", String(info.count));
+    appendImageInfo(bar, messages.labelImages, String(info.count));
   }
   if (info.note) {
-    appendImageInfo(bar, "说明", info.note);
+    appendImageInfo(bar, messages.labelNote, info.note);
   }
   return bar;
 }
@@ -549,22 +568,28 @@ function appendImageInfo(parent: HTMLElement, label: string, value: string): voi
   parent.append(row);
 }
 
-function parseImageInfo(bytes: Uint8Array, extension: string, mimeType: string, fileName: string): ImageInfo {
+function parseImageInfo(
+  bytes: Uint8Array,
+  extension: string,
+  mimeType: string,
+  fileName: string,
+  messages: ImageMessages
+): ImageInfo {
   const fallbackFormat = (extension || mimeType || fileName.split(".").pop() || "image").toUpperCase();
   if (bytes.length === 0) {
-    return { format: fallbackFormat, note: "无法读取本地头信息" };
+    return { format: fallbackFormat, note: messages.noteUnreadableHeader };
   }
   return (
     parsePngInfo(bytes) ||
-    parseJpegInfo(bytes) ||
+    parseJpegInfo(bytes, messages) ||
     parseGifInfo(bytes) ||
-    parseWebpInfo(bytes) ||
+    parseWebpInfo(bytes, messages) ||
     parseAvifInfo(bytes) ||
-    parseBmpInfo(bytes) ||
+    parseBmpInfo(bytes, messages) ||
     parseIcoInfo(bytes) ||
-    parseTiffInfo(bytes) ||
+    parseTiffInfo(bytes, messages) ||
     parseSvgInfo(bytes) ||
-    { format: fallbackFormat, note: "暂未识别图片头结构" }
+    { format: fallbackFormat, note: messages.noteUnrecognizedHeader }
   );
 }
 
@@ -584,7 +609,7 @@ function parsePngInfo(bytes: Uint8Array): ImageInfo | null {
   };
 }
 
-function parseJpegInfo(bytes: Uint8Array): ImageInfo | null {
+function parseJpegInfo(bytes: Uint8Array, messages: ImageMessages): ImageInfo | null {
   if (bytes.length < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8) {
     return null;
   }
@@ -620,7 +645,7 @@ function parseJpegInfo(bytes: Uint8Array): ImageInfo | null {
     }
     offset += length;
   }
-  return { format: "JPEG", note: "未在头部扫描到 SOF 尺寸段" };
+  return { format: "JPEG", note: messages.noteJpegMissingSof };
 }
 
 function parseGifInfo(bytes: Uint8Array): ImageInfo | null {
@@ -639,7 +664,7 @@ function parseGifInfo(bytes: Uint8Array): ImageInfo | null {
   };
 }
 
-function parseWebpInfo(bytes: Uint8Array): ImageInfo | null {
+function parseWebpInfo(bytes: Uint8Array, messages: ImageMessages): ImageInfo | null {
   if (bytes.length < 16 || asciiAt(bytes, 0, 4) !== "RIFF" || asciiAt(bytes, 8, 4) !== "WEBP") {
     return null;
   }
@@ -676,7 +701,7 @@ function parseWebpInfo(bytes: Uint8Array): ImageInfo | null {
       color: "Lossless"
     };
   }
-  return { format: "WebP", note: `未知 ${chunk || "chunk"} 头` };
+  return { format: "WebP", note: formatMessage(messages.noteWebpUnknownChunk, { chunk: chunk || "chunk" }) };
 }
 
 function parseAvifInfo(bytes: Uint8Array): ImageInfo | null {
@@ -761,13 +786,13 @@ function formatBmffBrands(value: string): string {
   return brands.slice(0, 6).join(", ");
 }
 
-function parseBmpInfo(bytes: Uint8Array): ImageInfo | null {
+function parseBmpInfo(bytes: Uint8Array, messages: ImageMessages): ImageInfo | null {
   if (bytes.length < 30 || asciiAt(bytes, 0, 2) !== "BM") {
     return null;
   }
   const dibSize = readUint32Le(bytes, 14);
   if (dibSize < 12) {
-    return { format: "BMP", note: "DIB header 太短" };
+    return { format: "BMP", note: messages.noteBmpHeaderTooShort };
   }
   if (dibSize === 12 && bytes.length >= 26) {
     return {
@@ -822,7 +847,7 @@ function parseSvgInfo(bytes: Uint8Array): ImageInfo | null {
   };
 }
 
-function parseTiffInfo(bytes: Uint8Array): ImageInfo | null {
+function parseTiffInfo(bytes: Uint8Array, messages: ImageMessages): ImageInfo | null {
   if (bytes.length < 8) {
     return null;
   }
@@ -837,7 +862,7 @@ function parseTiffInfo(bytes: Uint8Array): ImageInfo | null {
   }
   const ifdOffset = magic === 43 ? readTiffUint64AsNumber(bytes, 8, littleEndian) : readTiffUint32(bytes, 4, littleEndian);
   if (!Number.isFinite(ifdOffset) || ifdOffset + 2 > bytes.length) {
-    return { format: magic === 43 ? "BigTIFF" : "TIFF", note: "IFD 偏移超出文件范围" };
+    return { format: magic === 43 ? "BigTIFF" : "TIFF", note: messages.noteTiffIfdOutOfRange };
   }
   const count = magic === 43 ? readTiffUint64AsNumber(bytes, ifdOffset, littleEndian) : readTiffUint16(bytes, ifdOffset, littleEndian);
   const imageCount = countTiffIfds(bytes, ifdOffset, magic === 43, littleEndian);

@@ -1,6 +1,7 @@
 /// <reference path="../shims-text.d.ts" />
 import { isTextLike } from "../detect";
-import type { PreviewCommand, PreviewContext, PreviewPlugin } from "../types";
+import { formatMessage } from "../messages";
+import type { PreviewCommand, PreviewContext, PreviewPlugin, TextMessages } from "../types";
 import { decodeTextBuffer, getInitialZoom } from "./utils";
 
 const langMap: Record<string, string> = {
@@ -168,13 +169,14 @@ export function textPlugin(): PreviewPlugin {
       return isTextLike(file);
     },
     async render(ctx) {
+      const messages = ctx.options.messages.text;
       const ext = ctx.file.extension.toLowerCase();
       const lang = getTextLanguage(ctx.file.name, ext, ctx.file.mimeType);
       const defaultWrapped = lang === "none";
       const isMarkdown = lang === "markdown";
       const text = await readText(ctx.file.source).catch((error: unknown) => undefined);
       if (text === undefined) {
-        const fallback = createTextFallback(ctx.file.name, ctx.file.url);
+        const fallback = createTextFallback(ctx.file.name, messages, ctx.file.url);
         ctx.viewport.classList.add("ofv-center");
         ctx.viewport.append(fallback);
         return {
@@ -364,8 +366,8 @@ export function textPlugin(): PreviewPlugin {
       fileName.textContent = ctx.file.name;
       const meta = document.createElement("span");
       meta.textContent = [
-        lang === "none" ? "plain text" : lang,
-        `${totalLines.toLocaleString()} lines`,
+        lang === "none" ? messages.plainText : lang,
+        formatMessage(messages.lines, { count: totalLines.toLocaleString() }),
         formatBytes(ctx.file.size ?? (ctx.file.source instanceof Blob ? ctx.file.source.size : text.length))
       ].join(" · ");
       title.append(fileName, meta);
@@ -380,7 +382,7 @@ export function textPlugin(): PreviewPlugin {
       const wrapButton = document.createElement("button");
       wrapButton.type = "button";
       wrapButton.className = "ofv-code-action";
-      wrapButton.textContent = "Wrap";
+      wrapButton.textContent = messages.actionWrap;
       wrapButton.setAttribute("aria-pressed", String(defaultWrapped));
       wrapButton.addEventListener("click", () => {
         const wrapped = wrapper.classList.toggle("is-wrapped");
@@ -390,14 +392,14 @@ export function textPlugin(): PreviewPlugin {
       const copyButton = document.createElement("button");
       copyButton.type = "button";
       copyButton.className = "ofv-code-action";
-      copyButton.textContent = "Copy";
+      copyButton.textContent = messages.actionCopy;
       copyButton.addEventListener("click", async () => {
         copyButton.disabled = true;
         try {
           await copyToClipboard(text);
-          status.textContent = "Copied";
+          status.textContent = messages.statusCopied;
         } catch {
-          status.textContent = "Copy failed";
+          status.textContent = messages.statusCopyFailed;
         } finally {
           copyButton.disabled = false;
         }
@@ -406,15 +408,15 @@ export function textPlugin(): PreviewPlugin {
       const downloadButton = document.createElement("button");
       downloadButton.type = "button";
       downloadButton.className = "ofv-code-action";
-      downloadButton.textContent = "Download";
+      downloadButton.textContent = messages.actionDownload;
       downloadButton.addEventListener("click", () => {
         downloadText(ctx.file.name, text);
-        status.textContent = "Download ready";
+        status.textContent = messages.statusDownloadReady;
       });
 
       actions.append(wrapButton, copyButton, downloadButton, status);
       header.append(title, actions);
-      const structureSummary = createTextStructureSummary(text, ext, lang, ctx.file.mimeType);
+      const structureSummary = createTextStructureSummary(text, ext, lang, ctx.file.mimeType, messages);
 
       const body = document.createElement("div");
       body.className = "ofv-code-body";
@@ -440,13 +442,13 @@ export function textPlugin(): PreviewPlugin {
       if (truncated) {
         const notice = document.createElement("div");
         notice.className = "ofv-code-notice";
-        notice.textContent = `文件较大，当前展示前 ${formatBytes(codeText.length)}，复制和下载仍会使用完整内容。`;
+        notice.textContent = formatMessage(messages.truncatedNotice, { size: formatBytes(codeText.length) });
         wrapper.append(notice);
       }
       if (!shouldHighlight) {
         const notice = document.createElement("div");
         notice.className = "ofv-code-notice";
-        notice.textContent = "内容较大，已跳过语法高亮以保持滚动流畅。";
+        notice.textContent = messages.highlightSkippedNotice;
         wrapper.append(notice);
       }
       wrapper.appendChild(body);
@@ -529,22 +531,22 @@ function normalizeFileName(name: string): string {
   return baseName.toLowerCase();
 }
 
-function createTextFallback(fileName: string, url?: string): HTMLElement {
+function createTextFallback(fileName: string, messages: TextMessages, url?: string): HTMLElement {
   const fallback = document.createElement("div");
   fallback.className = "ofv-fallback";
 
   const title = document.createElement("strong");
-  title.textContent = "文本预览失败";
+  title.textContent = messages.fallbackTitle;
 
   const meta = document.createElement("span");
-  meta.textContent = "无法读取该文本内容，可能是远程文件不可访问或响应状态异常。";
+  meta.textContent = messages.fallbackMessage;
 
   fallback.append(title, meta);
   if (url) {
     const download = document.createElement("a");
     download.href = url;
     download.download = fileName;
-    download.textContent = "打开原文件";
+    download.textContent = messages.openOriginal;
     fallback.append(download);
   }
   return fallback;
@@ -584,11 +586,17 @@ function countLines(text: string): number {
   return text.split(/\r\n|\r|\n/).length;
 }
 
-function createTextStructureSummary(text: string, extension: string, language: string, mimeType: string): HTMLElement | null {
+function createTextStructureSummary(
+  text: string,
+  extension: string,
+  language: string,
+  mimeType: string,
+  messages: TextMessages
+): HTMLElement | null {
   if (text.length > MAX_RENDER_CHARS) {
     return null;
   }
-  const items = summarizeTextStructure(text, extension, language, mimeType);
+  const items = summarizeTextStructure(text, extension, language, mimeType, messages);
   if (items.length === 0) {
     return null;
   }
@@ -613,51 +621,52 @@ function summarizeTextStructure(
   text: string,
   extension: string,
   language: string,
-  mimeType: string
+  mimeType: string,
+  messages: TextMessages
 ): Array<{ label: string; value: string }> {
   if (extension === "ipynb" || mimeType === "application/x-ipynb+json") {
-    return summarizeNotebook(text);
+    return summarizeNotebook(text, messages);
   }
   if (extension === "ndjson" || extension === "jsonl" || mimeType === "application/x-ndjson") {
-    return summarizeNdjson(text);
+    return summarizeNdjson(text, messages);
   }
   if (language === "json" || language === "json5") {
-    return summarizeJson(text);
+    return summarizeJson(text, messages);
   }
   return [];
 }
 
-function summarizeJson(text: string): Array<{ label: string; value: string }> {
+function summarizeJson(text: string, messages: TextMessages): Array<{ label: string; value: string }> {
   try {
     const data = JSON.parse(text) as unknown;
     if (Array.isArray(data)) {
       return [
-        { label: "结构", value: "Array" },
-        { label: "条目", value: String(data.length) }
+        { label: messages.labelStructure, value: "Array" },
+        { label: messages.labelEntries, value: String(data.length) }
       ];
     }
     if (data && typeof data === "object") {
       const keys = Object.keys(data as Record<string, unknown>);
       return [
-        { label: "结构", value: "Object" },
-        { label: "键", value: String(keys.length) },
-        { label: "预览", value: keys.slice(0, 8).join(", ") || "无键" }
+        { label: messages.labelStructure, value: "Object" },
+        { label: messages.labelKeys, value: String(keys.length) },
+        { label: messages.labelPreview, value: keys.slice(0, 8).join(", ") || messages.noKeys }
       ];
     }
-    return [{ label: "结构", value: typeof data }];
+    return [{ label: messages.labelStructure, value: typeof data }];
   } catch {
     return [];
   }
 }
 
-function summarizeNotebook(text: string): Array<{ label: string; value: string }> {
+function summarizeNotebook(text: string, messages: TextMessages): Array<{ label: string; value: string }> {
   try {
     const notebook = JSON.parse(text) as {
       cells?: Array<{ cell_type?: string; source?: string | string[] }>;
       metadata?: { kernelspec?: { display_name?: string; name?: string }; language_info?: { name?: string } };
     };
     if (!Array.isArray(notebook.cells)) {
-      return summarizeJson(text);
+      return summarizeJson(text, messages);
     }
     const counts = new Map<string, number>();
     for (const cell of notebook.cells) {
@@ -666,16 +675,19 @@ function summarizeNotebook(text: string): Array<{ label: string; value: string }
     }
     const kernel = notebook.metadata?.kernelspec?.display_name || notebook.metadata?.kernelspec?.name || notebook.metadata?.language_info?.name;
     return [
-      { label: "Notebook", value: `${notebook.cells.length} cells` },
-      { label: "类型", value: [...counts.entries()].map(([type, count]) => `${type} ${count}`).join(", ") || "未知" },
-      ...(kernel ? [{ label: "Kernel", value: kernel }] : [])
+      { label: messages.labelNotebook, value: formatMessage(messages.notebookCells, { count: notebook.cells.length }) },
+      {
+        label: messages.labelTypes,
+        value: [...counts.entries()].map(([type, count]) => `${type} ${count}`).join(", ") || messages.unknown
+      },
+      ...(kernel ? [{ label: messages.labelKernel, value: kernel }] : [])
     ];
   } catch {
     return [];
   }
 }
 
-function summarizeNdjson(text: string): Array<{ label: string; value: string }> {
+function summarizeNdjson(text: string, messages: TextMessages): Array<{ label: string; value: string }> {
   const lines = text.split(/\r\n|\r|\n/).filter((line) => line.trim());
   let parsed = 0;
   let objects = 0;
@@ -694,9 +706,9 @@ function summarizeNdjson(text: string): Array<{ label: string; value: string }> 
     }
   }
   return [
-    { label: "NDJSON", value: `${lines.length} lines` },
-    { label: "可解析", value: String(parsed) },
-    { label: "类型", value: `object ${objects}, array ${arrays}` }
+    { label: messages.labelNdjson, value: formatMessage(messages.ndjsonLines, { count: lines.length }) },
+    { label: messages.labelParsed, value: String(parsed) },
+    { label: messages.labelTypes, value: `object ${objects}, array ${arrays}` }
   ];
 }
 

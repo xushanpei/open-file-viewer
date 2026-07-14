@@ -88,10 +88,10 @@ describe("pdfPlugin", () => {
 
     const summary = container.querySelector(".ofv-pdf-summary");
     expect((summary as HTMLElement | null)?.hidden).toBe(true);
-    expect(summary?.textContent).toContain("页数2");
-    expect(summary?.textContent).toContain("页面尺寸400 x 600 (2)");
-    expect(summary?.textContent).toContain("适配适合宽度");
-    expect(summary?.textContent).toContain("缩放100%");
+    expect(summary?.textContent).toContain("Pages2");
+    expect(summary?.textContent).toContain("Page size400 x 600 (2)");
+    expect(summary?.textContent).toContain("FitFit width");
+    expect(summary?.textContent).toContain("Zoom100%");
     const firstWrapper = container.querySelector<HTMLElement>(".ofv-pdf-page-wrapper");
     const zoomIn = container.querySelector<HTMLButtonElement>('button[aria-label="Zoom in"]');
     const zoomReset = container.querySelector<HTMLButtonElement>('button[aria-label="Reset zoom"]');
@@ -105,7 +105,7 @@ describe("pdfPlugin", () => {
 
     await waitFor(() => container.querySelector<HTMLElement>(".ofv-pdf-page-wrapper") !== firstWrapper);
 
-    expect(container.querySelector(".ofv-pdf-summary")?.textContent).toContain("缩放115%");
+    expect(container.querySelector(".ofv-pdf-summary")?.textContent).toContain("Zoom115%");
     expect(zoomReset?.textContent).toBe("115%");
     expect(container.querySelectorAll(".ofv-pdf-page-wrapper")).toHaveLength(2);
     const zoomedWrapper = container.querySelector<HTMLElement>(".ofv-pdf-page-wrapper");
@@ -262,7 +262,7 @@ describe("pdfPlugin", () => {
 
     await waitFor(() => Boolean(container.querySelector(".ofv-fallback")));
 
-    expect(container.textContent).toContain("PDF 预览失败");
+    expect(container.textContent).toContain("PDF preview failed");
     expect(container.querySelector<HTMLAnchorElement>(".ofv-fallback a")?.href).toBe("http://localhost:3000/missing.pdf");
 
     viewer.destroy();
@@ -392,7 +392,7 @@ describe("pdfPlugin", () => {
 
     await waitFor(() => Boolean(container.querySelector(".ofv-pdf-empty")));
 
-    expect(container.querySelector(".ofv-pdf-empty")?.textContent).toContain("没有检测到可显示的 PDF 兼容内容");
+    expect(container.querySelector(".ofv-pdf-empty")?.textContent).toContain("No PDF-compatible content was found on this page");
     expect(container.querySelector(".ofv-pdf-empty")?.textContent).toContain("Illustrator/AI");
 
     viewer.destroy();
@@ -428,8 +428,8 @@ describe("pdfPlugin", () => {
     await waitFor(() => Boolean(container.querySelector(".ofv-fallback")));
 
     expect(container.querySelector(".ofv-encrypted")).not.toBeNull();
-    expect(container.textContent).toContain("PDF 已加密，无法在线预览");
-    expect(container.textContent).toContain("上传解密后的 PDF 文件");
+    expect(container.textContent).toContain("This PDF is encrypted and cannot be previewed");
+    expect(container.textContent).toContain("upload a decrypted PDF file");
     expect(container.querySelector<HTMLAnchorElement>(".ofv-fallback a")?.href).toBe(objectUrl);
     expect(onError).not.toHaveBeenCalled();
 
@@ -467,8 +467,8 @@ describe("pdfPlugin", () => {
     await waitFor(() => Boolean(container.querySelector(".ofv-pdf-error")));
 
     expect(container.querySelectorAll(".ofv-pdf-page-wrapper")).toHaveLength(2);
-    expect(container.querySelector(".ofv-pdf-error")?.textContent).toContain("无法渲染该页面");
-    expect(container.querySelector(".ofv-pdf-error")?.textContent).toContain("图形、字体或压缩特性");
+    expect(container.querySelector(".ofv-pdf-error")?.textContent).toContain("This page could not be rendered");
+    expect(container.querySelector(".ofv-pdf-error")?.textContent).toContain("graphics, fonts, or compression features");
     expect(container.querySelector(".ofv-pdf-error")?.textContent).not.toContain("Illustrator/PostScript");
 
     viewer.destroy();
@@ -651,3 +651,62 @@ async function waitFor(predicate: () => boolean, timeout = 1000): Promise<void> 
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
 }
+
+describe("pdfPlugin messages", () => {
+  beforeEach(() => {
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({} as CanvasRenderingContext2D);
+  });
+
+  afterEach(() => {
+    document.body.replaceChildren();
+    vi.restoreAllMocks();
+  });
+
+  it("renders the zh-CN copy when the locale asks for it", async () => {
+    const container = createSizedContainer();
+    const viewer = createViewer({
+      container,
+      file: new Blob(["pdf"], { type: "application/pdf" }),
+      fileName: "sample.pdf",
+      locale: "zh-CN",
+      toolbar: true,
+      plugins: [pdfPlugin({ pdfjs: createPdfJsMock() })]
+    });
+
+    await waitFor(() => container.querySelectorAll(".ofv-pdf-page-wrapper").length === 2);
+
+    const summary = container.querySelector(".ofv-pdf-summary");
+    expect(summary?.textContent).toContain("页数2");
+    expect(summary?.textContent).toContain("适配适合宽度");
+
+    viewer.destroy();
+  });
+
+  it("overrides a single pdf key without dropping the rest of the namespace", async () => {
+    const container = createSizedContainer();
+    const fetchMock = vi.fn().mockResolvedValue(
+      Object.assign(new Response(null, { status: 404, statusText: "Not Found" }), {
+        arrayBuffer: vi.fn()
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const viewer = createViewer({
+      container,
+      file: "/missing.pdf",
+      fileName: "missing.pdf",
+      mimeType: "application/pdf",
+      messages: { pdf: { download: "Save a copy" } },
+      plugins: [pdfPlugin({ pdfjs: createPdfJsMock(), useFetchData: true })]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-fallback")));
+
+    // The overridden key wins...
+    expect(container.querySelector(".ofv-fallback a")?.textContent).toBe("Save a copy");
+    // ...and the sibling keys still come from the en-US defaults.
+    expect(container.textContent).toContain("PDF preview failed");
+
+    viewer.destroy();
+  });
+});
