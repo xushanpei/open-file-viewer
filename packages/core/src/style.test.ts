@@ -103,6 +103,43 @@ describe("core responsive styles", () => {
     expect(rule(".ofv-code-actions")).toContain("flex-wrap: nowrap");
     expect(rule(".ofv-code-action")).toContain("white-space: nowrap");
     expect(rule(".ofv-code-status")).toContain("text-overflow: ellipsis");
+    expect(rule(".ofv-lrc-annotated,\n.ofv-lrc-display")).toContain("overflow: auto");
+    expect(rule(".ofv-lrc-annotated-gutter")).toContain("position: sticky");
+    expect(rule(".ofv-lrc-annotated-gutter")).toContain("left: 0");
+    expect(rule(".ofv-lrc-display-page")).toContain("width: min(760px, calc(100% - 40px))");
+    expect(rule(".ofv-lrc-mode-switch")).toContain("overflow-x: auto");
+    expect(rule(".ofv-lrc-timed-word rt")).toContain("position: absolute");
+    expect(rule(".ofv-lrc-timed-word rt")).toContain("display: block");
+    expect(rule(".ofv-lrc-timed-word rt")).toContain("width: max-content");
+    expect(rule(".ofv-lrc-timed-word rt")).toContain("opacity: 0");
+    expect(rule(".ofv-lrc-timed-word")).toContain("line-height: 1");
+    expect(rule(".ofv-lrc-timed-word rt")).toContain("top: 0");
+    expect(rule(".ofv-lrc-timed-word rt")).toContain("transform: translate(-50%, calc(-100% - 2px))");
+    expect(rule(".ofv-lrc-timed-word rt")).not.toContain("bottom:");
+    expect(rule(".ofv-lrc-timed-word:hover rt,\n.ofv-lrc-timed-word:focus-visible rt")).toContain("opacity: 1");
+    expect(rule(".ofv-lrc-word-text")).toContain("display: inline-block");
+    expect(rule(".ofv-lrc-word-text")).toContain("line-height: 1");
+    expect(rule(".ofv-lrc-word-text")).toContain("text-decoration: none");
+    expect(rule(".ofv-lrc-word-separator")).toContain("white-space: pre");
+    expect(rule(".ofv-lrc-timed-word:hover .ofv-lrc-word-text,\n.ofv-lrc-timed-word:focus-visible .ofv-lrc-word-text")).toContain(
+      "text-decoration-line: underline"
+    );
+    expect(rule(".ofv-lrc-timed-word:hover .ofv-lrc-word-text,\n.ofv-lrc-timed-word:focus-visible .ofv-lrc-word-text")).not.toContain(
+      "background:"
+    );
+    expect(css).not.toContain(".ofv-lrc-timed-word + .ofv-lrc-timed-word");
+    expect(rule(".ofv-lrc-annotated-row.is-metadata .ofv-lrc-annotated-gutter")).toContain("align-items: center");
+    expect(rule(".ofv-lrc-annotated-row.is-lyric .ofv-lrc-annotated-gutter")).toContain("align-items: center");
+    expect(rule(".ofv-lrc-display-header")).not.toContain("border-bottom");
+    expect(rule(".ofv-lrc-display-page")).toContain("font-size: 16px");
+    expect(rule(".ofv-lrc-display-line")).toContain("font-size: calc(1em * var(--ofv-text-zoom))");
+    expect(rule(".ofv-lrc-display-file-info")).toContain("border-top: 1px solid var(--ofv-border)");
+    expect(css).toContain(".ofv-lrc-display {\n  background: var(--ofv-surface-muted);\n}");
+    expect(css).not.toContain("linear-gradient(180deg, rgba(37, 99, 235, 0.055)");
+    expect(rule(".ofv-lrc-meta-label")).not.toContain("border:");
+    expect(rule(".ofv-lrc-meta-label")).not.toContain("background:");
+    expect(rule(".ofv-lrc-role")).toContain("position: absolute");
+    expect(rule(".ofv-lrc-role")).not.toContain("border:");
     expect(rule(".ofv-markdown-body")).toContain("overflow: auto");
     expect(css).toContain("color: var(--ofv-text);\n  background-color: var(--ofv-surface-muted);");
     expect(rule(".ofv-markdown-body table")).toContain("max-width: 100%");

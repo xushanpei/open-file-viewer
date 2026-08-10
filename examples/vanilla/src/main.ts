@@ -19,6 +19,7 @@ import {
   xpsPlugin,
   type FileViewer,
   type PreviewFit,
+  type PreviewLocale,
   type PreviewTheme
 } from "@open-file-viewer/core";
 import "@open-file-viewer/core/style.css";
@@ -30,6 +31,7 @@ const fileInput = document.querySelector<HTMLInputElement>("#file")!;
 const widthInput = document.querySelector<HTMLInputElement>("#width")!;
 const heightInput = document.querySelector<HTMLInputElement>("#height")!;
 const fitInput = document.querySelector<HTMLSelectElement>("#fit")!;
+const localeInput = document.querySelector<HTMLSelectElement>("#locale")!;
 const themeInput = document.querySelector<HTMLSelectElement>("#theme")!;
 const applyButton = document.querySelector<HTMLButtonElement>("#apply")!;
 
@@ -55,6 +57,7 @@ function render() {
     height: heightInput.value,
     fit: fitInput.value as PreviewFit,
     theme: themeInput.value as PreviewTheme,
+    locale: localeInput.value as PreviewLocale,
     toolbar: true,
     plugins: [
       imagePlugin(),
@@ -91,6 +94,7 @@ fileInput.addEventListener("change", () => {
 });
 
 applyButton.addEventListener("click", render);
+localeInput.addEventListener("change", render);
 themeInput.addEventListener("change", render);
 
 render();

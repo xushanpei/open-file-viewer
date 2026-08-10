@@ -1197,6 +1197,16 @@ function smokeCases(): SmokeCase[] {
       text: "plain text"
     },
     {
+      name: "LRC lyrics",
+      file: new Blob(["[ar:Open File Viewer]\n[00:01.00]Hello\n[00:03.50]你好"], {
+        type: "application/octet-stream"
+      }),
+      fileName: "lyrics.lrc",
+      plugins: [textPlugin()],
+      selector: ".ofv-lrc-display",
+      text: "Hello"
+    },
+    {
       name: "extensionless project file",
       file: new Blob(["install:\n\tpnpm install\nbuild:\n\tpnpm build"], { type: "" }),
       fileName: "Makefile",

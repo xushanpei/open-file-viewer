@@ -11,11 +11,14 @@ describe("detect", () => {
 
   it("normalizes ArrayBuffer sources into blobs with inferred mime types", async () => {
     const file = await normalizeFile(new TextEncoder().encode("a,b\n1,2").buffer, "data.tsv");
+    const lyrics = await normalizeFile(new TextEncoder().encode("[00:01.00]Hello").buffer, "SONG.LRC");
 
     expect(file.name).toBe("data.tsv");
     expect(file.extension).toBe("tsv");
     expect(file.mimeType).toBe("text/tab-separated-values");
     expect(file.blob).toBeInstanceOf(Blob);
+    expect(lyrics.extension).toBe("lrc");
+    expect(lyrics.mimeType).toBe("text/plain");
   });
 
   it("decodes file names from remote URL sources", async () => {

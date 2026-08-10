@@ -32,6 +32,7 @@ const matrix: FormatCase[] = [
     plugin: textPlugin(),
     extensions: [
       "txt",
+      "lrc",
       "log",
       "env",
       "gitignore",
@@ -512,6 +513,7 @@ function routingCases(): Array<{ extension: string; mimeType: string; expected: 
   return [
     ...casesFor("text", [
       "txt",
+      "lrc",
       "log",
       "env",
       "gitignore",
@@ -695,6 +697,8 @@ function mimeOnlyRoutingCases(): Array<{ mimeType: string; expected: string }> {
   return [
     ...mimeCasesFor("text", [
       "text/plain",
+      "text/lrc",
+      "text/x-lrc",
       "text/markdown",
       "text/vnd.mermaid",
       "text/css",
@@ -754,6 +758,8 @@ function mimeOnlyRoutingCases(): Array<{ mimeType: string; expected: string }> {
       "application/x-x509-ca-cert",
       "application/pkix-cert",
       "application/x-tex",
+      "application/lrc",
+      "application/x-lrc",
       "message/http"
     ]),
     ...mimeCasesFor("image", [

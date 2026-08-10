@@ -16,7 +16,8 @@ import {
   textPlugin,
   videoPlugin,
   xmindPlugin,
-  xpsPlugin
+  xpsPlugin,
+  type PreviewLocale
 } from "@open-file-viewer/core";
 import "@open-file-viewer/core/style.css";
 import { OpenFileViewer } from "@open-file-viewer/vue";
@@ -32,6 +33,7 @@ const App = {
         type: "text/plain"
       })
     ]);
+    const locale = ref<PreviewLocale>("en-US");
     const theme = ref<PreviewTheme>("light");
     const plugins = [
       imagePlugin(),
@@ -53,7 +55,7 @@ const App = {
       textPlugin()
     ];
 
-    return { files, plugins, theme };
+    return { files, locale, plugins, theme };
   },
   render() {
     const firstFile = this.files[0];
@@ -71,21 +73,34 @@ const App = {
             }
           }
         }),
-        h(
-          "select",
-          {
-            "aria-label": "Theme",
-            value: this.theme,
-            onChange: (event: Event) => {
-              this.theme = (event.target as HTMLSelectElement).value as PreviewTheme;
-            }
-          },
-          [
-            h("option", { value: "light" }, "light"),
-            h("option", { value: "dark" }, "dark"),
-            h("option", { value: "auto" }, "auto")
-          ]
-        )
+        h("div", { class: "demo-controls" }, [
+          h(
+            "select",
+            {
+              "aria-label": "Locale",
+              value: this.locale,
+              onChange: (event: Event) => {
+                this.locale = (event.target as HTMLSelectElement).value as PreviewLocale;
+              }
+            },
+            [h("option", { value: "en-US" }, "en-US"), h("option", { value: "zh-CN" }, "zh-CN")]
+          ),
+          h(
+            "select",
+            {
+              "aria-label": "Theme",
+              value: this.theme,
+              onChange: (event: Event) => {
+                this.theme = (event.target as HTMLSelectElement).value as PreviewTheme;
+              }
+            },
+            [
+              h("option", { value: "light" }, "light"),
+              h("option", { value: "dark" }, "dark"),
+              h("option", { value: "auto" }, "auto")
+            ]
+          )
+        ])
       ]),
       h(OpenFileViewer, {
         file: firstFile,
@@ -93,6 +108,7 @@ const App = {
         fileName: firstFile instanceof File ? firstFile.name : "welcome.txt",
         height: "70vh",
         plugins: this.plugins,
+        locale: this.locale,
         theme: this.theme,
         toolbar: true
       })

@@ -654,6 +654,12 @@ describe("textPlugin", () => {
 
   it.each([
     { name: ".env", type: "", text: "API_URL=https://example.com", language: "plain text" },
+    {
+      name: "lyrics.lrc",
+      type: "application/octet-stream",
+      text: "[ar:Open File Viewer]\n[00:01.00]Hello\n[00:03.50]你好",
+      language: "LRC"
+    },
     { name: ".gitignore", type: "", text: "node_modules", language: "plain text" },
     { name: ".dockerignore", type: "", text: "node_modules", language: "ignore" },
     { name: ".npmrc", type: "", text: "registry=https://registry.npmjs.org/", language: "plain text" },
@@ -941,6 +947,227 @@ describe("textPlugin", () => {
     copy?.click();
     await waitFor(() => writeText.mock.calls.length > 0);
     expect(writeText).toHaveBeenCalledWith(source);
+  });
+
+  it("renders LRC files with display, annotated, and source modes", async () => {
+    const container = document.createElement("div");
+    const source = [
+      "[ti:夜航]",
+      "[ar:示例歌手]",
+      "[al:测试专辑]",
+      "[lr:写词的人]",
+      "[by:校时的人]",
+      "[offset:120]",
+      "[tool:OpenLRC]",
+      "[00:01.20]M:<00:01.20>第一 <00:01.80>句",
+      "[00:03.00]仍是男声",
+      "[00:05.40]D:一起唱"
+    ].join("\n");
+    document.body.append(container);
+
+    createViewer({
+      container,
+      file: new Blob([source], { type: "application/x-lrc" }),
+      fileName: "song.lrc",
+      locale: "zh-CN",
+      plugins: [textPlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-lrc-display")));
+
+    const displayButton = container.querySelector<HTMLButtonElement>('[data-mode="display"]');
+    const annotatedButton = container.querySelector<HTMLButtonElement>('[data-mode="annotated"]');
+    const sourceButton = container.querySelector<HTMLButtonElement>('[data-mode="source"]');
+    const sourceView = container.querySelector<HTMLElement>(".ofv-code-body");
+    const wrapButton = Array.from(container.querySelectorAll<HTMLButtonElement>(".ofv-code-action")).find(
+      (button) => button.textContent === "换行"
+    );
+
+    expect(displayButton?.textContent).toBe("");
+    expect(displayButton?.getAttribute("aria-label")).toBe("展示模式");
+    expect(displayButton?.title).toBe("展示模式");
+    expect(displayButton?.querySelector(".ofv-lrc-mode-icon path")).not.toBeNull();
+    expect(displayButton?.getAttribute("role")).toBe("tab");
+    expect(displayButton?.getAttribute("aria-selected")).toBe("true");
+    expect(displayButton?.tabIndex).toBe(0);
+    expect(displayButton?.parentElement?.getAttribute("role")).toBe("tablist");
+    expect(displayButton?.getAttribute("aria-controls")).toBe(container.querySelector(".ofv-lrc-display")?.id);
+    expect(container.querySelector(".ofv-lrc-display")?.getAttribute("role")).toBe("tabpanel");
+    expect(container.querySelector(".ofv-lrc-display")?.getAttribute("aria-labelledby")).toBe(displayButton?.id);
+    expect(sourceView?.hidden).toBe(true);
+    expect(wrapButton?.hidden).toBe(true);
+    const displayHeader = container.querySelector(".ofv-lrc-display-header");
+    expect(displayHeader?.tagName).toBe("DIV");
+    expect(displayHeader?.querySelector("h2")?.textContent).toBe("夜航");
+    expect(container.querySelector(".ofv-lrc-display-details")).toBeNull();
+    expect(container.querySelector(".ofv-lrc-display-artist")?.textContent).toBe("示例歌手");
+    const trackInformation = container.querySelector(".ofv-lrc-display-track-info");
+    expect(trackInformation?.getAttribute("aria-label")).toBe("音乐作品信息");
+    expect(trackInformation?.textContent).toContain("专辑测试专辑");
+    expect(trackInformation?.textContent).toContain("作词写词的人");
+    expect(trackInformation?.textContent).not.toContain("歌词制作校时的人");
+    const fileInformation = container.querySelector(".ofv-lrc-display-file-info");
+    expect(fileInformation?.tagName).toBe("DIV");
+    expect(fileInformation?.querySelector("h3")).toBeNull();
+    expect(fileInformation?.textContent).toContain("歌词制作校时的人");
+    expect(fileInformation?.textContent).toContain("时间偏移120");
+    expect(fileInformation?.textContent).toContain("制作工具OpenLRC");
+    expect(fileInformation?.previousElementSibling?.classList.contains("ofv-lrc-display-lyrics")).toBe(true);
+    const displayRole = container.querySelector(".ofv-lrc-display-line > .ofv-lrc-role");
+    expect(displayRole?.tagName).toBe("SUP");
+    expect(displayRole?.textContent).toBe("M");
+    expect(displayRole?.nextElementSibling?.classList.contains("ofv-lrc-display-content")).toBe(true);
+    expect(container.querySelector(".ofv-lrc-display-lyrics")?.classList.contains("has-role-markers")).toBe(false);
+    expect(visibleText(container)).not.toContain("[00:01.20]");
+    expect(visibleText(container)).not.toContain("<00:01.80>");
+    expect(visibleText(container)).not.toContain("M:");
+
+    annotatedButton?.click();
+    expect(annotatedButton?.getAttribute("aria-selected")).toBe("true");
+    expect(annotatedButton?.tabIndex).toBe(0);
+    expect(displayButton?.tabIndex).toBe(-1);
+    expect(container.querySelector<HTMLElement>(".ofv-lrc-display")?.hidden).toBe(true);
+    expect(container.querySelector<HTMLElement>(".ofv-lrc-annotated")?.hidden).toBe(false);
+    expect(Array.from(container.querySelectorAll(".ofv-lrc-meta-label")).map((tag) => tag.textContent)).toEqual([
+      "ti",
+      "ar",
+      "al",
+      "lr",
+      "by",
+      "offset",
+      "tool"
+    ]);
+    expect(container.querySelector(".ofv-lrc-time")?.textContent).toBe("00:01.20");
+    const annotatedRole = container.querySelector(".ofv-lrc-annotated-text > .ofv-lrc-role");
+    expect(annotatedRole?.tagName).toBe("SUP");
+    expect(annotatedRole?.textContent).toBe("M");
+    expect(annotatedRole?.nextElementSibling?.textContent).toBe("第一00:01.20 句00:01.80");
+    expect(container.querySelector(".ofv-lrc-timed-word")?.tagName).toBe("RUBY");
+    expect(container.querySelector(".ofv-lrc-timed-word .ofv-lrc-word-text")?.textContent).toBe("第一");
+    expect(container.querySelector(".ofv-lrc-timed-word rt")?.textContent).toBe("00:01.20");
+    expect(Array.from(container.querySelectorAll(".ofv-lrc-word-text"), (word) => word.textContent)).toEqual([
+      "第一",
+      "句"
+    ]);
+    expect(container.querySelectorAll(".ofv-lrc-word-separator")).toHaveLength(1);
+    expect(container.querySelector(".ofv-lrc-word-separator")?.textContent).toBe(" ");
+    expect(container.querySelector(".ofv-lrc-annotated-row.is-title .ofv-lrc-meta-value")?.textContent).toBe("夜航");
+    expect(container.querySelectorAll(".ofv-lrc-annotated-row.is-secondary")).toHaveLength(6);
+    expect(visibleText(container)).not.toContain("<00:01.20>");
+
+    sourceButton?.click();
+    expect(sourceButton?.getAttribute("aria-selected")).toBe("true");
+    expect(sourceView?.hidden).toBe(false);
+    expect(wrapButton?.hidden).toBe(false);
+    expect(visibleText(container)).toContain("[00:01.20]M:<00:01.20>第一 <00:01.80>句");
+  });
+
+  it("localizes the complete LRC preview in English", async () => {
+    const container = document.createElement("div");
+    const source = [
+      "[ti:Night Flight]",
+      "[ar:Example Artist]",
+      "[al:Example Album]",
+      "[lr:Example Lyricist]",
+      "[by:Timing Editor]",
+      "[offset:80]",
+      "[tool:OpenLRC]",
+      "[ve:1.0]",
+      "[00:01.00]M:<00:01.00>Hello <00:01.60>world"
+    ].join("\n");
+    document.body.append(container);
+
+    createViewer({
+      container,
+      file: new Blob([source], { type: "application/x-lrc" }),
+      fileName: "night-flight.lrc",
+      locale: "en-US",
+      plugins: [textPlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-lrc-display")));
+
+    expect(container.querySelector(".ofv-lrc-mode-label")).toBeNull();
+    expect(container.querySelector('[data-mode="display"]')?.getAttribute("aria-label")).toBe("Lyrics mode");
+    expect(container.querySelector('[data-mode="annotated"]')?.getAttribute("aria-label")).toBe("Annotated mode");
+    expect(container.querySelector('[data-mode="source"]')?.getAttribute("aria-label")).toBe("Source mode");
+    expect(container.querySelector(".ofv-lrc-display-track-info")?.getAttribute("aria-label")).toBe(
+      "Music information"
+    );
+    expect(container.querySelector(".ofv-lrc-display-track-info")?.textContent).toContain("AlbumExample Album");
+    expect(container.querySelector(".ofv-lrc-display-track-info")?.textContent).toContain(
+      "Lyrics byExample Lyricist"
+    );
+    const fileInformation = container.querySelector(".ofv-lrc-display-file-info");
+    expect(fileInformation?.textContent).toContain("LRC byTiming Editor");
+    expect(fileInformation?.textContent).toContain("Timing offset80");
+    expect(fileInformation?.textContent).toContain("Created withOpenLRC");
+    expect(fileInformation?.textContent).toContain("Version1.0");
+    expect(container.querySelector<HTMLElement>(".ofv-lrc-role")?.title).toBe("Male vocal");
+
+    container.querySelector<HTMLButtonElement>('[data-mode="annotated"]')?.click();
+    expect(container.querySelector(".ofv-lrc-timed-word")?.getAttribute("aria-label")).toBe(
+      "Hello, Word timestamp: 00:01.00"
+    );
+    expect(Array.from(container.querySelectorAll(".ofv-lrc-meta-label"), (label) => label.textContent)).toEqual([
+      "ti",
+      "ar",
+      "al",
+      "lr",
+      "by",
+      "offset",
+      "tool",
+      "ve"
+    ]);
+
+    container.querySelector<HTMLButtonElement>('[data-mode="source"]')?.click();
+    const wrapButton = Array.from(container.querySelectorAll<HTMLButtonElement>(".ofv-code-action")).find(
+      (button) => button.textContent === "Wrap"
+    );
+    expect(wrapButton?.hidden).toBe(false);
+  });
+
+  it("supports keyboard navigation across LRC preview tabs", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    createViewer({
+      container,
+      file: new Blob(["[00:01.00]A line"], { type: "application/x-lrc" }),
+      fileName: "keyboard.lrc",
+      plugins: [textPlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector('[data-mode="display"]')));
+    const displayButton = container.querySelector<HTMLButtonElement>('[data-mode="display"]')!;
+    const annotatedButton = container.querySelector<HTMLButtonElement>('[data-mode="annotated"]')!;
+    displayButton.focus();
+    displayButton.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+
+    expect(annotatedButton.getAttribute("aria-selected")).toBe("true");
+    expect(document.activeElement).toBe(annotatedButton);
+    expect(container.querySelector<HTMLElement>(".ofv-lrc-annotated")?.hidden).toBe(false);
+  });
+
+  it("does not reserve a vocal-role column when an LRC file has no role markers", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    createViewer({
+      container,
+      file: new Blob(["[ti:Solo]\n[ar:Singer]\n[00:01.00]First line\n[00:02.00]Second line"], {
+        type: "application/x-lrc"
+      }),
+      fileName: "solo.lrc",
+      plugins: [textPlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-lrc-display")));
+
+    expect(container.querySelector(".ofv-lrc-display .ofv-lrc-role")).toBeNull();
+
+    container.querySelector<HTMLButtonElement>('[data-mode="annotated"]')?.click();
+    expect(container.querySelector(".ofv-lrc-annotated .ofv-lrc-role")).toBeNull();
   });
 });
 

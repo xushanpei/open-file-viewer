@@ -61,6 +61,7 @@ const extensionMimeMap: Record<string, string> = {
   xps: "application/vnd.ms-xpsdocument",
   oxps: "application/oxps",
   txt: "text/plain",
+  lrc: "text/plain",
   log: "text/plain",
   env: "text/plain",
   gitignore: "text/plain",
@@ -377,6 +378,8 @@ export function isTextLike(file: PreviewFile): boolean {
       "application/x-x509-ca-cert",
       "application/pkix-cert",
       "application/x-tex",
+      "application/lrc",
+      "application/x-lrc",
       "message/http",
       "text/calendar",
       "text/vcard",
@@ -387,6 +390,7 @@ export function isTextLike(file: PreviewFile): boolean {
     ].includes(file.mimeType) ||
     [
       "txt",
+      "lrc",
       "json",
       "jsonc",
       "json5",

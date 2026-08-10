@@ -2,9 +2,11 @@
 import { isTextLike } from "../detect";
 import { formatPreviewMessage } from "../messages";
 import type { PreviewCommand, PreviewContext, PreviewInstance, PreviewMessages, PreviewPlugin } from "../types";
+import { createLrcPreviewViews, parseLrc } from "./lrc";
 import { decodeTextBuffer, getInitialZoom } from "./utils";
 
 const langMap: Record<string, string> = {
+  lrc: "none",
   js: "javascript",
   mjs: "javascript",
   cjs: "javascript",
@@ -126,6 +128,10 @@ const filenameLangMap: Record<string, string> = {
   codeowners: "none"
 };
 const mimeLangMap: Record<string, string> = {
+  "application/lrc": "none",
+  "application/x-lrc": "none",
+  "text/lrc": "none",
+  "text/x-lrc": "none",
   "text/markdown": "markdown",
   "text/vnd.mermaid": "mermaid",
   "text/html": "markup",
@@ -175,6 +181,8 @@ export function textPlugin(): PreviewPlugin {
     async render(ctx) {
       const ext = ctx.file.extension.toLowerCase();
       const lang = getTextLanguage(ctx.file.name, ext, ctx.file.mimeType);
+      const isLrc =
+        ext === "lrc" || ["application/lrc", "application/x-lrc", "text/lrc", "text/x-lrc"].includes(ctx.file.mimeType);
       const defaultWrapped = lang === "none";
       const isMarkdown = lang === "markdown";
       const text = await readText(ctx.file.source).catch((error: unknown) => undefined);
@@ -293,6 +301,9 @@ export function textPlugin(): PreviewPlugin {
       const shouldHighlight = codeText.length <= MAX_HIGHLIGHT_CHARS;
       const wrapper = document.createElement("div");
       wrapper.className = "ofv-code-container";
+      if (isLrc) {
+        wrapper.classList.add("is-lrc");
+      }
       if (truncated) {
         wrapper.classList.add("is-truncated");
       }
@@ -310,7 +321,7 @@ export function textPlugin(): PreviewPlugin {
       const messages = ctx.options.messages;
       const meta = document.createElement("span");
       meta.textContent = [
-        lang === "none" ? messages.textPlainLanguage : lang,
+        isLrc ? "LRC" : lang === "none" ? messages.textPlainLanguage : lang,
         formatPreviewMessage(messages.textLineCount, { count: totalLines.toLocaleString() }),
         formatBytes(ctx.file.size ?? (ctx.file.source instanceof Blob ? ctx.file.source.size : text.length))
       ].join(" · ");
@@ -380,6 +391,10 @@ export function textPlugin(): PreviewPlugin {
       pre.appendChild(code);
       body.append(gutter, pre);
       wrapper.append(header);
+      if (isLrc) {
+        const lrcViews = createLrcPreviewViews(parseLrc(codeText), ctx.file.name, messages, body, wrapButton);
+        wrapper.append(lrcViews.modeBar, lrcViews.annotatedView, lrcViews.displayView);
+      }
       if (structureSummary) {
         wrapper.append(structureSummary);
       }
