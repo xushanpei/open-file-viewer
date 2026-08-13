@@ -409,7 +409,9 @@ function parseOfdTextObject(element: Element, resources: OfdPageResources): OfdT
     // CTM 存在时坐标保持相对 Boundary，由 transform 完成平移与矩阵变换
     const x = (transform ? 0 : boundary.x) + finiteNumber(getOfdAttribute(code, "X"), 0);
     const y = (transform ? 0 : boundary.y) + finiteNumber(getOfdAttribute(code, "Y"), 0);
-    const text = decodeOfdTextEscapes(code.textContent?.trim() || "");
+    // TextCode whitespace is layout data. In particular, leading spaces can
+    // carry explicit DeltaX positions before a trailing date or number.
+    const text = decodeOfdTextEscapes(code.textContent || "");
     const deltaX = parseOfdDeltaX(getOfdAttribute(code, "DeltaX"));
     const deltaY = getOfdAttribute(code, "DeltaY");
     if (deltaY && text.length > 1) {

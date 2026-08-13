@@ -487,6 +487,40 @@ describe("ofdPlugin", () => {
     expect(texts[1]?.getAttribute("text-anchor")).toBeNull();
   });
 
+  it("preserves leading TextCode spaces when DeltaX positions the text", async () => {
+    const zip = new JSZip();
+    zip.file(
+      "Doc_0/Pages/Page_0/Content.xml",
+      `<ofd:Page xmlns:ofd="http://www.ofdspec.org/2016">
+        <ofd:Content>
+          <ofd:Layer>
+            <ofd:TextObject Boundary="76 250 40 8" Size="4">
+              <ofd:TextCode X="0" Y="4" DeltaX="5 6 7">  25</ofd:TextCode>
+            </ofd:TextObject>
+          </ofd:Layer>
+        </ofd:Content>
+      </ofd:Page>`
+    );
+    const buffer = await zip.generateAsync({ type: "arraybuffer" });
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    createViewer({
+      container,
+      file: buffer,
+      fileName: "leading-spaces.ofd",
+      plugins: [ofdPlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-ofd-pages svg")));
+
+    const text = container.querySelector(".ofv-ofd-page text");
+    const spans = text?.querySelectorAll("tspan");
+    expect(text?.textContent).toBe("  25");
+    expect(spans).toHaveLength(4);
+    expect(spans?.[2]?.getAttribute("x")).toBe("87");
+  });
+
   it("decodes escaped TextCode characters instead of rendering escape sequences", async () => {
     const zip = new JSZip();
     zip.file(
