@@ -118,6 +118,23 @@ import {
 import "@open-file-viewer/core/style.css";
 import pdfWorkerSrc from "pdfjs-dist/build/pdf.worker.mjs?url";
 
+const plugins = [
+  imagePlugin(),
+  videoPlugin(),
+  audioPlugin(),
+  textPlugin(),
+  pdfPlugin({ workerSrc: pdfWorkerSrc }),
+  officePlugin(),
+  archivePlugin(),
+  emailPlugin(),
+  drawingPlugin(),
+  xmindPlugin(),
+  cadPlugin(),
+  model3dPlugin(),
+  gisPlugin(),
+  fallbackPlugin()
+];
+
 const viewer = createViewer({
   container: "#viewer",
   file: fileOrUrl,
@@ -127,27 +144,27 @@ const viewer = createViewer({
   fit: "contain",
   toolbar: true,
   theme: "auto",
-  plugins: [
-    imagePlugin(),
-    videoPlugin(),
-    audioPlugin(),
-    textPlugin(),
-    pdfPlugin({ workerSrc: pdfWorkerSrc }),
-    officePlugin(),
-    archivePlugin(),
-    emailPlugin(),
-    drawingPlugin(),
-    xmindPlugin(),
-    cadPlugin(),
-    model3dPlugin(),
-    gisPlugin(),
-    fallbackPlugin()
-  ]
+  plugins
 });
 
 viewer.resize();
 viewer.destroy();
 ```
+
+Use the same plugin list to check support before mounting a viewer:
+
+```ts
+import { isPreviewSupported } from "@open-file-viewer/core";
+
+const supported = await isPreviewSupported(fileOrUrl, plugins, {
+  fileName: "contract.pdf",
+  mimeType: "application/pdf"
+});
+```
+
+The check normalizes the source exactly like `createViewer()` and evaluates
+`plugin.match()` in order. It does not mount DOM or call `plugin.render()`, and
+`fallbackPlugin()` is not counted as native preview support.
 
 ### Remote PDF fallback compatibility
 

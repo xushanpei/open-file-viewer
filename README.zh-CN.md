@@ -142,6 +142,23 @@ import {
 import "@open-file-viewer/core/style.css";
 import pdfWorkerSrc from "pdfjs-dist/build/pdf.worker.mjs?url";
 
+const plugins = [
+  imagePlugin(),
+  videoPlugin(),
+  audioPlugin(),
+  textPlugin(),
+  pdfPlugin({ workerSrc: pdfWorkerSrc }),
+  officePlugin(),
+  archivePlugin(),
+  emailPlugin(),
+  drawingPlugin(),
+  xmindPlugin(),
+  cadPlugin(),
+  model3dPlugin(),
+  gisPlugin(),
+  fallbackPlugin()
+];
+
 const viewer = createViewer({
   container: "#viewer",
   file: fileOrUrl,
@@ -151,27 +168,27 @@ const viewer = createViewer({
   fit: "contain",
   toolbar: true,
   theme: "auto",
-  plugins: [
-    imagePlugin(),
-    videoPlugin(),
-    audioPlugin(),
-    textPlugin(),
-    pdfPlugin({ workerSrc: pdfWorkerSrc }),
-    officePlugin(),
-    archivePlugin(),
-    emailPlugin(),
-    drawingPlugin(),
-    xmindPlugin(),
-    cadPlugin(),
-    model3dPlugin(),
-    gisPlugin(),
-    fallbackPlugin()
-  ]
+  plugins
 });
 
 viewer.resize();
 viewer.destroy();
 ```
+
+使用同一组插件，可在挂载预览器前判断文件是否有可用预览路径：
+
+```ts
+import { isPreviewSupported } from "@open-file-viewer/core";
+
+const supported = await isPreviewSupported(fileOrUrl, plugins, {
+  fileName: "contract.pdf",
+  mimeType: "application/pdf"
+});
+```
+
+该函数与 `createViewer()` 共用文件规范化逻辑，并按顺序调用
+`plugin.match()`；它不会挂载 DOM，也不会调用 `plugin.render()`，且不会把
+`fallbackPlugin()` 计为原生预览支持。
 
 ### Umi / utoo 中 PDF 预览失败
 

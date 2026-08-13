@@ -1,4 +1,6 @@
 export { createViewer } from "./viewer";
+export { isPreviewSupported } from "./support";
+export type { PreviewSupportOptions } from "./support";
 export { imagePlugin } from "./plugins/image";
 export { videoPlugin } from "./plugins/video";
 export type { VideoPluginOptions } from "./plugins/video";
