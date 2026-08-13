@@ -165,6 +165,8 @@ const supported = await isPreviewSupported(fileOrUrl, plugins, {
 The check normalizes the source exactly like `createViewer()` and evaluates
 `plugin.match()` in order. It does not mount DOM or call `plugin.render()`, and
 `fallbackPlugin()` is not counted as native preview support.
+Keep the plugin order identical to the viewer configuration; a matching
+`fallbackPlugin()` is terminal and must not be placed before native plugins.
 
 ### Remote PDF fallback compatibility
 

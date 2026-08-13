@@ -14,11 +14,9 @@ export async function isPreviewSupported(
 ): Promise<boolean> {
   const file = await normalizeFile(source, options.fileName, options.mimeType);
   for (const plugin of plugins) {
-    if (plugin.name === "fallback") {
-      continue;
-    }
     if (await plugin.match(file)) {
-      return true;
+      // fallback 是终止性的降级路径，命中后不应继续寻找后面的原生插件。
+      return plugin.name !== "fallback";
     }
   }
   return false;

@@ -188,7 +188,8 @@ const supported = await isPreviewSupported(fileOrUrl, plugins, {
 
 该函数与 `createViewer()` 共用文件规范化逻辑，并按顺序调用
 `plugin.match()`；它不会挂载 DOM，也不会调用 `plugin.render()`，且不会把
-`fallbackPlugin()` 计为原生预览支持。
+`fallbackPlugin()` 计为原生预览支持。判断时请保持与 viewer 相同的插件顺序；
+匹配到 `fallbackPlugin()` 后会终止判断，不应将它放在原生插件前。
 
 ### Umi / utoo 中 PDF 预览失败
 

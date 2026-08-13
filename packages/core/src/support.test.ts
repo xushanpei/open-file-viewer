@@ -49,4 +49,26 @@ describe("isPreviewSupported", () => {
   it("does not count the fallback plugin as native preview support", async () => {
     await expect(isPreviewSupported("archive.unknown", [fallbackPlugin()])).resolves.toBe(false);
   });
+
+  it("treats a matching fallback plugin as terminal", async () => {
+    const nativePlugin: PreviewPlugin = {
+      name: "pdf",
+      match: vi.fn(() => true),
+      render: vi.fn()
+    };
+
+    await expect(isPreviewSupported("document.pdf", [fallbackPlugin(), nativePlugin])).resolves.toBe(false);
+    expect(nativePlugin.match).not.toHaveBeenCalled();
+  });
+
+  it("propagates plugin match errors", async () => {
+    const error = new Error("plugin match failed");
+    const plugin: PreviewPlugin = {
+      name: "broken",
+      match: vi.fn(() => Promise.reject(error)),
+      render: vi.fn()
+    };
+
+    await expect(isPreviewSupported("document.bin", [plugin])).rejects.toBe(error);
+  });
 });
