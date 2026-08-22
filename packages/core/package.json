@@ -99,7 +99,7 @@
     "three": "^0.184.0",
     "topojson-client": "^3.1.0",
     "utif": "^3.1.0",
-    "xlsx": "^0.18.5",
+    "xlsx": "npm:@stackline/xlsx@^1.0.6",
     "xz-decompress": "^0.2.3"
   }
 }
