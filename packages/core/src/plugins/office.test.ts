@@ -917,6 +917,42 @@ describe("officePlugin", () => {
     expect(chart?.querySelector(".ofv-chart-title")).toBeNull();
   });
 
+  it("positions sparse DOCX category labels using their cached point indexes", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    renderDocxAsync.mockImplementationOnce(async (_data: unknown, bodyContainer: HTMLElement) => {
+      const wrapper = document.createElement("div");
+      wrapper.className = "ofv-docx-wrapper";
+      const page = document.createElement("section");
+      page.className = "ofv-docx";
+      page.innerHTML = `<p><span><div style="display:inline-block;position:relative;width:320pt;height:180pt"></div></span></p>`;
+      wrapper.append(page);
+      bodyContainer.append(wrapper);
+    });
+
+    createViewer({
+      container,
+      file: await createDocxWithChart("sparse-line"),
+      fileName: "sparse-line-chart.docx",
+      plugins: [officePlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-docx-chart-preview .ofv-chart-svg")));
+
+    const labels = Array.from(container.querySelectorAll<SVGTextElement>('[data-axis="category"]'));
+    expect(labels.map((label) => label.textContent)).toEqual(["1日", "5日", "9日", "13日", "17日", "21日", "25日", "29日"]);
+    expect(labels.map((label) => Number(label.getAttribute("x")))).toEqual([
+      74,
+      141.9,
+      209.7,
+      277.6,
+      345.5,
+      413.4,
+      481.2,
+      549.1
+    ]);
+  });
+
   it("renders flat ODS spreadsheets with repeated cells and formulas", async () => {
     const container = document.createElement("div");
     document.body.append(container);
@@ -3912,8 +3948,16 @@ async function createWorkbookWithChart(type: "bar" | "line" = "bar"): Promise<Bl
   });
 }
 
-async function createDocxWithChart(kind: "bar" | "combo" = "bar"): Promise<Blob> {
+async function createDocxWithChart(kind: "bar" | "combo" | "sparse-line" = "bar"): Promise<Blob> {
   const zip = new JSZip();
+  const sparseCategoryPoints = Array.from(
+    { length: 16 },
+    (_, index) => `<c:pt idx="${index * 2}"><c:v>${index * 2 + 1}日</c:v></c:pt>`
+  ).join("");
+  const sparseValues = Array.from(
+    { length: 32 },
+    (_, index) => `<c:pt idx="${index}"><c:v>${12_220 + index * 100}</c:v></c:pt>`
+  ).join("");
   const chartXml =
     kind === "combo"
       ? `<?xml version="1.0" encoding="UTF-8"?>
@@ -3942,7 +3986,17 @@ async function createDocxWithChart(kind: "bar" | "combo" = "bar"): Promise<Blob>
             </c:valAx>
           </c:plotArea></c:chart>
         </c:chartSpace>`
-      : `<?xml version="1.0" encoding="UTF-8"?>
+      : kind === "sparse-line"
+        ? `<?xml version="1.0" encoding="UTF-8"?>
+        <c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"
+          xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+          <c:chart><c:plotArea><c:lineChart><c:ser>
+            <c:tx><c:strRef><c:strCache><c:pt idx="0"><c:v>客流量</c:v></c:pt></c:strCache></c:strRef></c:tx>
+            <c:cat><c:strRef><c:strCache><c:ptCount val="32"/>${sparseCategoryPoints}</c:strCache></c:strRef></c:cat>
+            <c:val><c:numRef><c:numCache><c:ptCount val="32"/>${sparseValues}</c:numCache></c:numRef></c:val>
+          </c:ser></c:lineChart></c:plotArea></c:chart>
+        </c:chartSpace>`
+        : `<?xml version="1.0" encoding="UTF-8"?>
         <c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"
           xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
           <c:chart>

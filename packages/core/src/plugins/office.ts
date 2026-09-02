@@ -4714,11 +4714,14 @@ function appendChartCategoryLabels(
   plot: { x: number; y: number; width: number; height: number },
   getX: (index: number) => number
 ): void {
-  const interval = Math.max(1, Math.ceil(categories.length / 14));
+  const categoryLabels = categories
+    .map((category, index) => ({ category, index }))
+    .filter(({ category }) => Boolean(category));
+  const interval = Math.max(1, Math.ceil(categoryLabels.length / 14));
   let previousLabel = "";
-  categories.forEach((category, index) => {
+  categoryLabels.forEach(({ category, index }, labelIndex) => {
     const duplicate = category === previousLabel;
-    if (index % interval !== 0 || duplicate) {
+    if (labelIndex % interval !== 0 || duplicate) {
       return;
     }
     previousLabel = category;
@@ -4824,10 +4827,31 @@ function chartText(element: Element): string {
 }
 
 function chartStringValues(element: Element): string[] {
-  return Array.from(element.querySelectorAll("*"))
-    .filter((item) => item.localName === "v" || item.localName === "t")
-    .map((item) => item.textContent?.trim() || "")
-    .filter(Boolean);
+  const points = Array.from(element.querySelectorAll("*")).filter((item) => item.localName === "pt");
+  if (points.length === 0) {
+    return Array.from(element.querySelectorAll("*"))
+      .filter((item) => item.localName === "v" || item.localName === "t")
+      .map((item) => item.textContent?.trim() || "")
+      .filter(Boolean);
+  }
+
+  const declaredCount = Number.parseInt(
+    Array.from(element.querySelectorAll("*")).find((item) => item.localName === "ptCount")?.getAttribute("val") || "",
+    10
+  );
+  let nextIndex = 0;
+  const indexedValues = points.map((point) => {
+    const parsedIndex = Number.parseInt(point.getAttribute("idx") || "", 10);
+    const index = Number.isFinite(parsedIndex) && parsedIndex >= 0 ? parsedIndex : nextIndex;
+    nextIndex = Math.max(nextIndex, index + 1);
+    return { index, value: chartText(point) };
+  });
+  const valueCount = Math.max(Number.isFinite(declaredCount) ? declaredCount : 0, nextIndex);
+  const values = Array<string>(valueCount).fill("");
+  for (const { index, value } of indexedValues) {
+    values[index] = value;
+  }
+  return values;
 }
 
 type SheetViewport = {
