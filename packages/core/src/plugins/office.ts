@@ -15,6 +15,7 @@ import {
 } from "./utils";
 import { renderPdfDocumentPreview, type PdfPluginOptions } from "./pdf";
 import { parseLegacyWordDocument, renderLegacyWordDocument } from "./msdoc";
+import { parseWord2003XmlDocument, renderWord2003XmlDocument } from "./wordml";
 import {
   parseLegacyPowerPoint,
   type LegacyPowerPointCharacterStyle,
@@ -187,15 +188,18 @@ export function officePlugin(options: OfficePluginOptions = {}): PreviewPlugin {
       const arrayBuffer = await readArrayBuffer(ctx.file);
       const packageFormat = shouldSniffPackagedOffice(extension) ? await detectPackagedOfficeFormat(arrayBuffer) : undefined;
       const wordHtml = packageFormat ? undefined : detectWordHtmlDocument(extension, arrayBuffer);
+      const wordXml = packageFormat || wordHtml ? undefined : detectWord2003XmlDocument(extension, arrayBuffer);
       let disposeDocxFit: (() => void) | undefined;
       let disposeLegacyPresentation: (() => void) | undefined;
       let delegatedInstance: PreviewInstance | undefined;
 
-      const conversionContext = await createOfficeConversionContext(ctx, arrayBuffer, extension, packageFormat);
+      const conversionContext = wordXml ? undefined : await createOfficeConversionContext(ctx, arrayBuffer, extension, packageFormat);
       if (conversionContext && (await shouldUseOfficeConversion(options, conversionContext))) {
         delegatedInstance = await renderConvertedOfficePreview(panel, ctx, options, conversionContext);
       } else if (wordHtml) {
         renderWordHtmlDocument(panel, wordHtml);
+      } else if (wordXml) {
+        renderWord2003XmlDocument(panel, wordXml);
       } else if (packageFormat === "docx" && !fileIsDocx(extension)) {
         disposeDocxFit = await renderDocx(panel, arrayBuffer, ctx.options.fit);
       } else if (packageFormat === "xlsx" && !sheetExtensions.has(extension)) {
@@ -254,7 +258,7 @@ export function officePlugin(options: OfficePluginOptions = {}): PreviewPlugin {
             delegatedInstance?.goToPage?.(page) ||
             goToRenderedPage(
               panel,
-              ".ofv-docx-page-frame, .ofv-docx-textbox-page, .ofv-msdoc-page, .ofv-slide, .ofv-ppt-binary-slide",
+              ".ofv-docx-page-frame, .ofv-docx-textbox-page, .ofv-wordml-page, .ofv-msdoc-page, .ofv-slide, .ofv-ppt-binary-slide",
               page,
               panel
             )
@@ -410,7 +414,7 @@ function createOfficeZoomController(
 } | undefined {
   const canZoom = Boolean(
     panel.querySelector(
-      ".ofv-docx-document, .ofv-sheet, .ofv-pptx-viewer > div, .ofv-ppt-binary-slide, .ofv-document, .ofv-text-block, .ofv-slide, .ofv-msdoc-document"
+      ".ofv-docx-document, .ofv-sheet, .ofv-pptx-viewer > div, .ofv-ppt-binary-slide, .ofv-document, .ofv-text-block, .ofv-slide, .ofv-wordml-document, .ofv-msdoc-document"
     )
   );
   if (!canZoom) {
@@ -4852,6 +4856,13 @@ function chartStringValues(element: Element): string[] {
     values[index] = value;
   }
   return values;
+}
+
+function detectWord2003XmlDocument(extension: string, arrayBuffer: ArrayBuffer) {
+  if ((extension !== "doc" && extension !== "dot") || hasOleSignature(arrayBuffer)) {
+    return undefined;
+  }
+  return parseWord2003XmlDocument(decodeTextBuffer(arrayBuffer));
 }
 
 type SheetViewport = {

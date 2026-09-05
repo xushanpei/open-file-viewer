@@ -44,6 +44,7 @@ type LegacyWordStyle = {
 
 type LegacyWordLayoutHints = {
   lineNumbers: boolean;
+  documentKind?: "cjkNotice";
   headerBrand?: "oasis";
   headerImageId?: string;
   footer?: LegacyWordFooter;
@@ -61,7 +62,7 @@ export type LegacyWordBlock =
   | { type: "listItem"; text: string; level: 1 | 2 }
   | { type: "heading"; text: string; level: 1 | 2 | 3; indent?: boolean }
   | { type: "toc"; title: string; page?: string; level: number }
-  | { type: "table"; rows: LegacyWordTableRow[] }
+  | { type: "table"; rows: LegacyWordTableRow[]; notice?: boolean; columnWidths?: number[] }
   | { type: "pageBreak" };
 
 export type LegacyWordTableCell =
@@ -167,6 +168,9 @@ export function renderLegacyWordDocument(panel: HTMLElement, document: LegacyWor
   article.className = "ofv-msdoc-document";
   if (/\p{Script=Han}/u.test(document.title)) {
     article.classList.add("ofv-msdoc-cjk-document");
+  }
+  if (document.layout.documentKind === "cjkNotice") {
+    article.classList.add("ofv-msdoc-notice-document");
   }
   if (document.blocks.some((block) => block.type === "table" && isLegacyFormTable(block.rows))) {
     article.classList.add("ofv-msdoc-form-document");
@@ -534,7 +538,8 @@ function renderWordBlock(block: LegacyWordBlock): HTMLElement {
     const table = window.document.createElement("table");
     table.className = "ofv-msdoc-table";
     const revisionColumnWidths = getRevisionTableColumnWidths(block.rows);
-    const renderRows = revisionColumnWidths ? block.rows : normalizeLegacyFormTableRows(block.rows);
+    const noticeColumnWidths = block.columnWidths || getNoticeTableColumnWidths(block.rows);
+    const renderRows = revisionColumnWidths || noticeColumnWidths ? block.rows : normalizeLegacyFormTableRows(block.rows);
     const isFormTable = renderRows.some((row) => row.some((cell) => getTableCellVariant(cell) !== undefined));
     if (revisionColumnWidths) {
       table.classList.add("ofv-msdoc-revision-table");
@@ -546,14 +551,23 @@ function renderWordBlock(block: LegacyWordBlock): HTMLElement {
       }
       table.append(colgroup);
     }
+    if (noticeColumnWidths) {
+      table.classList.add("ofv-msdoc-notice-table", `ofv-msdoc-notice-table-${noticeColumnWidths.length}`);
+      const colgroup = window.document.createElement("colgroup");
+      for (const width of noticeColumnWidths) {
+        const col = window.document.createElement("col");
+        col.style.width = `${width}%`;
+        colgroup.append(col);
+      }
+      table.append(colgroup);
+    }
     if (isFormTable) {
       table.classList.add("ofv-msdoc-form-table");
     }
     const tbody = window.document.createElement("tbody");
-    const hasHeaderRow =
-      !isFormTable &&
-      renderRows.length > 1 &&
-      renderRows[0].every((cell) => getTableCellText(cell).length <= 12);
+    const hasHeaderRow = noticeColumnWidths
+      ? getTableCellText(renderRows[0]?.[0] || "").replace(/\s+/g, "") === "序号"
+      : !isFormTable && renderRows.length > 1 && renderRows[0].every((cell) => getTableCellText(cell).length <= 12);
     for (const row of renderRows) {
       const tr = window.document.createElement("tr");
       const cellTag = hasHeaderRow && row === renderRows[0] ? "th" : "td";
@@ -621,8 +635,35 @@ function renderWordBlock(block: LegacyWordBlock): HTMLElement {
   const levelClass = block.type === "heading" ? ` ofv-msdoc-heading-level-${block.level}` : "";
   const listClass = block.type === "listItem" ? ` ofv-msdoc-list-level-${block.level}` : "";
   paragraph.className = `ofv-msdoc-${block.type}${levelClass}${listClass}${"indent" in block && block.indent ? " ofv-msdoc-indent" : ""}`;
+  applyNoticeParagraphClass(paragraph, block);
   appendInlineRuns(paragraph, block.text, block.type === "code");
   return paragraph;
+}
+
+function applyNoticeParagraphClass(element: HTMLElement, block: Exclude<LegacyWordBlock, { type: "table" | "pageBreak" | "toc" }>): void {
+  const text = block.text.trim();
+  if (/^[^：:]{2,45}[：:]$/.test(text)) element.classList.add("ofv-msdoc-notice-salutation");
+  if (/^联系人[：:]/.test(text)) element.classList.add("ofv-msdoc-notice-contact");
+  if (/^附件[：:]\s*\d+[.、．]/.test(text)) element.classList.add("ofv-msdoc-notice-attachment-first");
+  if (/^\d+[.、．]/.test(text)) element.classList.add("ofv-msdoc-notice-attachment-item");
+  if (/^附件\s*\d+$/.test(text)) element.classList.add("ofv-msdoc-notice-appendix-label");
+  if (!/^(?:附件[：:]\s*)?\d+[.、．]/.test(text) && /^.{2,24}(?:清单|目录|名册|汇总表)$/.test(text)) {
+    element.classList.add("ofv-msdoc-notice-appendix-title");
+  }
+  if (/^\d{4}年\d{1,2}月\d{1,2}日?$/.test(text)) element.classList.add("ofv-msdoc-notice-date");
+  if (text.length <= 24 && /(?:人民政府|委员会|办公室|数据局|管理局|厅|局|委|办)$/.test(text)) {
+    element.classList.add("ofv-msdoc-notice-signature");
+  }
+}
+
+function getNoticeTableColumnWidths(rows: LegacyWordTableRow[]): number[] | undefined {
+  const header = rows[0]?.map((cell) => getTableCellText(cell).replace(/\s+/g, "")) || [];
+  if (header[0] !== "序号" || !header.includes("应用名称") || !header.includes("地区") || !header.includes("服务主体")) {
+    return undefined;
+  }
+  if (header.length === 6) return [6, 23, 18, 12, 28, 13];
+  if (header.length === 7) return [6, 17, 16, 13, 15, 22, 11];
+  return undefined;
 }
 
 function getOasisHeadingPrefix(text: string): string | undefined {
@@ -1484,10 +1525,26 @@ function inferLayoutHints(paragraphs: string[], assets: LegacyWordAsset[]): Lega
     : undefined;
   return {
     lineNumbers: isOasisSpec,
+    documentKind: isCjkNoticeDocument(paragraphs) ? "cjkNotice" : undefined,
     headerBrand: isOasisSpec ? "oasis" : undefined,
     headerImageId: oasisImage?.id,
     footer: isOasisSpec ? inferOasisFooter(paragraphs) : undefined
   };
+}
+
+function isCjkNoticeDocument(paragraphs: string[]): boolean {
+  const visible = paragraphs.filter((paragraph) => paragraph !== WORD_PAGE_BREAK);
+  return (
+    visible.length >= 8 &&
+    isCjkNoticeTitle(`${visible[0] || ""}${visible[1] || ""}`) &&
+    visible.some((paragraph) => /^[一二三四五六七八九十]+[、.．]/.test(paragraph)) &&
+    visible.some((paragraph) => /^附件[：:]?\s*\d*/.test(paragraph))
+  );
+}
+
+function isCjkNoticeTitle(text: string): boolean {
+  const value = text.replace(/\s+/g, "");
+  return value.length >= 4 && value.length <= 80 && /\p{Script=Han}/u.test(value) && /(?:通知|通告|公告|函|意见|决定|方案)$/.test(value);
 }
 
 function inferOasisFooter(paragraphs: string[]): LegacyWordFooter {
@@ -1512,15 +1569,16 @@ function paginateWordBlocks(blocks: LegacyWordBlock[], layout: LegacyWordLayoutH
   if (layout.headerBrand === "oasis") {
     return paginateOasisBlocks(blocks);
   }
+  if (layout.documentKind === "cjkNotice") {
+    return paginateCjkNoticeBlocks(blocks);
+  }
   const pages: LegacyWordBlock[][] = [];
   let current: LegacyWordBlock[] = [];
   let usedLines = 0;
 
   for (const block of blocks) {
     if (block.type === "pageBreak") {
-      if (current.length > 0) {
-        pages.push(current);
-      }
+      pages.push(current);
       current = [];
       usedLines = 0;
       continue;
@@ -1567,6 +1625,79 @@ function paginateOasisBlocks(blocks: LegacyWordBlock[]): LegacyWordBlock[][] {
   return pages.length > 0 ? pages : [[]];
 }
 
+function paginateCjkNoticeBlocks(blocks: LegacyWordBlock[]): LegacyWordBlock[][] {
+  const maxUnits = 32;
+  const pages: LegacyWordBlock[][] = [];
+  let current: LegacyWordBlock[] = [];
+  let usedUnits = 0;
+  const flush = (force = false) => {
+    if (force || current.length > 0) pages.push(current);
+    current = [];
+    usedUnits = 0;
+  };
+
+  for (const block of blocks) {
+    if (block.type === "pageBreak") {
+      flush(true);
+      continue;
+    }
+
+    if (block.type === "table") {
+      const columnWidths = getNoticeTableColumnWidths(block.rows);
+      if (!columnWidths) {
+        const units = Math.max(1, block.rows.length);
+        if (current.length > 0 && usedUnits + units > maxUnits) flush();
+        current.push(block);
+        usedUnits += units;
+        continue;
+      }
+
+      const rowUnits = block.rows[0]?.length === 7 ? 1.65 : 1.4;
+      let offset = 0;
+      while (offset < block.rows.length) {
+        let availableRows = Math.floor((maxUnits - usedUnits + 0.001) / rowUnits);
+        if (availableRows < 1) {
+          flush();
+          availableRows = Math.max(1, Math.floor(maxUnits / rowUnits));
+        }
+        const rows = block.rows.slice(offset, offset + availableRows);
+        current.push({ type: "table", rows, notice: true, columnWidths });
+        usedUnits += rows.length * rowUnits;
+        offset += rows.length;
+        if (offset < block.rows.length) flush();
+      }
+      continue;
+    }
+
+    const units = estimateCjkNoticeBlockUnits(block);
+    if (current.length > 0 && usedUnits + units > maxUnits) flush();
+    current.push(block);
+    usedUnits += units;
+  }
+  if (current.length > 0 || pages.length === 0) pages.push(current);
+  return pages;
+}
+
+function estimateCjkNoticeBlockUnits(block: Exclude<LegacyWordBlock, { type: "table" | "pageBreak" }>): number {
+  if (block.type === "title" || block.type === "subtitle") return 3;
+  if (block.type === "heading") return 2;
+  if (block.type === "toc") return 1;
+  const text = block.text.trim();
+  if (/^附件\s*\d+$/.test(text)) return 2;
+  if (/^附件[：:]\s*\d+[.、．]/.test(text)) return 2;
+  if (/^\d+[.、．]/.test(text)) return text.length > 30 ? 3 : 2;
+  if (/^.{2,24}(?:清单|目录|名册|汇总表)$/.test(text)) return 3;
+  if (/^联系人[：:]/.test(text)) return 3;
+  if (/^\d{4}年\d{1,2}月\d{1,2}日?$/.test(text)) return 2;
+  if (text.length <= 24 && /(?:人民政府|委员会|办公室|数据局|管理局|厅|局|委|办)$/.test(text)) return 2;
+  if (/^[^：:]{2,45}[：:]$/.test(text)) return 2;
+  return 1 + Math.max(1, Math.ceil(estimateCjkTextWidth(text) / 28));
+}
+
+function estimateCjkTextWidth(text: string): number {
+  return [...text].reduce((width, character) => width + (/^[\x00-\xff]$/.test(character) ? 0.55 : 1), 0);
+}
+
 function estimatedLineCount(block: LegacyWordBlock): number {
   if (block.type === "pageBreak") {
     return 0;
@@ -1585,6 +1716,10 @@ function classifyParagraphBlock(text: string, previousBlocks: LegacyWordBlock[])
   const visibleIndex = previousBlocks.filter((block) => block.type !== "toc").length;
   if (visibleIndex === 0 && text.length <= 140) {
     return { type: "title", text };
+  }
+  const firstBlock = previousBlocks[0];
+  if (visibleIndex === 1 && firstBlock?.type === "title" && isCjkNoticeTitle(`${firstBlock.text}${text}`)) {
+    return { type: "subtitle", text };
   }
   if (visibleIndex === 1 && /draft|version|20\d{2}|19\d{2}/i.test(text) && text.length <= 140) {
     return { type: "subtitle", text };
