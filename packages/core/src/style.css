@@ -1024,6 +1024,68 @@
   margin: 0;
 }
 
+.ofv-wordml-document {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: max-content;
+  padding: 24px;
+  gap: 24px;
+  overflow: auto;
+  background: var(--ofv-surface-muted);
+}
+
+.ofv-wordml-page {
+  position: relative;
+  box-sizing: border-box;
+  overflow: hidden;
+  border: 1px solid var(--ofv-border);
+  background: #fff;
+  box-shadow: 0 16px 42px rgba(15, 23, 42, 0.14);
+  color: #111827;
+  font-family: "Times New Roman", SimSun, serif;
+  font-size: calc(10.5pt * var(--ofv-office-zoom, 1));
+  line-height: 1.5;
+}
+
+.ofv-wordml-page-content {
+  min-width: 0;
+}
+
+.ofv-wordml-paragraph {
+  margin: 0;
+  min-height: 1em;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.ofv-wordml-table {
+  max-width: 100%;
+  margin: 0;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.ofv-wordml-table td {
+  padding: calc(2px * var(--ofv-office-zoom, 1)) calc(4px * var(--ofv-office-zoom, 1));
+  border: 1px solid #111827;
+  vertical-align: top;
+}
+
+.ofv-wordml-table p {
+  margin: 0;
+}
+
+.ofv-wordml-footer {
+  position: absolute;
+  font-family: SimSun, "Songti SC", serif;
+  font-size: calc(9pt * var(--ofv-office-zoom, 1));
+  line-height: 1.4;
+  text-align: center;
+  white-space: pre-wrap;
+}
+
 .ofv-document-extra {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -1478,6 +1540,137 @@
 
 .ofv-msdoc-cjk-document .ofv-msdoc-table th {
   background: #e8e8e8;
+}
+
+.ofv-msdoc-notice-document .ofv-msdoc-page {
+  padding: calc(86px * var(--ofv-office-zoom, 1)) calc(104px * var(--ofv-office-zoom, 1));
+  color: #111;
+  font-family: FangSong, STFangsong, "FangSong_GB2312", SimSun, serif;
+  font-size: calc(16pt * var(--ofv-office-zoom, 1));
+  line-height: 1.8;
+}
+
+.ofv-msdoc-notice-document .ofv-msdoc-page p {
+  margin: 0;
+  text-align: justify;
+  text-indent: 2em;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.ofv-msdoc-notice-document .ofv-msdoc-page .ofv-msdoc-title,
+.ofv-msdoc-notice-document .ofv-msdoc-page .ofv-msdoc-subtitle {
+  margin: 0;
+  color: #111;
+  font-family: SimHei, "Microsoft YaHei", sans-serif;
+  font-size: calc(22pt * var(--ofv-office-zoom, 1));
+  font-weight: 400;
+  line-height: 1.45;
+  text-align: center;
+  text-indent: 0;
+}
+
+.ofv-msdoc-notice-document .ofv-msdoc-page .ofv-msdoc-subtitle {
+  margin-bottom: calc(30px * var(--ofv-office-zoom, 1));
+}
+
+.ofv-msdoc-notice-document .ofv-msdoc-page .ofv-msdoc-heading,
+.ofv-msdoc-notice-document .ofv-msdoc-page .ofv-msdoc-heading-level-2 {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  color: #111;
+  font-family: SimHei, "Microsoft YaHei", sans-serif;
+  font-size: calc(16pt * var(--ofv-office-zoom, 1));
+  line-height: 1.8;
+  text-align: left;
+  text-indent: 2em;
+}
+
+.ofv-msdoc-notice-document .ofv-msdoc-page .ofv-msdoc-notice-salutation,
+.ofv-msdoc-notice-document .ofv-msdoc-page .ofv-msdoc-notice-contact,
+.ofv-msdoc-notice-document .ofv-msdoc-page .ofv-msdoc-notice-attachment-first,
+.ofv-msdoc-notice-document .ofv-msdoc-page .ofv-msdoc-notice-appendix-label,
+.ofv-msdoc-notice-document .ofv-msdoc-page .ofv-msdoc-notice-signature,
+.ofv-msdoc-notice-document .ofv-msdoc-page .ofv-msdoc-notice-date {
+  text-indent: 0;
+}
+
+.ofv-msdoc-notice-document .ofv-msdoc-page .ofv-msdoc-notice-contact {
+  margin-top: calc(2px * var(--ofv-office-zoom, 1));
+}
+
+.ofv-msdoc-notice-document .ofv-msdoc-page .ofv-msdoc-notice-attachment-first {
+  margin-top: calc(52px * var(--ofv-office-zoom, 1));
+}
+
+.ofv-msdoc-notice-document .ofv-msdoc-page .ofv-msdoc-notice-attachment-item {
+  margin-left: 4em;
+  text-indent: 0;
+}
+
+.ofv-msdoc-notice-document .ofv-msdoc-page > .ofv-msdoc-notice-attachment-item:first-child {
+  margin-top: calc(44px * var(--ofv-office-zoom, 1));
+}
+
+.ofv-msdoc-notice-document .ofv-msdoc-page .ofv-msdoc-notice-signature,
+.ofv-msdoc-notice-document .ofv-msdoc-page .ofv-msdoc-notice-date {
+  padding-right: 1.5em;
+  text-align: right;
+}
+
+.ofv-msdoc-notice-document .ofv-msdoc-page .ofv-msdoc-notice-signature {
+  margin-top: calc(34px * var(--ofv-office-zoom, 1));
+}
+
+.ofv-msdoc-notice-document .ofv-msdoc-page .ofv-msdoc-notice-appendix-label {
+  margin-bottom: calc(2px * var(--ofv-office-zoom, 1));
+  font-family: SimHei, "Microsoft YaHei", sans-serif;
+}
+
+.ofv-msdoc-notice-document .ofv-msdoc-page .ofv-msdoc-notice-appendix-title {
+  margin-bottom: calc(26px * var(--ofv-office-zoom, 1));
+  font-family: SimHei, "Microsoft YaHei", sans-serif;
+  font-size: calc(20pt * var(--ofv-office-zoom, 1));
+  font-weight: 400;
+  line-height: 1.45;
+  text-align: center;
+  text-indent: 0;
+}
+
+.ofv-msdoc-notice-document .ofv-msdoc-notice-table {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  color: #111;
+  font-family: SimSun, "Songti SC", serif;
+  font-size: calc(10.5pt * var(--ofv-office-zoom, 1));
+  line-height: 1.35;
+  table-layout: fixed;
+}
+
+.ofv-msdoc-notice-document .ofv-msdoc-notice-table th,
+.ofv-msdoc-notice-document .ofv-msdoc-notice-table td {
+  padding: calc(4px * var(--ofv-office-zoom, 1)) calc(3px * var(--ofv-office-zoom, 1));
+  border-color: #111;
+  background: #fff;
+  vertical-align: middle;
+  text-align: center;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+
+.ofv-msdoc-notice-document .ofv-msdoc-notice-table-6 th,
+.ofv-msdoc-notice-document .ofv-msdoc-notice-table-6 td {
+  padding-top: calc(7px * var(--ofv-office-zoom, 1));
+  padding-bottom: calc(7px * var(--ofv-office-zoom, 1));
+}
+
+.ofv-msdoc-notice-document .ofv-msdoc-notice-table-7 th,
+.ofv-msdoc-notice-document .ofv-msdoc-notice-table-7 td {
+  padding-top: calc(3px * var(--ofv-office-zoom, 1));
+  padding-bottom: calc(3px * var(--ofv-office-zoom, 1));
 }
 
 .ofv-msdoc-form-table th,

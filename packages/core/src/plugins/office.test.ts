@@ -1122,6 +1122,68 @@ describe("officePlugin", () => {
     expect(container.textContent).not.toContain("legacy Microsoft Office binary format");
   });
 
+  it("renders Word 2003 XML saved with a legacy .doc extension", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const wordXml = `<?xml version="1.0" encoding="UTF-8"?>
+      <?mso-application progid="Word.Document"?>
+      <w:wordDocument xmlns:w="http://schemas.microsoft.com/office/word/2003/wordml"
+        xmlns:wx="http://schemas.microsoft.com/office/word/2003/auxHint">
+        <w:styles>
+          <w:style w:type="paragraph" w:styleId="normal">
+            <w:rPr><w:rFonts w:fareast="宋体"/><w:sz w:val="28"/></w:rPr>
+          </w:style>
+        </w:styles>
+        <w:body><wx:sect>
+          <w:p>
+            <w:pPr><w:pStyle w:val="normal"/><w:spacing w:line="360" w:line-rule="auto"/><w:jc w:val="both"/></w:pPr>
+            <w:r><w:rPr><w:b/></w:rPr><w:t>213213</w:t></w:r>
+          </w:p>
+          <w:sectPr>
+            <w:ftr w:type="odd"><w:p>
+              <w:r><w:t>第 </w:t></w:r>
+              <w:r><w:fldChar w:fldCharType="begin"/></w:r>
+              <w:r><w:instrText> PAGE </w:instrText></w:r>
+              <w:r><w:fldChar w:fldCharType="separate"/></w:r>
+              <w:r><w:t>9</w:t></w:r>
+              <w:r><w:fldChar w:fldCharType="end"/></w:r>
+              <w:r><w:t> 页 共 </w:t></w:r>
+              <w:r><w:fldChar w:fldCharType="begin"/></w:r>
+              <w:r><w:instrText> NUMPAGES </w:instrText></w:r>
+              <w:r><w:fldChar w:fldCharType="separate"/></w:r>
+              <w:r><w:t>9</w:t></w:r>
+              <w:r><w:fldChar w:fldCharType="end"/></w:r>
+              <w:r><w:t> 页</w:t></w:r>
+            </w:p></w:ftr>
+            <w:pgSz w:w="11906" w:h="16838"/>
+            <w:pgMar w:top="1440" w:right="1519" w:bottom="1440" w:left="1519" w:footer="992"/>
+          </w:sectPr>
+        </wx:sect></w:body>
+      </w:wordDocument>`;
+
+    createViewer({
+      container,
+      file: new Blob([wordXml], { type: "application/msword" }),
+      fileName: "word-2003-xml.doc",
+      plugins: [officePlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-wordml-page")));
+
+    const page = container.querySelector<HTMLElement>(".ofv-wordml-page");
+    const paragraph = container.querySelector<HTMLElement>(".ofv-wordml-paragraph");
+    const run = paragraph?.querySelector<HTMLElement>("span");
+    expect(container.querySelectorAll(".ofv-wordml-page")).toHaveLength(1);
+    expect(paragraph?.textContent).toBe("213213");
+    expect(paragraph?.style.textAlign).toBe("justify");
+    expect(paragraph?.style.lineHeight).toBe("1.5");
+    expect(run?.style.fontFamily).toContain("宋体");
+    expect(run?.style.fontWeight).toBe("700");
+    expect(page?.style.width).toContain("595.3pt");
+    expect(container.querySelector(".ofv-wordml-footer")?.textContent).toBe("第 1 页 共 1 页");
+    expect(container.querySelector(".ofv-office-conversion")).toBeNull();
+  });
+
   it("normalizes impossible DOCX line heights that would overlap text", async () => {
     const container = document.createElement("div");
     document.body.append(container);
@@ -2895,6 +2957,99 @@ describe("officePlugin", () => {
     expect(rows[5].cells[0].textContent).toContain("新能源汽车服务有限公司");
     expect(rows[6].cells[0].textContent).toBe("二、信息收集");
     expect(rows[7].cells[0].textContent).toContain("请查阅相关资料");
+  });
+
+  it("preserves blank pages and splits long tables in Chinese notice documents", () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const table3: LegacyWordDocument["blocks"][number] = {
+      type: "table",
+      rows: [
+        ["序号", "应用名称", "应用标识", "地区", "服务主体", "整改完成情况"],
+        ...Array.from({ length: 21 }, (_, index) => [
+          String(index + 1),
+          `应用 ${index + 1}`,
+          `application${index + 1}`,
+          "苏州市",
+          "苏州市数据局",
+          ""
+        ])
+      ]
+    };
+    const table4: LegacyWordDocument["blocks"][number] = {
+      type: "table",
+      rows: [
+        ["序号", "应用名称", "应用标识", "地区", "服务主体", "存在问题", "整改完成情况"],
+        ...Array.from({ length: 16 }, (_, index) => [
+          String(index + 1),
+          `应用 ${index + 1}`,
+          `application${index + 1}`,
+          "苏州市",
+          "苏州市数据局",
+          "页面提示请求异常",
+          ""
+        ])
+      ]
+    };
+    const documentModel: LegacyWordDocument = {
+      title: "关于移动端应用问题",
+      paragraphs: [],
+      blocks: [
+        { type: "title", text: "关于移动端应用问题" },
+        { type: "subtitle", text: "整改的通知" },
+        { type: "paragraph", text: "各有关单位和部门，各县级市（区）数据局：" },
+        { type: "paragraph", text: "根据工作部署，为进一步加强移动端运行管理，切实保障接入应用平稳、高效运行，现就有关工作通知如下：" },
+        { type: "heading", text: "一、加快统一认证接口改造", level: 2 },
+        { type: "paragraph", text: "使用用户信息获取接口的应用，需改造为对接统一封装接口。经核查，部分应用接口需改造，请各地各部门对照接口改造应用清单，于指定日期前完成接口改造。" },
+        { type: "heading", text: "二、落实应用问题核查整改", level: 2 },
+        { type: "paragraph", text: "针对部分应用存在的应用报错、接口异常等问题，请相关区县和部门对照应用问题清单，加快落实整改。" },
+        { type: "paragraph", text: "上述整改完成情况请于指定日期前反馈至联系人邮箱。" },
+        { type: "paragraph", text: "联系人：测试人员，联系电话：12345678，邮箱：test@example.com。统一认证技术联系人：技术人员，87654321。" },
+        { type: "paragraph", text: "附件：1.用户信息获取接口" },
+        { type: "paragraph", text: "2.政务服务平台统一身份认证对接标准规范" },
+        { type: "paragraph", text: "3.接口改造应用清单" },
+        { type: "paragraph", text: "4.应用问题清单" },
+        { type: "paragraph", text: "苏州市数据局" },
+        { type: "paragraph", text: "2026年8月21日" },
+        { type: "pageBreak" },
+        { type: "pageBreak" },
+        { type: "paragraph", text: "附件3" },
+        { type: "paragraph", text: "接口改造应用清单" },
+        table3,
+        { type: "pageBreak" },
+        { type: "paragraph", text: "附件4" },
+        { type: "paragraph", text: "应用问题清单" },
+        table4
+      ],
+      layout: { lineNumbers: false, documentKind: "cjkNotice" },
+      assets: [],
+      styles: [],
+      stats: { streamCount: 7, pieceCount: 1, characterCount: 2048, styleCount: 5, tableStream: "0Table" },
+      warnings: []
+    };
+
+    renderLegacyWordDocument(container, documentModel);
+
+    const pages = Array.from(container.querySelectorAll<HTMLElement>(".ofv-msdoc-page"));
+    expect(container.querySelector(".ofv-msdoc-notice-document")).not.toBeNull();
+    expect(pages).toHaveLength(7);
+    expect(pages[0].querySelector(".ofv-msdoc-title")?.textContent).toBe("关于移动端应用问题");
+    expect(pages[0].querySelector(".ofv-msdoc-subtitle")?.textContent).toBe("整改的通知");
+    expect(pages[1].textContent).toContain("3.接口改造应用清单");
+    expect(pages[2].textContent?.trim()).toBe("");
+    expect(pages[3].querySelectorAll(".ofv-msdoc-notice-table tr")).toHaveLength(19);
+    expect(pages[4].querySelectorAll(".ofv-msdoc-notice-table tr")).toHaveLength(3);
+    expect(pages[5].querySelectorAll(".ofv-msdoc-notice-table tr")).toHaveLength(16);
+    expect(pages[6].querySelectorAll(".ofv-msdoc-notice-table tr")).toHaveLength(1);
+    expect(pages[4].querySelector(".ofv-msdoc-notice-table th")).toBeNull();
+    expect(Array.from(pages[3].querySelectorAll<HTMLTableColElement>("col")).map((column) => column.style.width)).toEqual([
+      "6%",
+      "23%",
+      "18%",
+      "12%",
+      "28%",
+      "13%"
+    ]);
   });
 
   it("renders the issue 39 training form when the downloaded attachment is available", async () => {
