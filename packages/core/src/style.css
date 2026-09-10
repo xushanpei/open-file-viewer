@@ -1965,6 +1965,38 @@
   overflow-wrap: anywhere;
 }
 
+.ofv-docx-document section.ofv-docx :is(td, th)[data-ofv-docx-diagonal-tl2br="true"],
+.ofv-docx-document section.ofv-docx :is(td, th)[data-ofv-docx-diagonal-tr2bl="true"] {
+  position: relative;
+}
+
+.ofv-docx-document section.ofv-docx :is(td, th)[data-ofv-docx-diagonal-tl2br="true"]::after,
+.ofv-docx-document section.ofv-docx :is(td, th)[data-ofv-docx-diagonal-tr2bl="true"]::before {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  pointer-events: none;
+  content: "";
+}
+
+.ofv-docx-document section.ofv-docx :is(td, th)[data-ofv-docx-diagonal-tl2br="true"]::after {
+  background: linear-gradient(
+    to top right,
+    transparent calc(50% - var(--ofv-docx-diagonal-half-width, 0.375pt)),
+    var(--ofv-docx-diagonal-color, #000) 50%,
+    transparent calc(50% + var(--ofv-docx-diagonal-half-width, 0.375pt))
+  );
+}
+
+.ofv-docx-document section.ofv-docx :is(td, th)[data-ofv-docx-diagonal-tr2bl="true"]::before {
+  background: linear-gradient(
+    to top left,
+    transparent calc(50% - var(--ofv-docx-diagonal-half-width, 0.375pt)),
+    var(--ofv-docx-diagonal-color, #000) 50%,
+    transparent calc(50% + var(--ofv-docx-diagonal-half-width, 0.375pt))
+  );
+}
+
 .ofv-docx-right-tab-line {
   display: flex;
   align-items: baseline;

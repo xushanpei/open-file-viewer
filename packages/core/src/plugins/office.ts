@@ -1432,11 +1432,13 @@ async function normalizeDocxLayout(container: HTMLElement, arrayBuffer: ArrayBuf
   repairDocxDefaultPageMargins(container, hints.needsDefaultPageMargins);
   repairDocxSvgImageAlternatives(container, svgImageAlternatives);
   repairUnexpectedDocxTableTextDirections(container, hints.hasVerticalTextDirection);
+  repairDocxDiagonalCellBorders(container, hints.diagonalCellBorders);
   repairDocxFloatingShapeTextboxes(container, hints.floatingShapes);
   repairDocxChartPlaceholders(container, charts);
   repairDocxComplexScriptFontSizes(container, hints.complexScriptFontSizeParagraphs);
   repairDocxCharacterSpacing(container, hints.characterSpacingParagraphs);
   repairDocxAutoLineHeights(container, hints.autoLineHeightParagraphs);
+  repairDocxMergedCellEmptyParagraphs(container, hints.mergedCellEmptyParagraphs);
   markDocxSectionBreakParagraphs(container, hints.sectionBreakParagraphIndexes);
   repairDocxCharacterScaling(container, hints.characterScaleParagraphs);
   const pages = container.querySelectorAll<HTMLElement>("section.ofv-docx");
@@ -1751,6 +1753,20 @@ type DocxLayoutHints = {
     lineMultiple: number;
     fontSizePt?: number;
   }>;
+  diagonalCellBorders: Array<{
+    tableIndex: number;
+    rowIndex: number;
+    columnIndex: number;
+    direction: "tl2br" | "tr2bl";
+    color: string;
+    widthPt: number;
+  }>;
+  mergedCellEmptyParagraphs: Array<{
+    tableIndex: number;
+    rowIndex: number;
+    columnIndex: number;
+    count: number;
+  }>;
   sectionBreakParagraphIndexes: number[];
   needsDefaultPageMargins: boolean;
   hasVerticalTextDirection: boolean;
@@ -1784,6 +1800,8 @@ async function readDocxLayoutHints(arrayBuffer: ArrayBuffer): Promise<DocxLayout
       characterScaleParagraphs: documentXml ? extractDocxCharacterScaleHints(documentXml) : [],
       characterSpacingParagraphs: documentXml ? extractDocxCharacterSpacingHints(documentXml) : [],
       autoLineHeightParagraphs: documentXml ? extractDocxAutoLineHeightHints(documentXml) : [],
+      diagonalCellBorders: documentXml ? extractDocxDiagonalCellBorders(documentXml) : [],
+      mergedCellEmptyParagraphs: documentXml ? extractDocxMergedCellEmptyParagraphs(documentXml) : [],
       sectionBreakParagraphIndexes: documentXml ? extractDocxSectionBreakParagraphIndexes(documentXml) : [],
       needsDefaultPageMargins: Boolean(documentXml && /<w:sectPr\b/.test(documentXml) && !/<w:pgMar\b/.test(documentXml)),
       hasVerticalTextDirection: Boolean(documentXml && /<w:textDirection\b/.test(documentXml))
@@ -1799,6 +1817,8 @@ async function readDocxLayoutHints(arrayBuffer: ArrayBuffer): Promise<DocxLayout
       characterScaleParagraphs: [],
       characterSpacingParagraphs: [],
       autoLineHeightParagraphs: [],
+      diagonalCellBorders: [],
+      mergedCellEmptyParagraphs: [],
       sectionBreakParagraphIndexes: [],
       needsDefaultPageMargins: false,
       hasVerticalTextDirection: false
@@ -2217,15 +2237,188 @@ function repairDocxAutoLineHeights(
     // OOXML's auto value is measured in 240ths of Word's font line box,
     // while a CSS unitless line-height is measured directly against 1em.
     // Word also gives table-cell paragraphs a taller line box than body text.
-    const singleLineEm = paragraph.closest("td, th")
-      ? DOCX_WORD_TABLE_SINGLE_LINE_EM
-      : DOCX_WORD_SINGLE_LINE_EM;
-    paragraph.style.lineHeight = formatCssNumber(hint.lineMultiple * singleLineEm);
+    const tableCell = paragraph.closest("td, th");
+    const singleLineEm = tableCell ? DOCX_WORD_TABLE_SINGLE_LINE_EM : DOCX_WORD_SINGLE_LINE_EM;
+    if (tableCell) {
+      const renderedFontSizePx =
+        getDocxRenderedTextFontSizeInPixels(paragraph) ||
+        (hint.fontSizePt ? hint.fontSizePt * (4 / 3) : getLargestDocxFontSize(paragraph));
+      paragraph.style.lineHeight = `${formatCssNumber(hint.lineMultiple * singleLineEm * renderedFontSizePx)}px`;
+      paragraph.style.marginTop = "0px";
+    } else {
+      paragraph.style.lineHeight = formatCssNumber(hint.lineMultiple * singleLineEm);
+    }
     if (!hint.text && hint.fontSizePt) {
       paragraph.style.fontSize = `${formatCssNumber(hint.fontSizePt)}pt`;
       paragraph.style.minHeight = `${formatCssNumber(hint.fontSizePt * hint.lineMultiple * singleLineEm)}pt`;
     }
     paragraph.dataset.ofvDocxAutoLineHeight = "true";
+  }
+}
+
+function getDocxRenderedTextFontSizeInPixels(paragraph: HTMLParagraphElement): number {
+  const view = paragraph.ownerDocument.defaultView;
+  let largest = 0;
+  for (const run of paragraph.querySelectorAll<HTMLElement>("span")) {
+    if (!normalizePreviewText(run.textContent || "")) {
+      continue;
+    }
+    const inlineSize = parseCssLengthInPixels(run.style.fontSize);
+    const computedSize = view ? parseCssLengthInPixels(view.getComputedStyle(run).fontSize) : 0;
+    largest = Math.max(largest, inlineSize || computedSize);
+  }
+  return largest;
+}
+
+type DocxSourceTableCell = {
+  tableIndex: number;
+  rowIndex: number;
+  columnIndex: number;
+  cell: Element;
+  properties?: Element;
+};
+
+function forEachDocxSourceTableCell(xml: string, visit: (source: DocxSourceTableCell) => void): void {
+  const document = parseOfficeXml(xml);
+  if (!document) {
+    return;
+  }
+  const tables = Array.from(document.getElementsByTagName("*")).filter((element) => element.localName === "tbl");
+  tables.forEach((table, tableIndex) => {
+    const rows = Array.from(table.children).filter((element) => element.localName === "tr");
+    rows.forEach((row, rowIndex) => {
+      const rowProperties = firstDirectOfficeChild(row, "trPr");
+      const gridBefore = rowProperties ? firstDirectOfficeChild(rowProperties, "gridBefore") : undefined;
+      const parsedGridBefore = Number(gridBefore ? getXmlAttribute(gridBefore, "val") : 0);
+      let columnIndex = Number.isFinite(parsedGridBefore) && parsedGridBefore > 0 ? parsedGridBefore : 0;
+      for (const cell of Array.from(row.children).filter((element) => element.localName === "tc")) {
+        const properties = firstDirectOfficeChild(cell, "tcPr");
+        visit({ tableIndex, rowIndex, columnIndex, cell, properties });
+        const gridSpan = properties ? firstDirectOfficeChild(properties, "gridSpan") : undefined;
+        const parsedGridSpan = Number(gridSpan ? getXmlAttribute(gridSpan, "val") : 1);
+        columnIndex += Number.isFinite(parsedGridSpan) && parsedGridSpan > 0 ? parsedGridSpan : 1;
+      }
+    });
+  });
+}
+
+function extractDocxDiagonalCellBorders(xml: string): DocxLayoutHints["diagonalCellBorders"] {
+  const hints: DocxLayoutHints["diagonalCellBorders"] = [];
+  forEachDocxSourceTableCell(xml, ({ tableIndex, rowIndex, columnIndex, properties }) => {
+    const borders = properties ? firstDirectOfficeChild(properties, "tcBorders") : undefined;
+    if (!borders) {
+      return;
+    }
+    for (const direction of ["tl2br", "tr2bl"] as const) {
+      const border = firstDirectOfficeChild(borders, direction);
+      const value = border ? (getXmlAttribute(border, "val") || "single").toLowerCase() : "none";
+      if (!border || value === "none" || value === "nil") {
+        continue;
+      }
+      const rawColor = (getXmlAttribute(border, "color") || "000000").replace(/^#/, "");
+      const widthEighthPoints = Number(getXmlAttribute(border, "sz"));
+      hints.push({
+        tableIndex,
+        rowIndex,
+        columnIndex,
+        direction,
+        color: /^[0-9a-f]{6}$/i.test(rawColor) ? `#${rawColor}` : "#000000",
+        widthPt: Number.isFinite(widthEighthPoints) && widthEighthPoints > 0
+          ? Math.max(0.5, Math.min(6, widthEighthPoints / 8))
+          : 0.75
+      });
+    }
+  });
+  return hints;
+}
+
+function extractDocxMergedCellEmptyParagraphs(xml: string): DocxLayoutHints["mergedCellEmptyParagraphs"] {
+  const hints: DocxLayoutHints["mergedCellEmptyParagraphs"] = [];
+  forEachDocxSourceTableCell(xml, ({ tableIndex, rowIndex, columnIndex, cell, properties }) => {
+    const verticalMerge = properties ? firstDirectOfficeChild(properties, "vMerge") : undefined;
+    if (!verticalMerge || (getXmlAttribute(verticalMerge, "val") || "continue").toLowerCase() === "restart") {
+      return;
+    }
+    const emptyParagraphs = Array.from(cell.children)
+      .filter((element) => element.localName === "p")
+      .filter((paragraph) => {
+        if (normalizePreviewText(paragraph.textContent || "")) {
+          return false;
+        }
+        return !Array.from(paragraph.getElementsByTagName("*")).some((element) =>
+          ["br", "tab", "drawing", "pict", "object"].includes(element.localName)
+        );
+      }).length;
+    if (emptyParagraphs > 0) {
+      hints.push({ tableIndex, rowIndex, columnIndex, count: emptyParagraphs });
+    }
+  });
+  return hints;
+}
+
+function findRenderedDocxTableCell(
+  table: HTMLTableElement,
+  rowIndex: number,
+  columnIndex: number
+): HTMLTableCellElement | undefined {
+  return Array.from(mapDocxTableCellPlacements(Array.from(table.rows)).values())
+    .find((placement) =>
+      placement.columnIndex === columnIndex &&
+      placement.rowIndex <= rowIndex &&
+      placement.rowIndex + placement.rowSpan > rowIndex
+    )?.cell;
+}
+
+function repairDocxDiagonalCellBorders(
+  container: HTMLElement,
+  hints: DocxLayoutHints["diagonalCellBorders"]
+): void {
+  const tables = Array.from(container.querySelectorAll<HTMLTableElement>("section.ofv-docx article table"));
+  for (const hint of hints) {
+    const cell = tables[hint.tableIndex]
+      ? findRenderedDocxTableCell(tables[hint.tableIndex]!, hint.rowIndex, hint.columnIndex)
+      : undefined;
+    if (!cell) {
+      continue;
+    }
+    if (hint.direction === "tl2br") {
+      cell.dataset.ofvDocxDiagonalTl2br = "true";
+    } else {
+      cell.dataset.ofvDocxDiagonalTr2bl = "true";
+    }
+    cell.style.setProperty("--ofv-docx-diagonal-color", hint.color);
+    cell.style.setProperty("--ofv-docx-diagonal-half-width", `${formatCssNumber(hint.widthPt / 2)}pt`);
+  }
+}
+
+function repairDocxMergedCellEmptyParagraphs(
+  container: HTMLElement,
+  hints: DocxLayoutHints["mergedCellEmptyParagraphs"]
+): void {
+  const tables = Array.from(container.querySelectorAll<HTMLTableElement>("section.ofv-docx article table"));
+  const mergedCells = new Set<HTMLTableCellElement>();
+  for (const hint of hints) {
+    const cell = tables[hint.tableIndex]
+      ? findRenderedDocxTableCell(tables[hint.tableIndex]!, hint.rowIndex, hint.columnIndex)
+      : undefined;
+    if (cell && cell.rowSpan > 1) {
+      mergedCells.add(cell);
+    }
+  }
+  for (const cell of mergedCells) {
+    const paragraphs = Array.from(cell.children).filter(
+      (element): element is HTMLParagraphElement => element instanceof HTMLParagraphElement
+    );
+    const removable = paragraphs
+      .filter((paragraph) =>
+        !normalizePreviewText(paragraph.textContent || "") &&
+        !paragraph.querySelector("br, hr, img, svg, canvas, video, audio, object, table")
+      )
+      .reverse();
+    removable.forEach((paragraph) => paragraph.remove());
+    if (removable.length > 0) {
+      cell.dataset.ofvDocxMergedEmptyParagraphsRemoved = String(removable.length);
+    }
   }
 }
 
@@ -2914,6 +3107,13 @@ function paginateDocxFlow(container: HTMLElement): void {
   }
 
   const sourcePages = Array.from(wrapper.querySelectorAll<HTMLElement>(":scope > section.ofv-docx"));
+  const hasAuthoredPageSections =
+    sourcePages.length > 1 &&
+    sourcePages.slice(0, -1).every((page) => page.querySelector("[data-ofv-docx-section-break='true']"));
+  if (hasAuthoredPageSections) {
+    updateDocxContinuationPageNumbers(wrapper);
+    return;
+  }
   for (const sourcePage of sourcePages) {
     paginateDocxPage(sourcePage);
   }
@@ -3044,7 +3244,10 @@ function repairDocxFirstPageClosingDate(container: HTMLElement): void {
     return;
   }
   const sourcePage = dateParagraph.closest<HTMLElement>("section.ofv-docx");
-  if (sourcePage?.querySelector("[data-ofv-docx-section-break='true']")) {
+  if (
+    sourcePage?.querySelector("[data-ofv-docx-section-break='true']") &&
+    sourcePage.dataset.ofvDocxFlowContinuation !== "true"
+  ) {
     return;
   }
   const signatory = Array.from(firstPage.querySelectorAll<HTMLElement>("article p"))
