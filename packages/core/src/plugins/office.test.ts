@@ -229,6 +229,45 @@ const openPptx = vi.hoisted(() =>
       paragraph.append(bullet, content);
       issueNumbering.append(paragraph);
     }
+    const issueCjkNumbering = document.createElement("div");
+    issueCjkNumbering.className = "pptx-issue-cjk-numbering";
+    issueCjkNumbering.style.position = "absolute";
+    issueCjkNumbering.style.left = "200px";
+    issueCjkNumbering.style.top = "300px";
+    issueCjkNumbering.style.width = "600px";
+    issueCjkNumbering.style.height = "200px";
+    for (const text of ["背景概况", "核心技术", "应用场景", "价值总结", "客户案例"]) {
+      const paragraph = document.createElement("div");
+      const bullet = document.createElement("span");
+      bullet.textContent = "■ ";
+      const content = document.createElement("span");
+      content.textContent = text;
+      paragraph.append(bullet, content);
+      issueCjkNumbering.append(paragraph);
+    }
+    const issueAutofitText = document.createElement("div");
+    issueAutofitText.className = "pptx-issue-autofit-text";
+    const issueAutofitParagraph = document.createElement("div");
+    issueAutofitParagraph.style.overflowWrap = "anywhere";
+    issueAutofitParagraph.style.maxWidth = "100%";
+    const issueAutofitRun = document.createElement("span");
+    issueAutofitRun.textContent = "传统办公与运营过程中的挑战！";
+    issueAutofitParagraph.append(issueAutofitRun);
+    issueAutofitText.append(issueAutofitParagraph);
+    const issueDefaultAlignment = document.createElement("div");
+    issueDefaultAlignment.className = "pptx-issue-default-alignment";
+    issueDefaultAlignment.style.position = "absolute";
+    for (const text of ["指标领先", "员工人数"]) {
+      const paragraph = document.createElement("div");
+      paragraph.style.textAlign = "center";
+      const run = document.createElement("span");
+      run.textContent = text;
+      paragraph.append(run);
+      issueDefaultAlignment.append(paragraph);
+    }
+    const issueSlideNumber = document.createElement("span");
+    issueSlideNumber.className = "pptx-issue-slide-number";
+    issueSlideNumber.textContent = "‹#›";
     page.append(
       mirroredTextGroup,
       inheritedPlaceholder,
@@ -237,7 +276,11 @@ const openPptx = vi.hoisted(() =>
       redCircleCallout,
       diagramGroup,
       issueFillShape,
-      issueNumbering
+      issueNumbering,
+      issueCjkNumbering,
+      issueAutofitText,
+      issueDefaultAlignment,
+      issueSlideNumber
     );
     viewport.append(page);
     wrapper.append(viewport);
@@ -3021,6 +3064,7 @@ describe("officePlugin", () => {
     });
 
     await waitFor(() => Boolean(container.querySelector(".ofv-presentation-summary")));
+    await waitFor(() => openPptx.mock.calls.length === 1);
 
     expect(openPptx).toHaveBeenCalledTimes(1);
     const summary = container.querySelector<HTMLElement>(".ofv-presentation-summary");
@@ -3084,6 +3128,30 @@ describe("officePlugin", () => {
     expect(putImageData).toHaveBeenCalledTimes(1);
   });
 
+  it("promotes SVG-only PPTX image relationships before rendering", async () => {
+    const container = document.createElement("div");
+    const callsBefore = openPptx.mock.calls.length;
+    document.body.append(container);
+
+    createViewer({
+      container,
+      file: await createPptxWithSvgOnlyImage(),
+      fileName: "embedded-svg.pptx",
+      plugins: [officePlugin()]
+    });
+
+    await waitFor(() => openPptx.mock.calls.length === callsBefore + 1);
+
+    const renderBuffer = openPptx.mock.calls[callsBefore]?.[0] as ArrayBuffer;
+    const renderedZip = await JSZip.loadAsync(renderBuffer);
+    const slideXml = await renderedZip.file("ppt/slides/slide1.xml")?.async("text");
+    const slide = new DOMParser().parseFromString(slideXml || "", "application/xml");
+    const blip = Array.from(slide.getElementsByTagName("*")).find((element) => element.localName === "blip");
+    expect(blip?.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "embed")).toBe(
+      "rIdSvg"
+    );
+  });
+
   it("restores explicit PPTX shape fills and auto-numbering lost by the renderer", async () => {
     const container = document.createElement("div");
     document.body.append(container);
@@ -3103,6 +3171,19 @@ describe("officePlugin", () => {
         (element) => element.textContent?.trim()
       )
     ).toEqual(["I.", "II.", "III.", "IV."]);
+    expect(
+      Array.from(container.querySelectorAll<HTMLElement>(".pptx-issue-cjk-numbering [data-ofv-pptx-auto-number]")).map(
+        (element) => element.textContent?.trim()
+      )
+    ).toEqual(["一．", "二．", "三．", "四．", "五．"]);
+    expect(container.querySelector<HTMLElement>(".pptx-issue-autofit-text > div")?.style.whiteSpace).toBe("nowrap");
+    expect(container.querySelector<HTMLElement>(".pptx-issue-autofit-text > div")?.style.overflowWrap).toBe("normal");
+    expect(
+      Array.from(container.querySelectorAll<HTMLElement>(".pptx-issue-default-alignment > div")).map(
+        (element) => element.style.textAlign
+      )
+    ).toEqual(["left", "left"]);
+    expect(container.querySelector<HTMLElement>(".pptx-issue-slide-number")?.textContent).toBe("1");
   });
 
   it("responds to shared toolbar zoom for PPTX previews", async () => {
@@ -5036,6 +5117,34 @@ async function createPptxWithTiffImage(): Promise<Blob> {
   });
 }
 
+async function createPptxWithSvgOnlyImage(): Promise<Blob> {
+  const zip = new JSZip();
+  zip.file(
+    "ppt/slides/slide1.xml",
+    `<?xml version="1.0" encoding="UTF-8"?>
+      <p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+        xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+        xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+        xmlns:asvg="http://schemas.microsoft.com/office/drawing/2016/SVG/main">
+        <p:cSld><p:spTree><p:pic><p:blipFill><a:blip>
+          <a:extLst><a:ext><asvg:svgBlip r:embed="rIdSvg"/></a:ext></a:extLst>
+        </a:blip></p:blipFill></p:pic></p:spTree></p:cSld>
+      </p:sld>`
+  );
+  zip.file(
+    "ppt/slides/_rels/slide1.xml.rels",
+    `<?xml version="1.0" encoding="UTF-8"?>
+      <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+        <Relationship Id="rIdSvg" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image1.svg"/>
+      </Relationships>`
+  );
+  zip.file("ppt/media/image1.svg", `<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>`);
+  return zip.generateAsync({
+    type: "blob",
+    mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+  });
+}
+
 async function createPptxVisualCorrectionFixture(): Promise<Blob> {
   const zip = new JSZip();
   zip.file(
@@ -5043,6 +5152,9 @@ async function createPptxVisualCorrectionFixture(): Promise<Blob> {
     `<?xml version="1.0" encoding="UTF-8"?>
       <p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
         <p:sldSz cx="12800000" cy="7200000"/>
+        <p:defaultTextStyle xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+          <a:lvl1pPr algn="l"/>
+        </p:defaultTextStyle>
       </p:presentation>`
   );
   zip.file(
@@ -5067,6 +5179,31 @@ async function createPptxVisualCorrectionFixture(): Promise<Blob> {
               <a:p><a:pPr><a:buAutoNum type="romanUcPeriod"/></a:pPr><a:r><a:t>预制包标准化程度介绍</a:t></a:r></a:p>
             </p:txBody>
           </p:sp>
+          <p:sp>
+            <p:spPr><a:xfrm><a:off x="2000000" y="3000000"/><a:ext cx="6000000" cy="2000000"/></a:xfrm></p:spPr>
+            <p:txBody><a:bodyPr/><a:lstStyle/>
+              <a:p><a:pPr><a:buAutoNum type="ea1JpnChsDbPeriod"/></a:pPr><a:r><a:t>背景概况</a:t></a:r></a:p>
+              <a:p><a:pPr><a:buAutoNum type="ea1JpnChsDbPeriod"/></a:pPr><a:r><a:t>核心技术</a:t></a:r></a:p>
+              <a:p><a:pPr><a:buAutoNum type="ea1JpnChsDbPeriod"/></a:pPr><a:r><a:t>应用场景</a:t></a:r></a:p>
+              <a:p><a:pPr><a:buAutoNum type="ea1JpnChsDbPeriod"/></a:pPr><a:r><a:t>价值总结</a:t></a:r></a:p>
+              <a:p><a:pPr><a:buAutoNum type="ea1JpnChsDbPeriod"/></a:pPr><a:r><a:t>客户案例</a:t></a:r></a:p>
+            </p:txBody>
+          </p:sp>
+          <p:grpSp>
+            <p:sp>
+              <p:spPr><a:xfrm><a:off x="100" y="100"/><a:ext cx="1000" cy="100"/></a:xfrm></p:spPr>
+              <p:txBody><a:bodyPr><a:spAutoFit/></a:bodyPr><a:lstStyle/>
+                <a:p><a:r><a:t>传统办公与运营过程中的挑战！</a:t></a:r></a:p>
+              </p:txBody>
+            </p:sp>
+            <p:sp>
+              <p:spPr><a:xfrm><a:off x="100" y="300"/><a:ext cx="1000" cy="200"/></a:xfrm></p:spPr>
+              <p:txBody><a:bodyPr/><a:lstStyle/>
+                <a:p><a:r><a:t>指标领先</a:t></a:r></a:p>
+                <a:p><a:r><a:t>员工人数</a:t></a:r></a:p>
+              </p:txBody>
+            </p:sp>
+          </p:grpSp>
         </p:spTree></p:cSld>
       </p:sld>`
   );

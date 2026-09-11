@@ -6162,6 +6162,8 @@ async function renderPptx(panel: HTMLElement, arrayBuffer: ArrayBuffer): Promise
   let autofitLineHeightCorrections: PptxAutofitLineHeightCorrection[] = [];
   let shapeFillCorrections: PptxShapeFillCorrection[] = [];
   let autoNumberingCorrections: PptxAutoNumberingCorrection[] = [];
+  let autofitWrapCorrections: PptxAutofitWrapCorrection[] = [];
+  let textAlignmentCorrections: PptxTextAlignmentCorrection[] = [];
 
   try {
     zip = await JSZip.loadAsync(arrayBuffer);
@@ -6182,14 +6184,19 @@ async function renderPptx(panel: HTMLElement, arrayBuffer: ArrayBuffer): Promise
       console.warn("PPTX autofit line-height extraction failed:", error);
     }
     try {
-      ({ shapeFillCorrections, autoNumberingCorrections } = await inspectPptxVisualCorrections(zip));
+      ({
+        shapeFillCorrections,
+        autoNumberingCorrections,
+        autofitWrapCorrections,
+        textAlignmentCorrections
+      } = await inspectPptxVisualCorrections(zip));
     } catch (error) {
       console.warn("PPTX visual correction extraction failed:", error);
     }
     try {
-      renderBuffer = (await convertPptxTiffImages(zip)) || arrayBuffer;
+      renderBuffer = (await preparePptxRenderBuffer(zip)) || arrayBuffer;
     } catch (error) {
-      console.warn("PPTX TIFF image conversion failed:", error);
+      console.warn("PPTX media normalization failed:", error);
     }
   }
 
@@ -6202,7 +6209,9 @@ async function renderPptx(panel: HTMLElement, arrayBuffer: ArrayBuffer): Promise
       placeholderFontCorrections,
       autofitLineHeightCorrections,
       shapeFillCorrections,
-      autoNumberingCorrections
+      autoNumberingCorrections,
+      autofitWrapCorrections,
+      textAlignmentCorrections
     );
   } catch (error) {
     container.replaceChildren();
@@ -6219,6 +6228,53 @@ async function renderPptx(panel: HTMLElement, arrayBuffer: ArrayBuffer): Promise
         ? "PPTX 渲染超时，请稍后重试或转换为 PDF 后预览。"
         : "PPTX 渲染失败，请检查文件是否损坏。";
   }
+}
+
+const OFFICE_RELATIONSHIPS_NAMESPACE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+
+async function preparePptxRenderBuffer(zip: JSZip): Promise<ArrayBuffer | undefined> {
+  const promotedSvgImages = await promotePptxSvgImages(zip);
+  const convertedTiffBuffer = await convertPptxTiffImages(zip);
+  if (convertedTiffBuffer) {
+    return convertedTiffBuffer;
+  }
+  return promotedSvgImages ? zip.generateAsync({ type: "arraybuffer" }) : undefined;
+}
+
+async function promotePptxSvgImages(zip: JSZip): Promise<boolean> {
+  const xmlEntries = Object.values(zip.files).filter(
+    (entry) => !entry.dir && /^ppt\/.+\.xml$/i.test(entry.name)
+  );
+  let promoted = false;
+  for (const entry of xmlEntries) {
+    const xml = await entry.async("text");
+    if (!xml.includes("svgBlip")) {
+      continue;
+    }
+    const document = parseOfficeXml(xml);
+    if (!document) {
+      continue;
+    }
+    let changed = false;
+    const blips = Array.from(document.getElementsByTagName("*")).filter((element) => element.localName === "blip");
+    for (const blip of blips) {
+      if (getXmlAttribute(blip, "embed")) {
+        continue;
+      }
+      const svgBlip = Array.from(blip.getElementsByTagName("*")).find((element) => element.localName === "svgBlip");
+      const relationshipId = svgBlip ? getXmlAttribute(svgBlip, "embed") : undefined;
+      if (!relationshipId) {
+        continue;
+      }
+      blip.setAttributeNS(OFFICE_RELATIONSHIPS_NAMESPACE, "r:embed", relationshipId);
+      changed = true;
+    }
+    if (changed) {
+      zip.file(entry.name, new XMLSerializer().serializeToString(document));
+      promoted = true;
+    }
+  }
+  return promoted;
 }
 
 async function convertPptxTiffImages(zip: JSZip): Promise<ArrayBuffer | undefined> {
@@ -6428,12 +6484,27 @@ type PptxAutoNumberingCorrection = PptxShapeGeometry & {
   }>;
 };
 
+type PptxAutofitWrapCorrection = {
+  slideIndex: number;
+  text: string;
+};
+
+type PptxTextAlignmentCorrection = {
+  slideIndex: number;
+  paragraphs: Array<{
+    alignment: string;
+    text: string;
+  }>;
+};
+
 function normalizePptxLayout(
   container: HTMLElement,
   placeholderFontCorrections: PptxPlaceholderFontCorrection[],
   autofitLineHeightCorrections: PptxAutofitLineHeightCorrection[],
   shapeFillCorrections: PptxShapeFillCorrection[],
-  autoNumberingCorrections: PptxAutoNumberingCorrection[]
+  autoNumberingCorrections: PptxAutoNumberingCorrection[],
+  autofitWrapCorrections: PptxAutofitWrapCorrection[],
+  textAlignmentCorrections: PptxTextAlignmentCorrection[]
 ): void {
   const slideCanvases = findPptxSlideCanvases(container);
   for (const slide of slideCanvases) {
@@ -6445,6 +6516,9 @@ function normalizePptxLayout(
   normalizePptxAutofitLineHeights(container, autofitLineHeightCorrections);
   normalizePptxShapeFills(container, shapeFillCorrections);
   normalizePptxAutoNumbering(container, autoNumberingCorrections);
+  normalizePptxAutofitWrapping(container, autofitWrapCorrections);
+  normalizePptxTextAlignment(container, textAlignmentCorrections);
+  normalizePptxSlideNumbers(container);
   normalizePptxCircleCalloutText(container);
   normalizePptxDiagramCycleText(container);
   normalizePptxMirroredText(container);
@@ -6455,14 +6529,18 @@ function schedulePptxLayoutNormalization(
   placeholderFontCorrections: PptxPlaceholderFontCorrection[],
   autofitLineHeightCorrections: PptxAutofitLineHeightCorrection[],
   shapeFillCorrections: PptxShapeFillCorrection[],
-  autoNumberingCorrections: PptxAutoNumberingCorrection[]
+  autoNumberingCorrections: PptxAutoNumberingCorrection[],
+  autofitWrapCorrections: PptxAutofitWrapCorrection[],
+  textAlignmentCorrections: PptxTextAlignmentCorrection[]
 ): void {
   normalizePptxLayout(
     container,
     placeholderFontCorrections,
     autofitLineHeightCorrections,
     shapeFillCorrections,
-    autoNumberingCorrections
+    autoNumberingCorrections,
+    autofitWrapCorrections,
+    textAlignmentCorrections
   );
   let observer: MutationObserver | undefined;
   if (typeof MutationObserver !== "undefined") {
@@ -6472,7 +6550,9 @@ function schedulePptxLayoutNormalization(
         placeholderFontCorrections,
         autofitLineHeightCorrections,
         shapeFillCorrections,
-        autoNumberingCorrections
+        autoNumberingCorrections,
+        autofitWrapCorrections,
+        textAlignmentCorrections
       )
     );
     observer.observe(container, { childList: true, subtree: true });
@@ -6485,7 +6565,9 @@ function schedulePptxLayoutNormalization(
           placeholderFontCorrections,
           autofitLineHeightCorrections,
           shapeFillCorrections,
-          autoNumberingCorrections
+          autoNumberingCorrections,
+          autofitWrapCorrections,
+          textAlignmentCorrections
         );
       }
     }, delay);
@@ -6550,6 +6632,80 @@ function normalizePptxAutoNumbering(container: HTMLElement, corrections: PptxAut
       firstSpan.textContent = `${item.label} `;
       firstSpan.dataset.ofvPptxAutoNumber = item.label;
       unused.delete(paragraph);
+    }
+  }
+}
+
+function normalizePptxAutofitWrapping(container: HTMLElement, corrections: PptxAutofitWrapCorrection[]): void {
+  for (const correction of corrections) {
+    const wrapper = container.querySelector<HTMLElement>(`div[data-slide-index="${correction.slideIndex}"]`);
+    if (!wrapper) {
+      continue;
+    }
+    const paragraphs = Array.from(wrapper.querySelectorAll<HTMLElement>("div")).filter((element) => {
+      const children = Array.from(element.children);
+      return (
+        children.length > 0 &&
+        children.every((child) => child.tagName === "SPAN") &&
+        normalizePptxParagraphText(element.textContent || "") === correction.text
+      );
+    });
+    for (const paragraph of paragraphs) {
+      paragraph.style.whiteSpace = "nowrap";
+      paragraph.style.overflowWrap = "normal";
+      paragraph.style.wordBreak = "normal";
+      paragraph.style.maxWidth = "none";
+      paragraph.dataset.ofvPptxAutofitWrap = "true";
+    }
+  }
+}
+
+function normalizePptxTextAlignment(container: HTMLElement, corrections: PptxTextAlignmentCorrection[]): void {
+  for (const correction of corrections) {
+    const wrapper = container.querySelector<HTMLElement>(`div[data-slide-index="${correction.slideIndex}"]`);
+    if (!wrapper) {
+      continue;
+    }
+    const shapeText = correction.paragraphs.map((paragraph) => paragraph.text).join("");
+    const shape = Array.from(wrapper.querySelectorAll<HTMLElement>("div")).find(
+      (element) =>
+        element.style.position === "absolute" &&
+        normalizePptxParagraphText(element.textContent || "") === shapeText &&
+        element.querySelector("span")
+    );
+    if (!shape) {
+      continue;
+    }
+    const paragraphElements = Array.from(shape.querySelectorAll<HTMLElement>("div")).filter((element) => {
+      const children = Array.from(element.children);
+      return children.length > 0 && children.every((child) => child.tagName === "SPAN");
+    });
+    const unused = new Set(paragraphElements);
+    for (const paragraph of correction.paragraphs) {
+      const match = Array.from(unused).find(
+        (element) => normalizePptxParagraphText(element.textContent || "") === paragraph.text
+      );
+      if (!match) {
+        continue;
+      }
+      match.style.textAlign = paragraph.alignment;
+      match.dataset.ofvPptxTextAlignment = paragraph.alignment;
+      unused.delete(match);
+    }
+  }
+}
+
+function normalizePptxSlideNumbers(container: HTMLElement): void {
+  const wrappers = Array.from(container.querySelectorAll<HTMLElement>("div[data-slide-index]"));
+  for (const [position, wrapper] of wrappers.entries()) {
+    const parsedIndex = Number(wrapper.dataset.slideIndex);
+    const slideNumber = (Number.isInteger(parsedIndex) && parsedIndex >= 0 ? parsedIndex : position) + 1;
+    const placeholders = Array.from(wrapper.querySelectorAll<HTMLElement>("div, span")).filter(
+      (element) => element.children.length === 0 && (element.textContent || "").trim() === "‹#›"
+    );
+    for (const placeholder of placeholders) {
+      placeholder.textContent = String(slideNumber);
+      placeholder.dataset.ofvPptxSlideNumber = String(slideNumber);
     }
   }
 }
@@ -6856,6 +7012,8 @@ async function inspectPptxAutofitLineHeightCorrections(
 async function inspectPptxVisualCorrections(zip: JSZip): Promise<{
   shapeFillCorrections: PptxShapeFillCorrection[];
   autoNumberingCorrections: PptxAutoNumberingCorrection[];
+  autofitWrapCorrections: PptxAutofitWrapCorrection[];
+  textAlignmentCorrections: PptxTextAlignmentCorrection[];
 }> {
   const presentationXml = await zip.file("ppt/presentation.xml")?.async("text");
   const presentation = presentationXml ? parseOfficeXml(presentationXml) : undefined;
@@ -6866,8 +7024,11 @@ async function inspectPptxVisualCorrections(zip: JSZip): Promise<{
   const slideHeight = Number(slideSize?.getAttribute("cy"));
   const shapeFillCorrections: PptxShapeFillCorrection[] = [];
   const autoNumberingCorrections: PptxAutoNumberingCorrection[] = [];
+  const autofitWrapCorrections: PptxAutofitWrapCorrection[] = [];
+  const textAlignmentCorrections: PptxTextAlignmentCorrection[] = [];
+  const defaultTextAlignments = presentation ? readPptxDefaultTextAlignments(presentation) : new Map<number, string>();
   if (!(slideWidth > 0) || !(slideHeight > 0)) {
-    return { shapeFillCorrections, autoNumberingCorrections };
+    return { shapeFillCorrections, autoNumberingCorrections, autofitWrapCorrections, textAlignmentCorrections };
   }
 
   const slideEntries = Object.values(zip.files)
@@ -6880,6 +7041,34 @@ async function inspectPptxVisualCorrections(zip: JSZip): Promise<{
     }
     const shapes = Array.from(slide.getElementsByTagName("*")).filter((element) => element.localName === "sp");
     for (const shape of shapes) {
+      const textBody = findPptxChild(shape, "txBody");
+      const bodyProperties = textBody ? findPptxChild(textBody, "bodyPr") : undefined;
+      const paragraphs = textBody
+        ? Array.from(textBody.children).filter((element) => element.localName === "p")
+        : [];
+      if (textBody && bodyProperties && findPptxChild(bodyProperties, "spAutoFit")) {
+        const text = paragraphs.length === 1 ? normalizePptxParagraphText(paragraphs[0]?.textContent || "") : "";
+        if (text && !findPptxDescendant(paragraphs[0]!, "br")) {
+          autofitWrapCorrections.push({ slideIndex, text });
+        }
+      }
+      if (textBody && shape.parentElement?.localName === "grpSp" && paragraphs.length > 1) {
+        const listStyle = findPptxChild(textBody, "lstStyle");
+        const paragraphCorrections = paragraphs.flatMap((paragraph) => {
+          const text = normalizePptxParagraphText(paragraph.textContent || "");
+          const paragraphProperties = findPptxChild(paragraph, "pPr");
+          const level = Number(paragraphProperties?.getAttribute("lvl") || 0);
+          const listLevelProperties = listStyle ? findPptxChild(listStyle, `lvl${level + 1}pPr`) : undefined;
+          if (!text || paragraphProperties?.getAttribute("algn") || listLevelProperties?.getAttribute("algn")) {
+            return [];
+          }
+          const alignment = defaultTextAlignments.get(level);
+          return alignment ? [{ alignment, text }] : [];
+        });
+        if (paragraphCorrections.length > 0) {
+          textAlignmentCorrections.push({ slideIndex, paragraphs: paragraphCorrections });
+        }
+      }
       const geometry = readPptxShapeGeometry(shape, slideIndex, slideWidth, slideHeight);
       if (!geometry) {
         continue;
@@ -6891,7 +7080,6 @@ async function inspectPptxVisualCorrections(zip: JSZip): Promise<{
         shapeFillCorrections.push({ ...geometry, color: `#${rgb.toUpperCase()}` });
       }
 
-      const textBody = findPptxChild(shape, "txBody");
       if (!textBody) {
         continue;
       }
@@ -6920,7 +7108,32 @@ async function inspectPptxVisualCorrections(zip: JSZip): Promise<{
       }
     }
   }
-  return { shapeFillCorrections, autoNumberingCorrections };
+  return { shapeFillCorrections, autoNumberingCorrections, autofitWrapCorrections, textAlignmentCorrections };
+}
+
+function readPptxDefaultTextAlignments(presentation: Document): Map<number, string> {
+  const alignments = new Map<number, string>();
+  const defaultTextStyle = Array.from(presentation.getElementsByTagName("*")).find(
+    (element) => element.localName === "defaultTextStyle"
+  );
+  if (!defaultTextStyle) {
+    return alignments;
+  }
+  const cssAlignments: Record<string, string> = {
+    ctr: "center",
+    dist: "justify",
+    just: "justify",
+    l: "left",
+    r: "right"
+  };
+  for (const child of Array.from(defaultTextStyle.children)) {
+    const match = /^lvl(\d+)pPr$/.exec(child.localName);
+    const alignment = cssAlignments[child.getAttribute("algn") || ""];
+    if (match && alignment) {
+      alignments.set(Number(match[1]) - 1, alignment);
+    }
+  }
+  return alignments;
 }
 
 function readPptxShapeGeometry(
@@ -6951,7 +7164,9 @@ function readPptxShapeGeometry(
 
 function formatPptxAutoNumber(type: string, value: number): string | undefined {
   let label: string;
-  if (type.startsWith("arabic")) {
+  if (type.startsWith("ea1JpnChsDb")) {
+    label = toEastAsianNumeral(value);
+  } else if (type.startsWith("arabic")) {
     label = String(value);
   } else if (type.startsWith("romanUc")) {
     label = toRomanNumeral(value);
@@ -6973,7 +7188,37 @@ function formatPptxAutoNumber(type: string, value: number): string | undefined {
   if (type.endsWith("Plain")) {
     return label;
   }
+  if (type.startsWith("ea1JpnChsDb")) {
+    return `${label}．`;
+  }
   return `${label}.`;
+}
+
+function toEastAsianNumeral(value: number): string {
+  if (!Number.isInteger(value) || value <= 0 || value >= 10000) {
+    return String(value);
+  }
+  const digits = ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九"];
+  const units = ["", "十", "百", "千"];
+  let result = "";
+  let pendingZero = false;
+  for (let position = 3; position >= 0; position -= 1) {
+    const divisor = 10 ** position;
+    const digit = Math.floor(value / divisor) % 10;
+    if (digit === 0) {
+      pendingZero = result.length > 0;
+      continue;
+    }
+    if (pendingZero) {
+      result += digits[0];
+      pendingZero = false;
+    }
+    if (!(digit === 1 && position === 1 && result.length === 0)) {
+      result += digits[digit];
+    }
+    result += units[position];
+  }
+  return result;
 }
 
 function toRomanNumeral(value: number): string {
