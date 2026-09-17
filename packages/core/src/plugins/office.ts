@@ -159,6 +159,7 @@ export type OfficeConversionResult =
 export interface OfficePluginOptions {
   convert?: (ctx: OfficeConversionContext) => Promise<OfficeConversionResult | null | undefined> | OfficeConversionResult | null | undefined;
   preferConversion?: boolean | ((ctx: OfficeConversionContext) => boolean | Promise<boolean>);
+  docx?: Partial<docxPreview.Options>;
   pdf?: PdfPluginOptions;
 }
 
@@ -201,13 +202,13 @@ export function officePlugin(options: OfficePluginOptions = {}): PreviewPlugin {
       } else if (wordXml) {
         renderWord2003XmlDocument(panel, wordXml);
       } else if (packageFormat === "docx" && !fileIsDocx(extension)) {
-        disposeDocxFit = await renderDocx(panel, arrayBuffer, ctx.options.fit);
+        disposeDocxFit = await renderDocx(panel, arrayBuffer, ctx.options.fit, options.docx);
       } else if (packageFormat === "xlsx" && !sheetExtensions.has(extension)) {
         await renderSheet(panel, arrayBuffer, "xlsx", ctx.options.messages);
       } else if (packageFormat === "pptx" && !["pptx", "pptm", "ppsx", "ppsm", "potx", "potm"].includes(extension)) {
         await renderPptx(panel, arrayBuffer);
       } else if (fileIsDocx(extension)) {
-        disposeDocxFit = await renderDocx(panel, arrayBuffer, ctx.options.fit);
+        disposeDocxFit = await renderDocx(panel, arrayBuffer, ctx.options.fit, options.docx);
       } else if (extension === "rtf") {
         renderPlainDocument(panel, "RTF 文档", rtfToText(await readTextFromBuffer(arrayBuffer)));
       } else if (extension === "odt") {
@@ -218,7 +219,7 @@ export function officePlugin(options: OfficePluginOptions = {}): PreviewPlugin {
         renderFlatOds(panel, await readTextFromBuffer(arrayBuffer));
       } else if (
         packagedOfficeCandidates.has(extension) &&
-        (await renderPackagedOfficePreview(panel, arrayBuffer, extension, ctx.options.fit, ctx.options.messages))
+        (await renderPackagedOfficePreview(panel, arrayBuffer, extension, ctx.options.fit, ctx.options.messages, options.docx))
       ) {
         // Rendered by package sniffing.
       } else if (sheetExtensions.has(extension)) {
@@ -587,7 +588,12 @@ function renderWordHtmlDocument(panel: HTMLElement, html: string): void {
   panel.append(section);
 }
 
-async function renderDocx(panel: HTMLElement, arrayBuffer: ArrayBuffer, fit: PreviewFit): Promise<() => void> {
+async function renderDocx(
+  panel: HTMLElement,
+  arrayBuffer: ArrayBuffer,
+  fit: PreviewFit,
+  docxOptions?: Partial<docxPreview.Options>
+): Promise<() => void> {
   panel.classList.add("ofv-office-docx");
   const content = document.createElement("div");
   content.className = "ofv-docx-document";
@@ -613,7 +619,8 @@ async function renderDocx(panel: HTMLElement, arrayBuffer: ArrayBuffer, fit: Pre
           renderComments: true,
           renderAltChunks: true,
           experimental: true,
-          useBase64URL: true
+          useBase64URL: true,
+          ...(docxOptions || {})
         });
       })(),
       docxRenderTimeoutMs(),
@@ -7977,7 +7984,8 @@ async function renderPackagedOfficePreview(
   arrayBuffer: ArrayBuffer,
   extension: string,
   fit: PreviewFit,
-  messages: PreviewMessages
+  messages: PreviewMessages,
+  docxOptions?: Partial<docxPreview.Options>
 ): Promise<boolean> {
   let zip: JSZip;
   try {
@@ -7991,7 +7999,7 @@ async function renderPackagedOfficePreview(
   const contentXml = zip.file(/(^|\/)content\.xml$/i)[0];
 
   if (hasEntry("word/document.xml")) {
-    await renderDocx(panel, arrayBuffer, fit);
+    await renderDocx(panel, arrayBuffer, fit, docxOptions);
     return true;
   }
 

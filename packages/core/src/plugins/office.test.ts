@@ -1155,6 +1155,51 @@ describe("officePlugin", () => {
     expect(container.querySelector(".ofv-docx-document")?.textContent).toContain("DOCX layout page");
   });
 
+  it("passes officePlugin docx options through to the layout DOCX renderer", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    createViewer({
+      container,
+      file: new Blob(["docx"], {
+        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      }),
+      fileName: "letter.docx",
+      plugins: [officePlugin({ docx: { renderAltChunks: false, renderComments: false } })]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-docx-document")));
+
+    expect(renderDocxAsync.mock.calls.at(-1)?.[3]).toMatchObject({
+      className: "ofv-docx",
+      breakPages: true,
+      experimental: true,
+      renderAltChunks: false,
+      renderComments: false
+    });
+  });
+
+  it("keeps the default docx renderer options when officePlugin receives none", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    createViewer({
+      container,
+      file: new Blob(["docx"], {
+        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      }),
+      fileName: "letter.docx",
+      plugins: [officePlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-docx-document")));
+
+    expect(renderDocxAsync.mock.calls.at(-1)?.[3]).toMatchObject({
+      renderAltChunks: true,
+      renderComments: true
+    });
+  });
+
   it("restores Word default page margins when a generated DOCX omits pgMar", async () => {
     const container = document.createElement("div");
     document.body.append(container);
