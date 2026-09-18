@@ -1519,6 +1519,7 @@ async function readDocxCharts(arrayBuffer: ArrayBuffer): Promise<DocxChartPrevie
       return [];
     }
     const relationships = await readOfficeRelationships(zip, "word/document.xml");
+    const themeColors = await readOfficeChartTheme(zip, "word/document.xml");
     const chartDrawings = Array.from(documentDoc.getElementsByTagName("*"))
       .filter((element) => element.localName === "inline" || element.localName === "anchor")
       .map((element) => readDocxChartDrawing(element))
@@ -1528,7 +1529,7 @@ async function readDocxCharts(arrayBuffer: ArrayBuffer): Promise<DocxChartPrevie
       const chartRel = relationships.find((rel) => rel.id === drawing.relationshipId && /\/chart$/i.test(rel.type));
       const chartPath = resolveOfficeRelationshipTarget("word/document.xml", chartRel?.target);
       const chartXml = chartPath ? await zip.file(chartPath)?.async("text") : undefined;
-      const chart = chartXml ? parseChartXml(chartXml, chartPath?.split("/").pop() || `chart${index + 1}.xml`) : null;
+      const chart = chartXml ? parseChartXml(chartXml, chartPath?.split("/").pop() || `chart${index + 1}.xml`, themeColors) : null;
       if (chart) {
         charts.push({ ...chart, widthPt: drawing.widthPt, heightPt: drawing.heightPt });
       }
@@ -4744,6 +4745,9 @@ type ChartPreview = {
   title: string;
   categories: string[];
   showLegend: boolean;
+  legendPosition?: string;
+  legendFontSize?: number;
+  palette?: string[];
   axes: ChartAxisPreview[];
   series: Array<{
     name: string;
@@ -4751,6 +4755,12 @@ type ChartPreview = {
     color?: string;
     type: string;
     valueAxisId?: string;
+    pointColors?: Array<string | undefined>;
+    labels?: string[];
+    labelPositions?: string[];
+    labelFontSizes?: number[];
+    firstSliceAngle?: number;
+    holeSize?: number;
   }>;
 };
 
@@ -4868,15 +4878,32 @@ function renderParsedSheets(panel: HTMLElement, sheets: ParsedSheet[], emptyMess
   panel.append(tabs, content);
 }
 
+async function readOfficeChartTheme(zip: JSZip, partPath: string): Promise<Record<string, string>> {
+  const relationships = await readOfficeRelationships(zip, partPath);
+  const themeRel = relationships.find((rel) => /\/theme$/i.test(rel.type));
+  const themePath = resolveOfficeRelationshipTarget(partPath, themeRel?.target);
+  const xml = themePath ? await zip.file(themePath)?.async("text") : undefined;
+  const doc = xml ? parseOfficeXml(xml) : undefined;
+  const scheme = doc && Array.from(doc.getElementsByTagName("*")).find((element) => element.localName === "clrScheme");
+  const colors: Record<string, string> = {};
+  for (const entry of Array.from(scheme?.children || [])) {
+    const color = entry.firstElementChild;
+    const value = color?.getAttribute(color.localName === "sysClr" ? "lastClr" : "val") || "";
+    if (/^[\da-f]{6}$/i.test(value)) colors[entry.localName] = `#${value}`;
+  }
+  return colors;
+}
+
 async function readWorkbookCharts(arrayBuffer: ArrayBuffer): Promise<ChartPreview[]> {
   const zip = await JSZip.loadAsync(arrayBuffer);
+  const themeColors = await readOfficeChartTheme(zip, "xl/workbook.xml");
   const chartEntries = Object.values(zip.files)
     .filter((entry) => !entry.dir && /^xl\/charts\/chart\d+\.xml$/i.test(entry.name))
     .sort((a, b) => a.name.localeCompare(b.name));
   const charts: ChartPreview[] = [];
   for (const [index, entry] of chartEntries.entries()) {
     const xml = await entry.async("text");
-    const chart = parseChartXml(xml, entry.name.split("/").pop() || `chart${index + 1}.xml`);
+    const chart = parseChartXml(xml, entry.name.split("/").pop() || `chart${index + 1}.xml`, themeColors);
     if (chart) {
       charts.push(chart);
     }
@@ -4884,7 +4911,7 @@ async function readWorkbookCharts(arrayBuffer: ArrayBuffer): Promise<ChartPrevie
   return charts;
 }
 
-function parseChartXml(xml: string, fallbackName: string): ChartPreview | null {
+function parseChartXml(xml: string, fallbackName: string, themeColors: Record<string, string> = {}): ChartPreview | null {
   const doc = new DOMParser().parseFromString(xml, "application/xml");
   if (doc.querySelector("parsererror")) {
     return null;
@@ -4910,8 +4937,16 @@ function parseChartXml(xml: string, fallbackName: string): ChartPreview | null {
         seriesIndex += 1;
         return {
           ...parsed,
-          color: readChartSeriesColor(element),
+          color: readChartSeriesColor(element, themeColors),
           type: seriesType,
+          pointColors: parsed.values.map((_, index) => {
+            const point = Array.from(element.children).find((child) => child.localName === "dPt" &&
+              Array.from(child.children).some((item) => item.localName === "idx" && Number(item.getAttribute("val")) === index));
+            return readChartSeriesColor(point, themeColors);
+          }),
+          ...readCircularChartLabels(element, chartType, parsed),
+          firstSliceAngle: Number(Array.from(chartType.children).find((child) => child.localName === "firstSliceAng")?.getAttribute("val") || 0),
+          holeSize: Number(Array.from(chartType.children).find((child) => child.localName === "holeSize")?.getAttribute("val") || 50),
           valueAxisId: axisIds[1]
         };
       });
@@ -4931,15 +4966,56 @@ function parseChartXml(xml: string, fallbackName: string): ChartPreview | null {
         element.localName === "legend" &&
         !Array.from(element.children).some((child) => child.localName === "delete" && child.getAttribute("val") === "1")
     ),
+    legendPosition: Array.from(doc.getElementsByTagName("*")).find((element) => element.localName === "legendPos")?.getAttribute("val") || "r",
+    legendFontSize: readChartFontSize(Array.from(doc.getElementsByTagName("*")).find((element) => element.localName === "legend")),
+    palette: Array.from({ length: 6 }, (_, index) => themeColors[`accent${index + 1}`] || chartSchemeColor(`accent${index + 1}`)!),
     axes: readChartValueAxes(doc),
     series: series.map((item) => ({
       name: item.name,
       values: item.values,
       color: item.color,
       type: item.type,
-      valueAxisId: item.valueAxisId
+      valueAxisId: item.valueAxisId,
+      pointColors: item.pointColors,
+      labels: item.labels,
+      labelPositions: item.labelPositions,
+      labelFontSizes: item.labelFontSizes,
+      firstSliceAngle: item.firstSliceAngle,
+      holeSize: item.holeSize
     }))
   };
+}
+
+function readChartFontSize(element: Element | undefined): number | undefined {
+  const properties = Array.from(element?.getElementsByTagName("*") || []).find((child) => ["rPr", "defRPr"].includes(child.localName) && child.hasAttribute("sz"));
+  const size = Number(properties?.getAttribute("sz"));
+  return size > 0 ? size / 100 * 4 / 3 : undefined;
+}
+
+function readCircularChartLabels(element: Element, chartType: Element, parsed: { name: string; values: number[]; categories: string[] }): { labels: string[]; labelPositions: string[]; labelFontSizes: number[] } {
+  const direct = (parent: Element | undefined, name: string) => Array.from(parent?.children || []).find((child) => child.localName === name);
+  const seriesLabels = direct(element, "dLbls");
+  const chartLabels = direct(chartType, "dLbls");
+  const total = parsed.values.reduce((sum, value) => sum + Math.abs(value), 0);
+  const positions: string[] = [];
+  const fontSizes: number[] = [];
+  const labels = parsed.values.map((value, index) => {
+    const pointLabel = Array.from(seriesLabels?.children || []).find((child) => child.localName === "dLbl" && Number(direct(child, "idx")?.getAttribute("val")) === index);
+    const setting = (name: string) => direct(pointLabel, name) || direct(seriesLabels, name) || direct(chartLabels, name);
+    const enabled = (name: string) => ["1", "true"].includes(setting(name)?.getAttribute("val") || "");
+    fontSizes.push(readChartFontSize(pointLabel) || readChartFontSize(seriesLabels) || readChartFontSize(chartLabels) || 12);
+    positions.push(setting("dLblPos")?.getAttribute("val") || "bestFit");
+    if (enabled("delete")) return "";
+    const custom = direct(pointLabel, "tx");
+    if (custom) return chartText(custom);
+    const parts: string[] = [];
+    if (enabled("showSerName")) parts.push(parsed.name);
+    if (enabled("showCatName")) parts.push(parsed.categories[index] || String(index + 1));
+    if (enabled("showVal")) parts.push(String(value));
+    if (enabled("showPercent")) parts.push(`${Number((total > 0 ? Math.abs(value) / total * 100 : 0).toFixed(1))}%`);
+    return parts.join(direct(pointLabel, "separator")?.textContent || direct(seriesLabels, "separator")?.textContent || ", ");
+  });
+  return { labels, labelPositions: positions, labelFontSizes: fontSizes };
 }
 
 function readChartTitle(doc: Document): string {
@@ -5016,7 +5092,7 @@ function readChartValueAxes(doc: Document): ChartAxisPreview[] {
     });
 }
 
-function readChartSeriesColor(element: Element | undefined): string | undefined {
+function readChartSeriesColor(element: Element | undefined, themeColors: Record<string, string> = {}): string | undefined {
   const shape = Array.from(element?.children || []).find((child) => child.localName === "spPr");
   const color = Array.from(shape?.getElementsByTagName("*") || []).find(
     (child) => child.localName === "srgbClr" || child.localName === "schemeClr"
@@ -5028,7 +5104,7 @@ function readChartSeriesColor(element: Element | undefined): string | undefined 
     const value = color.getAttribute("val") || "";
     return /^[\da-f]{6}$/i.test(value) ? `#${value}` : undefined;
   }
-  return chartSchemeColor(color.getAttribute("val") || "");
+  return themeColors[color.getAttribute("val") || ""] || chartSchemeColor(color.getAttribute("val") || "");
 }
 
 function chartSchemeColor(value: string): string | undefined {
@@ -5095,6 +5171,17 @@ function renderChartSvg(chart: ChartPreview): SVGSVGElement {
   svg.classList.add("ofv-chart-svg");
 
   const colors = ["#156082", "#e97132", "#196b24", "#0f9ed5", "#a02b93", "#4ea72e"];
+  const circularTypes = new Set(["pie", "doughnut"]);
+  if (chart.series.length === 1 && circularTypes.has(chart.series[0].type)) {
+    renderCircularChart(svg, chart, colors);
+    return svg;
+  }
+  // Never substitute a line chart for an unsupported chart family.
+  if (chart.series.some((series) => !["bar", "line"].includes(series.type))) {
+    const label = appendSvg(svg, "text", { x: 320, y: 190, "text-anchor": "middle", class: "ofv-chart-label" });
+    label.textContent = `暂不支持此图表类型（${chart.type}），请下载原文件查看`;
+    return svg;
+  }
   const hasTitle = Boolean(chart.title);
   const primarySeries = chart.series[0];
   const primaryAxisId = primarySeries?.valueAxisId;
@@ -5169,7 +5256,7 @@ function renderChartSvg(chart: ChartPreview): SVGSVGElement {
   });
 
   const barSeries = chart.series.filter((series) => series.type.includes("bar") || series.type.includes("col"));
-  const lineSeries = chart.series.filter((series) => !barSeries.includes(series));
+  const lineSeries = chart.series.filter((series) => series.type === "line");
   const categoryCount = Math.max(1, categories.length, ...chart.series.map((series) => series.values.length));
   const categoryStep = categoryCount > 1 ? plot.width / (categoryCount - 1) : plot.width;
   appendChartCategoryLabels(
@@ -5229,6 +5316,129 @@ function renderChartSvg(chart: ChartPreview): SVGSVGElement {
     appendChartLegend(svg, chart, colors, 348);
   }
   return svg;
+}
+
+function renderCircularChart(svg: SVGSVGElement, chart: ChartPreview, colors: string[]): void {
+  const series = chart.series[0];
+  const values = series.values.map((value) => Math.abs(value));
+  const total = values.reduce((sum, value) => sum + value, 0);
+  if (chart.title) {
+    const title = appendSvg(svg, "text", { x: 320, y: 34, class: "ofv-chart-title", "text-anchor": "middle" });
+    title.textContent = chart.title;
+  }
+  const legendPosition = chart.legendPosition || "r";
+  const horizontalLegend = ["t", "b"].includes(legendPosition);
+  const legendFontSize = chart.legendFontSize || 12;
+  const textWidth = (text: string, size: number) => Array.from(text).reduce((width, character) => width + (/[^\x00-\x7f]/.test(character) ? size : size * 0.52), 0);
+  const legendWidths = values.map((_, index) => textWidth(chart.categories[index] || String(index + 1), legendFontSize) + legendFontSize * 2);
+  const legendLocations: Array<{ x: number; row: number }> = [];
+  let legendX = 0, row = 0;
+  legendWidths.forEach((width) => {
+    if (legendX + width > 600 && legendX > 0) { row++; legendX = 0; }
+    legendLocations.push({ x: legendX, row });
+    legendX += width;
+  });
+  const legendRows = row + 1;
+  const rowWidths = Array.from({ length: legendRows }, (_, rowIndex) => legendWidths.reduce((sum, width, index) => sum + (legendLocations[index].row === rowIndex ? width : 0), 0));
+  const topLegendHeight = chart.showLegend && legendPosition === "t" ? legendRows * (legendFontSize + 6) : 0;
+  const cx = chart.showLegend && !horizontalLegend ? (legendPosition === "l" ? 450 : 190) : 320;
+  const plotTop = (chart.title ? 48 : 10) + topLegendHeight + 18;
+  const plotBottom = chart.showLegend && legendPosition === "b" ? 350 - legendRows * (legendFontSize + 6) : 350;
+  const cy = (plotTop + plotBottom) / 2;
+  const radius = Math.min(155, (plotBottom - plotTop) / 2 - 10);
+  const labelBoxes: Array<{ x: number; y: number; width: number; height: number }> = [];
+  const inner = series.type === "doughnut" ? radius * Math.max(0.1, Math.min(0.9, (series.holeSize ?? 50) / 100)) : 0;
+  let angle = ((series.firstSliceAngle || 0) - 90) * Math.PI / 180;
+  const point = (r: number, a: number) => `${cx + r * Math.cos(a)},${cy + r * Math.sin(a)}`;
+  values.forEach((value, index) => {
+    const sweep = total > 0 ? value / total * Math.PI * 2 : 0;
+    const end = angle + sweep;
+    const palette = chart.palette || colors;
+    const baseColor = palette[index % palette.length];
+    const cycle = Math.floor(index / palette.length);
+    const color = series.pointColors?.[index] || (cycle > 0 ? tintChartColor(baseColor, Math.min(0.8, cycle * 0.5)) : baseColor);
+    if (sweep > 0) {
+      // Two arcs also handle a single slice covering the full circle.
+      const middle = angle + sweep / 2;
+      let path = `M ${point(radius, angle)} A ${radius},${radius} 0 0 1 ${point(radius, middle)} A ${radius},${radius} 0 0 1 ${point(radius, end)}`;
+      path += inner > 0
+        ? ` L ${point(inner, end)} A ${inner},${inner} 0 0 0 ${point(inner, middle)} A ${inner},${inner} 0 0 0 ${point(inner, angle)} Z`
+        : ` L ${cx},${cy} Z`;
+      const slice = appendSvg(svg, "path", { d: path, fill: color, stroke: "#fff", "stroke-width": 1, "data-slice-index": index });
+      const title = appendSvg(slice, "title", {});
+      title.textContent = `${chart.categories[index] || index + 1}: ${series.values[index]} (${total > 0 ? Number((value / total * 100).toFixed(1)) : 0}%)`;
+    }
+    const label = series.labels?.[index];
+    if (label && sweep > 0) {
+      const position = series.labelPositions?.[index] || "bestFit";
+      const middle = angle + sweep / 2;
+      const fontSize = series.labelFontSizes?.[index] || 12;
+      const width = textWidth(label, fontSize);
+      const insideRadius = inner + (radius - inner) * (position === "ctr" ? 0.5 : 0.65);
+      let x = cx + insideRadius * Math.cos(middle);
+      let y = cy + insideRadius * Math.sin(middle);
+      const corners = [-1, 1].flatMap((dx) => [-1, 1].map((dy) => ({ x: x + dx * width / 2, y: y + dy * fontSize / 2 })));
+      const fits = corners.every((corner) => {
+        const distance = Math.hypot(corner.x - cx, corner.y - cy);
+        let cornerAngle = Math.atan2(corner.y - cy, corner.x - cx);
+        while (cornerAngle < angle) cornerAngle += Math.PI * 2;
+        return distance < radius - 3 && distance > inner && cornerAngle <= end;
+      });
+      const outside = position === "outEnd" || (position === "bestFit" && !fits);
+      if (outside) {
+        x = cx + (radius + 12) * Math.cos(middle);
+        y = cy + (radius + 12) * Math.sin(middle);
+      }
+      let anchor = outside ? (Math.cos(middle) >= 0 ? "start" : "end") : "middle";
+      x = Math.max(width / 2 + 4, Math.min(636 - width / 2, x));
+      // Keep automatically placed labels inside the SVG and apart from one another.
+      let left = anchor === "start" ? x : anchor === "end" ? x - width : x - width / 2;
+      if (left < 4 || left + width > 636) { anchor = "middle"; left = x - width / 2; }
+      if (position === "bestFit" || outside) {
+        for (let attempt = 0; attempt < values.length; attempt++) {
+          const overlap = labelBoxes.find((box) => left < box.x + box.width + 2 && left + width + 2 > box.x && Math.abs(y - box.y) < (fontSize + box.height) / 2 + 2);
+          if (!overlap) break;
+          y = overlap.y + (fontSize + overlap.height) / 2 + 3;
+        }
+      }
+      y = Math.min(370 - fontSize / 2, Math.max(plotTop, y));
+      labelBoxes.push({ x: left, y, width, height: fontSize });
+      const text = appendSvg(svg, "text", {
+        x, y, "text-anchor": anchor,
+        "dominant-baseline": "middle", class: "ofv-chart-label ofv-chart-data-label", "data-label-index": index,
+        "data-label-placement": outside ? "outside" : "inside"
+      });
+      text.style.fill = circularChartLabelColor(outside ? "#ffffff" : color);
+      text.style.fontSize = `${fontSize}px`;
+      text.textContent = label;
+    }
+    if (chart.showLegend) {
+      const location = legendLocations[index];
+      const x = horizontalLegend ? (640 - rowWidths[location.row]) / 2 + location.x : legendPosition === "l" ? 20 : 360;
+      const y = horizontalLegend ? (legendPosition === "t" ? (chart.title ? 64 : 20) : 350) + location.row * (legendFontSize + 6) : 73 + index * 28;
+      appendSvg(svg, "rect", { x, y: y - legendFontSize * 0.7, width: legendFontSize * 0.7, height: legendFontSize * 0.7, fill: color });
+      const text = appendSvg(svg, "text", { x: x + legendFontSize, y, class: "ofv-chart-label", "data-chart-legend": index });
+      text.style.fontSize = `${legendFontSize}px`;
+      text.textContent = chart.categories[index] || String(index + 1);
+    }
+    angle = end;
+  });
+  const height = Math.max(380, horizontalLegend ? (legendPosition === "b" ? 370 + legendRows * 24 : 380) : 90 + values.length * 28);
+  svg.setAttribute("viewBox", `0 0 640 ${height}`);
+}
+
+function tintChartColor(color: string, amount: number): string {
+  return "#" + (color.slice(1).match(/.{2}/g) || []).map((channel) => Math.round(parseInt(channel, 16) * (1 - amount) + 255 * amount).toString(16).padStart(2, "0")).join("");
+}
+
+function circularChartLabelColor(background: string): string {
+  const channels = background.replace("#", "").match(/.{2}/g)?.map((channel) => {
+    const value = parseInt(channel, 16) / 255;
+    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  });
+  if (!channels || channels.length !== 3) return "#000000";
+  const luminance = channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+  return luminance > 0.179 ? "#000000" : "#ffffff";
 }
 
 type ChartAxisScale = { min: number; max: number; ticks: number[]; formatCode?: string };

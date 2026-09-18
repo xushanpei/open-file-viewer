@@ -967,6 +967,103 @@ describe("officePlugin", () => {
     expect(container.querySelectorAll(".ofv-chart-svg polyline")).toHaveLength(1);
   });
 
+  it.each(["pie", "doughnut"] as const)("renders %s slices instead of a line in workbook charts", async (type) => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    createViewer({ container, file: await createWorkbookWithChart(type), fileName: "circular.xlsx", plugins: [officePlugin()] });
+    await waitFor(() => Boolean(container.querySelector(".ofv-chart-svg")));
+    expect(container.querySelectorAll("path[data-slice-index]")).toHaveLength(3);
+    expect(container.querySelector("polyline")).toBeNull();
+    expect(container.querySelector(".ofv-chart-axis")).toBeNull();
+    expect(container.querySelector('path[data-slice-index="0"] title')?.textContent).toBe("Q1: 12 (20%)");
+  });
+
+  it("keeps pie values inside slices and category legends above the chart", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const zip = await JSZip.loadAsync(await createWorkbookWithChart("pie"));
+    const xml = (await zip.file("xl/charts/chart1.xml")!.async("text"))
+      .replace("</c:ser>", '</c:ser><c:dLbls><c:dLblPos val="inEnd"/><c:showVal val="1"/><c:showPercent val="0"/></c:dLbls>')
+      .replace("</c:chart>", '<c:legend><c:legendPos val="t"/></c:legend></c:chart>');
+    zip.file("xl/charts/chart1.xml", xml);
+    createViewer({ container, file: await zip.generateAsync({ type: "blob" }), fileName: "labels.xlsx", plugins: [officePlugin()] });
+    await waitFor(() => Boolean(container.querySelector(".ofv-chart-svg")));
+    const labels = Array.from(container.querySelectorAll(".ofv-chart-data-label"));
+    expect(labels.map((label) => label.textContent)).toEqual(["12", "18", "30"]);
+    for (const label of labels) {
+      const x = Number(label.getAttribute("x")), y = Number(label.getAttribute("y"));
+      expect(Math.hypot(x - 320, y - 212)).toBeLessThan(118);
+    }
+    const legends = Array.from(container.querySelectorAll("text.ofv-chart-label:not(.ofv-chart-data-label)"));
+    expect(legends.map((label) => label.textContent)).toEqual(["Q1", "Q2", "Q3"]);
+    expect(legends.every((label) => Number(label.getAttribute("y")) === 64)).toBe(true);
+    expect(container.querySelector(".ofv-chart-svg")?.textContent).not.toContain("Q1: 20%");
+  });
+
+  it("uses document theme colors and readable labels on dark and light pie slices", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const zip = await JSZip.loadAsync(await createWorkbookWithChart("pie"));
+    zip.file("xl/_rels/workbook.xml.rels", '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="theme" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="theme/theme1.xml"/></Relationships>');
+    zip.file("xl/theme/theme1.xml", '<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:themeElements><a:clrScheme name="test"><a:accent1><a:srgbClr val="102030"/></a:accent1><a:accent2><a:srgbClr val="FFFF00"/></a:accent2></a:clrScheme></a:themeElements></a:theme>');
+    const xml = (await zip.file("xl/charts/chart1.xml")!.async("text"))
+      .replace("<c:ser>", '<c:ser><c:dPt><c:idx val="0"/><c:spPr><a:solidFill><a:schemeClr val="accent1"/></a:solidFill></c:spPr></c:dPt><c:dPt><c:idx val="1"/><c:spPr><a:solidFill><a:schemeClr val="accent2"/></a:solidFill></c:spPr></c:dPt>')
+      .replace("</c:ser>", '</c:ser><c:dLbls><c:dLblPos val="inEnd"/><c:showVal val="1"/></c:dLbls>');
+    zip.file("xl/charts/chart1.xml", xml);
+    createViewer({ container, file: await zip.generateAsync({ type: "blob" }), fileName: "theme.xlsx", plugins: [officePlugin()] });
+    await waitFor(() => Boolean(container.querySelector(".ofv-chart-svg")));
+    expect(container.querySelector('[data-slice-index="0"]')?.getAttribute("fill")).toBe("#102030");
+    expect(container.querySelector('[data-slice-index="1"]')?.getAttribute("fill")).toBe("#FFFF00");
+    expect(container.querySelector<SVGElement>('[data-label-index="0"]')?.style.fill).toBe("rgb(255, 255, 255)");
+    expect(container.querySelector<SVGElement>('[data-label-index="1"]')?.style.fill).toBe("rgb(0, 0, 0)");
+    expect(container.querySelector<SVGElement>('[data-label-index="0"]')?.style.fontSize).toBe("12px");
+  });
+
+  it("honors small source fonts, wraps legends by width, and moves best-fit labels outside narrow slices", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const zip = await JSZip.loadAsync(await createWorkbookWithChart("pie"));
+    const xml = (await zip.file("xl/charts/chart1.xml")!.async("text"))
+      .replace("</c:ser>", '<c:dLbls><c:dLbl><c:idx val="0"/><c:tx><c:rich><a:p><a:r><a:rPr sz="600"/><a:t>非常长的分类名称以及完整的数值和百分比标签 12 20%</a:t></a:r></a:p></c:rich></c:tx><c:dLblPos val="bestFit"/></c:dLbl></c:dLbls></c:ser>')
+      .replace("</c:chart>", '<c:legend><c:legendPos val="t"/><c:txPr><a:p><a:pPr><a:defRPr sz="600"/></a:pPr></a:p></c:txPr></c:legend></c:chart>');
+    zip.file("xl/charts/chart1.xml", xml);
+    createViewer({ container, file: await zip.generateAsync({ type: "blob" }), fileName: "small-font.xlsx", plugins: [officePlugin()] });
+    await waitFor(() => Boolean(container.querySelector(".ofv-chart-data-label")));
+    const label = container.querySelector<SVGElement>(".ofv-chart-data-label")!;
+    expect(label.style.fontSize).toBe("8px");
+    expect(label.getAttribute("data-label-placement")).toBe("outside");
+    expect(Array.from(container.querySelectorAll<SVGElement>("[data-chart-legend]")).every((legend) => legend.style.fontSize === "8px")).toBe(true);
+  });
+
+  it("shows an explicit fallback for unsupported chart types", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    createViewer({ container, file: await createWorkbookWithChart("radar"), fileName: "radar.xlsx", plugins: [officePlugin()] });
+    await waitFor(() => Boolean(container.querySelector(".ofv-chart-svg")));
+    expect(container.querySelector(".ofv-chart-svg")?.textContent).toContain("暂不支持此图表类型（radar）");
+    expect(container.querySelector("polyline")).toBeNull();
+  });
+
+  it("renders DOCX pie charts with point colors and custom labels", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    renderDocxAsync.mockImplementationOnce(async (_data: unknown, bodyContainer: HTMLElement) => {
+      bodyContainer.innerHTML = '<div class="ofv-docx-wrapper"><section class="ofv-docx"><p><span><div style="display:inline-block;position:relative;width:320pt;height:180pt"></div></span></p></section></div>';
+    });
+    const zip = await JSZip.loadAsync(await createDocxWithChart());
+    const xml = (await zip.file("word/charts/chart1.xml")!.async("text"))
+      .replaceAll("barChart", "pieChart")
+      .replace("<c:ser>", '<c:firstSliceAng val="90"/><c:ser><c:dPt><c:idx val="0"/><c:spPr><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill></c:spPr></c:dPt><c:dLbls><c:dLbl><c:idx val="0"/><c:tx><c:rich><a:p><a:r><a:t>第一季度 20%</a:t></a:r></a:p></c:rich></c:tx></c:dLbl></c:dLbls>');
+    zip.file("word/charts/chart1.xml", xml);
+    createViewer({ container, file: await zip.generateAsync({ type: "blob" }), fileName: "pie.docx", plugins: [officePlugin()] });
+    await waitFor(() => Boolean(container.querySelector(".ofv-docx-chart-preview path")));
+    expect(container.querySelectorAll("path[data-slice-index]")).toHaveLength(3);
+    expect(container.querySelector('path[data-slice-index="0"]')?.getAttribute("fill")).toBe("#FF0000");
+    expect(container.querySelector('path[data-slice-index="0"]')?.getAttribute("d")).toMatch(/^M 452,208 /);
+    expect(container.querySelector(".ofv-chart-svg")?.textContent).toContain("第一季度 20%");
+    expect(container.querySelector("polyline")).toBeNull();
+  });
+
   it("renders DOCX embedded chart placeholders from OOXML chart parts", async () => {
     const container = document.createElement("div");
     document.body.append(container);
@@ -4703,7 +4800,7 @@ async function createVariableMdwColumnWorkbook(): Promise<Blob> {
   });
 }
 
-async function createWorkbookWithChart(type: "bar" | "line" = "bar"): Promise<Blob> {
+async function createWorkbookWithChart(type: "bar" | "line" | "pie" | "doughnut" | "radar" = "bar"): Promise<Blob> {
   const zip = new JSZip();
   zip.file(
     "[Content_Types].xml",
