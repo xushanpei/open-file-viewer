@@ -371,6 +371,27 @@ Legacy `ppt` / `pps` files use a local OLE and PowerPoint Binary File Format pre
 
 Plugin order matters because the first matching plugin renders the file. For example, `csv` and `tsv` can match both `textPlugin()` and `officePlugin()`; place `officePlugin()` earlier if you want spreadsheet-style table preview.
 
+### DOCX Renderer Options
+
+`officePlugin()` accepts a `docx` object for overriding supported
+[`docx-preview`](https://github.com/VolodymyrBaydalka/docxjs) renderer options.
+Options that are not provided keep the viewer defaults:
+
+```ts
+officePlugin({
+  docx: {
+    renderAltChunks: false,
+    renderComments: false,
+    ignoreLastRenderedPageBreak: true
+  }
+});
+```
+
+The structural options `className`, `inWrapper`, and `breakPages` are reserved by
+Open File Viewer because its pagination, floating-object, chart, and fit passes
+depend on those DOM hooks. They are excluded from `OfficeDocxRenderOptions` and
+ignored at runtime when passed by untyped JavaScript callers.
+
 ### DWG / DWF Preview Model
 
 DWG is AutoCAD's proprietary binary format. `cadPlugin()` can use a high-fidelity WebGL scene, the lightweight built-in SVG path, or an application-provided renderer.

@@ -427,6 +427,23 @@ const plugins = [
 
 旧版 `ppt` / `pps` 默认走本地 OLE 与 PowerPoint 二进制格式解析，可还原幻灯片尺寸、定位文本、母版位图、JPEG/PNG/TIFF 图片以及常见的压缩 EMF/WMF 图形，文件不会被自动上传。不支持的绘图记录会安全降级；如果业务要求与 Office 像素级一致，仍建议配置 `officePlugin({ convert })`。
 
+### DOCX 渲染选项
+
+`officePlugin()` 支持通过 `docx` 对象覆盖可安全透传的
+[`docx-preview`](https://github.com/VolodymyrBaydalka/docxjs) 渲染选项；未传入的字段继续使用 Open File Viewer 默认值：
+
+```ts
+officePlugin({
+  docx: {
+    renderAltChunks: false,
+    renderComments: false,
+    ignoreLastRenderedPageBreak: true
+  }
+});
+```
+
+`className`、`inWrapper` 和 `breakPages` 属于 Open File Viewer 保留的结构选项，分页、浮动对象、图表和自适应布局依赖这些 DOM 钩子。它们不会出现在 `OfficeDocxRenderOptions` 类型中；即使无类型的 JavaScript 调用方传入，也会在运行时忽略。
+
 ### 高保真 Office 转 PDF
 
 浏览器端 DOCX/PPTX/XLSX 解析无法完全复刻 Word/WPS 的排版引擎。带有文本框、绝对定位、复杂字体、页眉页脚或旧版二进制格式的 Office 文件，建议在业务服务端用 LibreOffice、OnlyOffice 或 Microsoft Graph 转成 PDF，再交给内置 PDF 预览渲染。
