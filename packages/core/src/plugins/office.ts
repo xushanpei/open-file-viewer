@@ -639,6 +639,7 @@ async function renderDocx(panel: HTMLElement, arrayBuffer: ArrayBuffer, fit: Pre
       console.warn("DOCX layout preview missed readable textbox content, fell back to text extraction.");
       return () => undefined;
     }
+    sanitizeDocxPreviewActiveContent(content);
     panel.append(content);
     paginateDocxFlow(content);
     repairDocxFirstPageClosingDate(content);
@@ -658,6 +659,50 @@ async function renderDocx(panel: HTMLElement, arrayBuffer: ArrayBuffer, fit: Pre
     console.warn("DOCX layout preview failed, fell back to Mammoth:", error);
   }
   return () => undefined;
+}
+
+function sanitizeDocxPreviewActiveContent(content: HTMLElement): void {
+  // docx-preview copies external OOXML relationship targets directly into
+  // anchor href attributes. Sanitize only that active surface so the SVG and
+  // foreignObject nodes used by the high-fidelity renderer remain intact.
+  for (const anchor of content.querySelectorAll<HTMLAnchorElement>("a[href]")) {
+    const href = anchor.getAttribute("href");
+    if (href === null) {
+      continue;
+    }
+    const probe = document.createElement("a");
+    probe.setAttribute("href", href);
+    DOMPurify.sanitize(probe, {
+      IN_PLACE: true,
+      USE_PROFILES: { html: true },
+      ADD_ATTR: ["target"]
+    });
+    if (!probe.hasAttribute("href")) {
+      anchor.removeAttribute("href");
+    }
+  }
+
+  // altChunk HTML is rendered by docx-preview in srcdoc iframes. Clean the
+  // embedded document and sandbox it before the subtree reaches the live DOM,
+  // otherwise scripts in the Office package inherit the host origin.
+  for (const frame of content.querySelectorAll<HTMLIFrameElement>("iframe")) {
+    const srcdoc = frame.getAttribute("srcdoc");
+    if (srcdoc === null) {
+      frame.remove();
+      continue;
+    }
+    frame.setAttribute(
+      "srcdoc",
+      DOMPurify.sanitize(srcdoc, {
+        USE_PROFILES: { html: true },
+        ADD_ATTR: ["target"]
+      })
+    );
+    frame.setAttribute("sandbox", "");
+    frame.setAttribute("referrerpolicy", "no-referrer");
+    frame.removeAttribute("src");
+    frame.removeAttribute("allow");
+  }
 }
 
 function docxRenderTimeoutMs(): number {

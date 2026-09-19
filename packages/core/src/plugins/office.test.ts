@@ -1155,6 +1155,76 @@ describe("officePlugin", () => {
     expect(container.querySelector(".ofv-docx-document")?.textContent).toContain("DOCX layout page");
   });
 
+  it("sanitizes active DOCX content without rewriting the rendered layout", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    renderDocxAsync.mockImplementationOnce(async (_data: unknown, bodyContainer: HTMLElement) => {
+      const wrapper = document.createElement("div");
+      wrapper.className = "ofv-docx-wrapper";
+      const page = document.createElement("section");
+      page.className = "ofv-docx";
+      page.textContent = "DOCX hyperlink sanitization regression fixture";
+      const appendLink = (text: string, href: string) => {
+        const link = document.createElement("a");
+        link.textContent = text;
+        link.setAttribute("href", href);
+        page.append(link);
+      };
+      appendLink("LINK-JAVASCRIPT", "javascript:window.__OFV_PROBE_JS=1");
+      appendLink("LINK-DATA", "data:text/html,<script>window.__OFV_PROBE_DATA=1</script>");
+      appendLink("LINK-HTTPS-CONTROL", "https://example.com/control");
+      appendLink("LINK-MAILTO", "mailto:viewer@example.com");
+      appendLink("LINK-BOOKMARK", "#bookmark");
+      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      const foreignObject = document.createElementNS("http://www.w3.org/2000/svg", "foreignObject");
+      foreignObject.textContent = "Floating textbox";
+      svg.append(foreignObject);
+      page.append(svg);
+      const altChunk = document.createElement("iframe");
+      altChunk.setAttribute(
+        "srcdoc",
+        '<html><body><p>ALTCHUNK-CONTENT</p><script>window.top.__OFV_ALTCHUNK_SCRIPT=1;</script></body></html>'
+      );
+      altChunk.setAttribute("src", "https://example.com/should-not-load");
+      altChunk.setAttribute("allow", "camera");
+      page.append(altChunk);
+      const externalFrame = document.createElement("iframe");
+      externalFrame.setAttribute("src", "https://example.com/untrusted-frame");
+      page.append(externalFrame);
+      wrapper.append(page);
+      bodyContainer.append(wrapper);
+    });
+
+    createViewer({
+      container,
+      file: new Blob(["docx"], {
+        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      }),
+      fileName: "hyperlink-scheme.docx",
+      plugins: [officePlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-docx-document")));
+
+    const links = new Map(
+      Array.from(container.querySelectorAll<HTMLAnchorElement>(".ofv-docx-document a")).map((link) => [link.textContent, link])
+    );
+    expect(links.get("LINK-JAVASCRIPT")?.hasAttribute("href")).toBe(false);
+    expect(links.get("LINK-DATA")?.hasAttribute("href")).toBe(false);
+    expect(links.get("LINK-HTTPS-CONTROL")?.getAttribute("href")).toBe("https://example.com/control");
+    expect(links.get("LINK-MAILTO")?.getAttribute("href")).toBe("mailto:viewer@example.com");
+    expect(links.get("LINK-BOOKMARK")?.getAttribute("href")).toBe("#bookmark");
+    expect(container.querySelector(".ofv-docx-document svg foreignObject")?.textContent).toBe("Floating textbox");
+    const altChunk = container.querySelector<HTMLIFrameElement>(".ofv-docx-document iframe");
+    expect(altChunk?.getAttribute("srcdoc")).toContain("ALTCHUNK-CONTENT");
+    expect(altChunk?.getAttribute("srcdoc")).not.toContain("script");
+    expect(altChunk?.getAttribute("sandbox")).toBe("");
+    expect(altChunk?.getAttribute("referrerpolicy")).toBe("no-referrer");
+    expect(altChunk?.hasAttribute("src")).toBe(false);
+    expect(altChunk?.hasAttribute("allow")).toBe(false);
+    expect(container.querySelectorAll(".ofv-docx-document iframe")).toHaveLength(1);
+  });
+
   it("restores Word default page margins when a generated DOCX omits pgMar", async () => {
     const container = document.createElement("div");
     document.body.append(container);
