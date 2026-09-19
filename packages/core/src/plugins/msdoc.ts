@@ -1630,15 +1630,15 @@ function paginateCjkNoticeBlocks(blocks: LegacyWordBlock[]): LegacyWordBlock[][]
   const pages: LegacyWordBlock[][] = [];
   let current: LegacyWordBlock[] = [];
   let usedUnits = 0;
-  const flush = (force = false) => {
-    if (force || current.length > 0) pages.push(current);
+  const flush = () => {
+    if (current.length > 0) pages.push(current);
     current = [];
     usedUnits = 0;
   };
 
   for (const block of blocks) {
     if (block.type === "pageBreak") {
-      flush(true);
+      flush();
       continue;
     }
 
@@ -1652,7 +1652,7 @@ function paginateCjkNoticeBlocks(blocks: LegacyWordBlock[]): LegacyWordBlock[][]
         continue;
       }
 
-      const rowUnits = block.rows[0]?.length === 7 ? 1.65 : 1.35;
+      const rowUnits = block.rows[0]?.length === 7 ? 1.55 : 1.35;
       let offset = 0;
       while (offset < block.rows.length) {
         let availableRows = Math.floor((maxUnits - usedUnits + 0.001) / rowUnits);

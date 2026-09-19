@@ -1662,7 +1662,7 @@ describe("officePlugin", () => {
     expect(container.querySelector<HTMLParagraphElement>("td > p")?.style.marginTop).toBe("0px");
   });
 
-  it("removes vertical-merge placeholder paragraphs and restores diagonal DOCX cell borders", async () => {
+  it("repairs vertical-merge placeholders, terminal borders, and diagonal DOCX cell borders", async () => {
     renderDocxAsync.mockImplementationOnce(async (_data: unknown, bodyContainer: HTMLElement) => {
       const wrapper = document.createElement("div");
       wrapper.className = "ofv-docx-wrapper";
@@ -1677,8 +1677,17 @@ describe("officePlugin", () => {
       label.textContent = "部门";
       mergedCell.append(label, document.createElement("p"), document.createElement("p"));
       firstRow.insertCell().textContent = "第一行";
-      table.insertRow().insertCell().textContent = "第二行";
-      table.insertRow().insertCell().textContent = "第三行";
+      const secondRow = table.insertRow();
+      const secondContinuation = secondRow.insertCell();
+      secondContinuation.style.display = "none";
+      secondRow.insertCell().textContent = "第二行";
+      const thirdRow = table.insertRow();
+      const finalContinuation = thirdRow.insertCell();
+      finalContinuation.style.display = "none";
+      finalContinuation.style.borderBottomWidth = "1pt";
+      finalContinuation.style.borderBottomStyle = "solid";
+      finalContinuation.style.borderBottomColor = "#123456";
+      thirdRow.insertCell().textContent = "第三行";
       article.append(table);
       page.append(article);
       wrapper.append(page);
@@ -1693,7 +1702,7 @@ describe("officePlugin", () => {
           <w:tc><w:p><w:r><w:t>第一行</w:t></w:r></w:p></w:tc>
         </w:tr>
         <w:tr><w:tc><w:tcPr><w:vMerge/></w:tcPr><w:p/></w:tc><w:tc><w:p><w:r><w:t>第二行</w:t></w:r></w:p></w:tc></w:tr>
-        <w:tr><w:tc><w:tcPr><w:vMerge/></w:tcPr><w:p/></w:tc><w:tc><w:p><w:r><w:t>第三行</w:t></w:r></w:p></w:tc></w:tr>
+        <w:tr><w:tc><w:tcPr><w:vMerge/><w:tcBorders><w:bottom w:val="single" w:sz="8" w:color="123456"/></w:tcBorders></w:tcPr><w:p/></w:tc><w:tc><w:p><w:r><w:t>第三行</w:t></w:r></w:p></w:tc></w:tr>
       </w:tbl></w:body></w:document>`
     );
     const container = document.createElement("div");
@@ -1715,6 +1724,10 @@ describe("officePlugin", () => {
     expect(mergedCell?.dataset.ofvDocxDiagonalTl2br).toBe("true");
     expect(mergedCell?.style.getPropertyValue("--ofv-docx-diagonal-color")).toBe("#FF0000");
     expect(mergedCell?.style.getPropertyValue("--ofv-docx-diagonal-half-width")).toBe("0.5pt");
+    expect(mergedCell?.dataset.ofvDocxMergedBottomBorderRepaired).toBe("true");
+    expect(mergedCell?.style.borderBottomWidth).toBe("1pt");
+    expect(mergedCell?.style.borderBottomStyle).toBe("solid");
+    expect(mergedCell?.style.borderBottomColor).toBe("rgb(18, 52, 86)");
   });
 
   it("aligns right-tab DOCX text to the OOXML tab position", async () => {
@@ -3604,7 +3617,7 @@ describe("officePlugin", () => {
     expect(rows[7].cells[0].textContent).toContain("请查阅相关资料");
   });
 
-  it("preserves blank pages and splits long tables in Chinese notice documents", () => {
+  it("collapses duplicate page breaks and keeps compact seven-column notice tables together", () => {
     const container = document.createElement("div");
     document.body.append(container);
     const table3: LegacyWordDocument["blocks"][number] = {
@@ -3677,17 +3690,16 @@ describe("officePlugin", () => {
 
     const pages = Array.from(container.querySelectorAll<HTMLElement>(".ofv-msdoc-page"));
     expect(container.querySelector(".ofv-msdoc-notice-document")).not.toBeNull();
-    expect(pages).toHaveLength(7);
+    expect(pages).toHaveLength(5);
     expect(pages[0].querySelector(".ofv-msdoc-title")?.textContent).toBe("关于移动端应用问题");
     expect(pages[0].querySelector(".ofv-msdoc-subtitle")?.textContent).toBe("整改的通知");
     expect(pages[1].textContent).toContain("3.接口改造应用清单");
-    expect(pages[2].textContent?.trim()).toBe("");
-    expect(pages[3].querySelectorAll(".ofv-msdoc-notice-table tr")).toHaveLength(20);
-    expect(pages[4].querySelectorAll(".ofv-msdoc-notice-table tr")).toHaveLength(2);
-    expect(pages[5].querySelectorAll(".ofv-msdoc-notice-table tr")).toHaveLength(16);
-    expect(pages[6].querySelectorAll(".ofv-msdoc-notice-table tr")).toHaveLength(1);
-    expect(pages[4].querySelector(".ofv-msdoc-notice-table th")).toBeNull();
-    expect(Array.from(pages[3].querySelectorAll<HTMLTableColElement>("col")).map((column) => column.style.width)).toEqual([
+    expect(pages.every((page) => page.textContent?.trim() !== "")).toBe(true);
+    expect(pages[2].querySelectorAll(".ofv-msdoc-notice-table tr")).toHaveLength(20);
+    expect(pages[3].querySelectorAll(".ofv-msdoc-notice-table tr")).toHaveLength(2);
+    expect(pages[4].querySelectorAll(".ofv-msdoc-notice-table tr")).toHaveLength(17);
+    expect(pages[3].querySelector(".ofv-msdoc-notice-table th")).toBeNull();
+    expect(Array.from(pages[2].querySelectorAll<HTMLTableColElement>("col")).map((column) => column.style.width)).toEqual([
       "6%",
       "23%",
       "18%",

@@ -1438,6 +1438,7 @@ async function normalizeDocxLayout(container: HTMLElement, arrayBuffer: ArrayBuf
   repairDocxComplexScriptFontSizes(container, hints.complexScriptFontSizeParagraphs);
   repairDocxCharacterSpacing(container, hints.characterSpacingParagraphs);
   repairDocxAutoLineHeights(container, hints.autoLineHeightParagraphs);
+  repairDocxVerticalMergeBottomBorders(container, hints.verticalMergeEndCells);
   repairDocxMergedCellEmptyParagraphs(container, hints.mergedCellEmptyParagraphs);
   markDocxSectionBreakParagraphs(container, hints.sectionBreakParagraphIndexes);
   repairDocxCharacterScaling(container, hints.characterScaleParagraphs);
@@ -1767,6 +1768,13 @@ type DocxLayoutHints = {
     columnIndex: number;
     count: number;
   }>;
+  verticalMergeEndCells: Array<{
+    tableIndex: number;
+    startRowIndex: number;
+    endRowIndex: number;
+    columnIndex: number;
+    endCellIndex: number;
+  }>;
   sectionBreakParagraphIndexes: number[];
   needsDefaultPageMargins: boolean;
   hasVerticalTextDirection: boolean;
@@ -1802,6 +1810,7 @@ async function readDocxLayoutHints(arrayBuffer: ArrayBuffer): Promise<DocxLayout
       autoLineHeightParagraphs: documentXml ? extractDocxAutoLineHeightHints(documentXml) : [],
       diagonalCellBorders: documentXml ? extractDocxDiagonalCellBorders(documentXml) : [],
       mergedCellEmptyParagraphs: documentXml ? extractDocxMergedCellEmptyParagraphs(documentXml) : [],
+      verticalMergeEndCells: documentXml ? extractDocxVerticalMergeEndCells(documentXml) : [],
       sectionBreakParagraphIndexes: documentXml ? extractDocxSectionBreakParagraphIndexes(documentXml) : [],
       needsDefaultPageMargins: Boolean(documentXml && /<w:sectPr\b/.test(documentXml) && !/<w:pgMar\b/.test(documentXml)),
       hasVerticalTextDirection: Boolean(documentXml && /<w:textDirection\b/.test(documentXml))
@@ -1819,6 +1828,7 @@ async function readDocxLayoutHints(arrayBuffer: ArrayBuffer): Promise<DocxLayout
       autoLineHeightParagraphs: [],
       diagonalCellBorders: [],
       mergedCellEmptyParagraphs: [],
+      verticalMergeEndCells: [],
       sectionBreakParagraphIndexes: [],
       needsDefaultPageMargins: false,
       hasVerticalTextDirection: false
@@ -2356,6 +2366,76 @@ function extractDocxMergedCellEmptyParagraphs(xml: string): DocxLayoutHints["mer
   return hints;
 }
 
+function extractDocxVerticalMergeEndCells(xml: string): DocxLayoutHints["verticalMergeEndCells"] {
+  const document = parseOfficeXml(xml);
+  if (!document) {
+    return [];
+  }
+  const hints: DocxLayoutHints["verticalMergeEndCells"] = [];
+  const tables = Array.from(document.getElementsByTagName("*")).filter((element) => element.localName === "tbl");
+  tables.forEach((table, tableIndex) => {
+    const active = new Map<number, {
+      startRowIndex: number;
+      endRowIndex: number;
+      columnIndex: number;
+      endCellIndex: number;
+    }>();
+    const finish = (columnIndex: number): void => {
+      const merge = active.get(columnIndex);
+      if (merge && merge.endRowIndex > merge.startRowIndex) {
+        hints.push({ tableIndex, ...merge });
+      }
+      active.delete(columnIndex);
+    };
+    const rows = Array.from(table.children).filter((element) => element.localName === "tr");
+    rows.forEach((row, rowIndex) => {
+      const rowProperties = firstDirectOfficeChild(row, "trPr");
+      const gridBefore = rowProperties ? firstDirectOfficeChild(rowProperties, "gridBefore") : undefined;
+      const parsedGridBefore = Number(gridBefore ? getXmlAttribute(gridBefore, "val") : 0);
+      let columnIndex = Number.isFinite(parsedGridBefore) && parsedGridBefore > 0 ? parsedGridBefore : 0;
+      const mergedColumns = new Set<number>();
+      const cells = Array.from(row.children).filter((element) => element.localName === "tc");
+      cells.forEach((cell, cellIndex) => {
+        const properties = firstDirectOfficeChild(cell, "tcPr");
+        const verticalMerge = properties ? firstDirectOfficeChild(properties, "vMerge") : undefined;
+        if (verticalMerge) {
+          mergedColumns.add(columnIndex);
+          const value = (getXmlAttribute(verticalMerge, "val") || "continue").toLowerCase();
+          if (value === "restart") {
+            finish(columnIndex);
+            active.set(columnIndex, {
+              startRowIndex: rowIndex,
+              endRowIndex: rowIndex,
+              columnIndex,
+              endCellIndex: cellIndex
+            });
+          } else {
+            const merge = active.get(columnIndex);
+            if (merge) {
+              merge.endRowIndex = rowIndex;
+              merge.endCellIndex = cellIndex;
+            }
+          }
+        } else {
+          finish(columnIndex);
+        }
+        const gridSpan = properties ? firstDirectOfficeChild(properties, "gridSpan") : undefined;
+        const parsedGridSpan = Number(gridSpan ? getXmlAttribute(gridSpan, "val") : 1);
+        columnIndex += Number.isFinite(parsedGridSpan) && parsedGridSpan > 0 ? parsedGridSpan : 1;
+      });
+      for (const activeColumn of Array.from(active.keys())) {
+        if (!mergedColumns.has(activeColumn)) {
+          finish(activeColumn);
+        }
+      }
+    });
+    for (const activeColumn of Array.from(active.keys())) {
+      finish(activeColumn);
+    }
+  });
+  return hints;
+}
+
 function findRenderedDocxTableCell(
   table: HTMLTableElement,
   rowIndex: number,
@@ -2420,6 +2500,44 @@ function repairDocxMergedCellEmptyParagraphs(
       cell.dataset.ofvDocxMergedEmptyParagraphsRemoved = String(removable.length);
     }
   }
+}
+
+function repairDocxVerticalMergeBottomBorders(
+  container: HTMLElement,
+  hints: DocxLayoutHints["verticalMergeEndCells"]
+): void {
+  const tables = Array.from(container.querySelectorAll<HTMLTableElement>("section.ofv-docx article table"));
+  for (const hint of hints) {
+    const table = tables[hint.tableIndex];
+    const mergedCell = table
+      ? findRenderedDocxTableCell(table, hint.startRowIndex, hint.columnIndex)
+      : undefined;
+    const endCell = table?.rows.item(hint.endRowIndex)?.cells.item(hint.endCellIndex);
+    if (!mergedCell || mergedCell.rowSpan <= 1 || !endCell || endCell === mergedCell) {
+      continue;
+    }
+    const border = readVisibleDocxCellBottomBorder(endCell);
+    if (!border) {
+      continue;
+    }
+    mergedCell.style.borderBottomWidth = border.width;
+    mergedCell.style.borderBottomStyle = border.style;
+    mergedCell.style.borderBottomColor = border.color;
+    mergedCell.dataset.ofvDocxMergedBottomBorderRepaired = "true";
+  }
+}
+
+function readVisibleDocxCellBottomBorder(
+  cell: HTMLTableCellElement
+): { width: string; style: string; color: string } | undefined {
+  const computed = cell.ownerDocument.defaultView?.getComputedStyle(cell);
+  const width = cell.style.borderBottomWidth || computed?.borderBottomWidth || "";
+  const style = cell.style.borderBottomStyle || computed?.borderBottomStyle || "";
+  const color = cell.style.borderBottomColor || computed?.borderBottomColor || "";
+  if (!width || /^(?:0(?:\.0+)?(?:px|pt)?|none)$/i.test(width.trim()) || /^(?:none|hidden)$/i.test(style.trim())) {
+    return undefined;
+  }
+  return { width, style, color };
 }
 
 function extractDocxSectionBreakParagraphIndexes(xml: string): number[] {

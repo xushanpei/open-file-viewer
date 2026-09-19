@@ -1606,7 +1606,7 @@
 }
 
 .ofv-msdoc-notice-document .ofv-msdoc-page .ofv-msdoc-notice-attachment-item {
-  margin-left: 4em;
+  margin-left: 3em;
   text-indent: 0;
 }
 
@@ -1670,8 +1670,8 @@
 
 .ofv-msdoc-notice-document .ofv-msdoc-notice-table-7 th,
 .ofv-msdoc-notice-document .ofv-msdoc-notice-table-7 td {
-  padding-top: calc(3px * var(--ofv-office-zoom, 1));
-  padding-bottom: calc(3px * var(--ofv-office-zoom, 1));
+  padding-top: calc(2px * var(--ofv-office-zoom, 1));
+  padding-bottom: calc(2px * var(--ofv-office-zoom, 1));
 }
 
 .ofv-msdoc-form-table th,

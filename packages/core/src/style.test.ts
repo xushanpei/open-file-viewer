@@ -104,6 +104,14 @@ describe("core responsive styles", () => {
     ).toContain("max-width: 100%");
     expect(rule(".ofv-docx-document section.ofv-docx svg")).toContain("stroke: none");
     expect(rule(".ofv-docx-document section.ofv-docx svg")).toContain("stroke-width: initial");
+    expect(rule(".ofv-msdoc-notice-document .ofv-msdoc-page .ofv-msdoc-notice-attachment-item")).toContain(
+      "margin-left: 3em"
+    );
+    expect(
+      rule(
+        ".ofv-msdoc-notice-document .ofv-msdoc-notice-table-7 th,\n.ofv-msdoc-notice-document .ofv-msdoc-notice-table-7 td"
+      )
+    ).toContain("padding-top: calc(2px * var(--ofv-office-zoom, 1))");
     expect(rule(".ofv-code-container")).toContain("max-width: 100%");
     expect(rule(".ofv-code-body")).toContain("overflow: auto");
     expect(rule(".ofv-code-body")).toContain("isolation: isolate");
