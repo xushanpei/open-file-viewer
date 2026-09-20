@@ -25,6 +25,10 @@ export type LegacyWordDocument = {
   warnings: string[];
 };
 
+type LegacyWordInlineRun =
+  | { text: string; bold?: boolean; fontSize?: number }
+  | { asset: LegacyWordAsset; width: number; height: number };
+
 type LegacyWordAsset = {
   id: string;
   kind: "image";
@@ -44,6 +48,7 @@ type LegacyWordStyle = {
 
 type LegacyWordLayoutHints = {
   lineNumbers: boolean;
+  pageGeometry?: { width: number; height: number; left: number; right: number; top: number; bottom: number };
   documentKind?: "cjkNotice";
   headerBrand?: "oasis";
   headerImageId?: string;
@@ -57,7 +62,7 @@ type LegacyWordFooter = {
 };
 
 export type LegacyWordBlock =
-  | { type: "title" | "subtitle" | "label" | "paragraph" | "instruction" | "code"; text: string; indent?: boolean }
+  | { type: "title" | "subtitle" | "label" | "paragraph" | "instruction" | "code"; text: string; indent?: boolean; runs?: LegacyWordInlineRun[] }
   | { type: "reference"; text: string }
   | { type: "listItem"; text: string; level: 1 | 2 }
   | { type: "heading"; text: string; level: 1 | 2 | 3; indent?: boolean }
@@ -97,6 +102,10 @@ type FibInfo = {
   lcbStshf: number;
   fcClx: number;
   lcbClx: number;
+  fcChpx: number;
+  lcbChpx: number;
+  fcSed: number;
+  lcbSed: number;
 };
 
 type Piece = {
@@ -128,15 +137,19 @@ export function parseLegacyWordDocument(input: ArrayBuffer): LegacyWordDocument 
   const styles = parseStyleTable(tableStream, fib);
   const pieces = parseClxPieces(tableStream, fib.fcClx, fib.lcbClx);
   const text = pieces.length > 0 ? readPieceTableText(wordDocument, pieces, fib.ccpText) : readFibTextFallback(wordDocument, fib);
-  const segments = segmentWordText(text);
+  const inline = readInlineWordContext(wordDocument, tableStream, cfb.getStream("Data"), fib, pieces, assets);
+  const segments = segmentWordText(text, inline);
   const paragraphs = segmentsToParagraphs(segments);
-  if (paragraphs.length === 0) {
+  if (paragraphs.length === 0 && assets.length === 0) {
     throw new Error("未解析到可显示的正文段落");
   }
   const bodySegments = removeTrailingFooterSegments(segments);
   const bodyParagraphs = segmentsToParagraphs(bodySegments);
   const blocks = buildWordBlocks(bodySegments);
   const layout = inferLayoutHints(paragraphs, assets);
+  if (blocks.some((block) => "runs" in block && block.runs)) {
+    layout.pageGeometry = readWordPageGeometry(wordDocument, tableStream, fib);
+  }
 
   return {
     title: inferDocumentTitle(paragraphs),
@@ -177,6 +190,10 @@ export function renderLegacyWordDocument(panel: HTMLElement, document: LegacyWor
   }
 
   const pages = paginateWordBlocks(document.blocks.slice(0, 600), document.layout);
+  // Only unreferenced assets need the recovery fallback; inline pictures render in their paragraphs.
+  const inlineImageIds = new Set(document.blocks.flatMap((block) =>
+    "runs" in block ? (block.runs || []).flatMap((run) => "asset" in run ? [run.asset.id] : []) : []));
+  const bodyImages = document.assets.filter((asset) => asset.id !== document.layout.headerImageId && !inlineImageIds.has(asset.id));
   const pageCount = inferDisplayedPageCount(document.blocks, pages.length);
   const page = window.document.createElement("section");
   page.className = "ofv-msdoc-page";
@@ -208,6 +225,17 @@ export function renderLegacyWordDocument(panel: HTMLElement, document: LegacyWor
     appendPageChrome(nextPage, document, article.children.length + 1, pageCount);
     nextLineNumber = appendBlocksToPage(nextPage, pageBlocks, document.layout, nextLineNumber);
     article.append(nextPage);
+  }
+  const imagePage = article.lastElementChild as HTMLElement;
+  if (bodyImages.length > 0) imagePage.classList.add("ofv-msdoc-image-page");
+  for (const asset of bodyImages) {
+    const image = window.document.createElement("img");
+    image.className = "ofv-msdoc-body-image";
+    image.src = asset.dataUrl;
+    image.alt = asset.id;
+    if (asset.width) image.width = asset.width;
+    if (asset.height) image.height = asset.height;
+    imagePage.append(image);
   }
   panel.append(article);
 }
@@ -425,6 +453,14 @@ function appendPageChrome(page: HTMLElement, document: LegacyWordDocument, pageN
     page.classList.add("ofv-msdoc-line-numbered");
   }
   page.setAttribute("aria-label", document.title || "Word 文档");
+  const geometry = document.layout.pageGeometry;
+  if (geometry) {
+    const scaled = (value: number) => `calc(${value}px * var(--ofv-office-zoom, 1))`;
+    page.style.width = scaled(geometry.width);
+    page.style.height = scaled(geometry.height);
+    page.style.minHeight = scaled(geometry.height);
+    page.style.padding = [geometry.top, geometry.right, geometry.bottom, geometry.left].map(scaled).join(" ");
+  }
   if (document.layout.headerBrand === "oasis" && pageNumber === 1) {
     page.append(createOasisHeader(document.assets.find((asset) => asset.id === document.layout.headerImageId)));
   }
@@ -532,6 +568,29 @@ function renderWordBlock(block: LegacyWordBlock): HTMLElement {
     marker.className = "ofv-msdoc-page-break";
     marker.hidden = true;
     return marker;
+  }
+
+  if ("runs" in block && block.runs) {
+    const paragraph = window.document.createElement("p");
+    paragraph.className = "ofv-msdoc-inline-paragraph";
+    for (const run of block.runs) {
+      if ("asset" in run) {
+        const image = window.document.createElement("img");
+        image.className = "ofv-msdoc-inline-image";
+        image.src = run.asset.dataUrl;
+        image.alt = run.asset.id;
+        image.style.width = `calc(${run.width}px * var(--ofv-office-zoom, 1))`;
+        image.style.height = `calc(${run.height}px * var(--ofv-office-zoom, 1))`;
+        paragraph.append(image);
+      } else {
+        const span = window.document.createElement("span");
+        span.textContent = run.text;
+        if (run.bold !== undefined) span.style.fontWeight = run.bold ? "700" : "400";
+        if (run.fontSize) span.style.fontSize = `calc(${run.fontSize}pt * var(--ofv-office-zoom, 1))`;
+        paragraph.append(span);
+      }
+    }
+    return paragraph;
   }
 
   if (block.type === "table") {
@@ -881,7 +940,7 @@ function extractImageAssets(cfb: CompoundFile): LegacyWordAsset[] {
       continue;
     }
     for (const image of extractImagesFromBytes(stream, entry.name)) {
-      const key = `${image.mimeType}:${image.bytes.length}:${image.bytes[0]}:${image.bytes[image.bytes.length - 1]}`;
+      const key = `data:${image.mimeType};base64,${bytesToBase64(image.bytes)}`;
       if (seen.has(key)) {
         continue;
       }
@@ -891,7 +950,7 @@ function extractImageAssets(cfb: CompoundFile): LegacyWordAsset[] {
         id,
         kind: "image",
         mimeType: image.mimeType,
-        dataUrl: `data:${image.mimeType};base64,${bytesToBase64(image.bytes)}`,
+        dataUrl: key,
         width: image.width,
         height: image.height
       });
@@ -1228,20 +1287,23 @@ function parseFib(wordDocument: Uint8Array): FibInfo {
   offset += 2 + cslw * 4;
   const cbRgFcLcb = view.getUint16(offset, true);
   const fcLcbOffset = offset + 2;
-  const stshOffset = fcLcbOffset + STSH_FC_LCB_INDEX * 8;
-  const clxOffset = fcLcbOffset + CLX_FC_LCB_INDEX * 8;
-
+  const pair = (index: number, length = false) => index < cbRgFcLcb && fcLcbOffset + index * 8 + 8 <= wordDocument.length
+    ? view.getUint32(fcLcbOffset + index * 8 + (length ? 4 : 0), true) : 0;
   return {
+    fcChpx: pair(12),
+    lcbChpx: pair(12, true),
+    fcSed: pair(6),
+    lcbSed: pair(6, true),
     encrypted: (flags & 0x0100) !== 0,
     useOneTable: (flags & 0x0200) !== 0,
     textIsUnicode: (flags & 0x1000) !== 0,
     fcMin,
     fcMac,
     ccpText,
-    fcStshf: STSH_FC_LCB_INDEX < cbRgFcLcb && stshOffset + 8 <= wordDocument.length ? view.getUint32(stshOffset, true) : 0,
-    lcbStshf: STSH_FC_LCB_INDEX < cbRgFcLcb && stshOffset + 8 <= wordDocument.length ? view.getUint32(stshOffset + 4, true) : 0,
-    fcClx: CLX_FC_LCB_INDEX < cbRgFcLcb && clxOffset + 8 <= wordDocument.length ? view.getUint32(clxOffset, true) : 0,
-    lcbClx: CLX_FC_LCB_INDEX < cbRgFcLcb && clxOffset + 8 <= wordDocument.length ? view.getUint32(clxOffset + 4, true) : 0
+    fcStshf: pair(STSH_FC_LCB_INDEX),
+    lcbStshf: pair(STSH_FC_LCB_INDEX, true),
+    fcClx: pair(CLX_FC_LCB_INDEX),
+    lcbClx: pair(CLX_FC_LCB_INDEX, true)
   };
 }
 
@@ -1316,25 +1378,167 @@ function readFibTextFallback(wordDocument: Uint8Array, fib: FibInfo): string {
   return fib.textIsUnicode ? decodeUtf16Le(bytes) : decodeWindows1252(bytes);
 }
 
+type WordProperty = { code: number; value: Uint8Array };
+
+// MS-DOC Prl: the upper three opcode bits describe the operand size.
+function readWordProperties(bytes: Uint8Array): WordProperty[] {
+  const result: WordProperty[] = [];
+  const view = dataView(bytes);
+  for (let offset = 0; offset + 2 <= bytes.length; ) {
+    const code = view.getUint16(offset, true);
+    offset += 2;
+    const sizeClass = code >>> 13;
+    let size = [1, 1, 2, 4, 2, 2, 0, 3][sizeClass];
+    if (sizeClass === 6) {
+      if (offset >= bytes.length) break;
+      // These paragraph/table operands have special length encodings. Do not
+      // mistake their payload for further character or section properties.
+      if (code === 0xd608 || code === 0xc615) break;
+      size = bytes[offset++];
+    }
+    if (offset + size > bytes.length) break;
+    result.push({ code, value: bytes.subarray(offset, offset + size) });
+    offset += size;
+  }
+  return result;
+}
+
+type InlineWordContext = {
+  paragraphRuns(text: string, startCp: number): LegacyWordInlineRun[] | undefined;
+};
+
+function readInlineWordContext(
+  word: Uint8Array, table: Uint8Array, data: Uint8Array | undefined,
+  fib: FibInfo, pieces: Piece[], assets: LegacyWordAsset[]
+): InlineWordContext | undefined {
+  if (!data || fib.lcbChpx < 12 || (fib.lcbChpx - 4) % 8 !== 0 || fib.fcChpx + fib.lcbChpx > table.length) return;
+  const ranges: Array<{ start: number; end: number; properties: WordProperty[] }> = [];
+  const count = (fib.lcbChpx - 4) / 8;
+  const tableView = dataView(table);
+  for (let index = 0; index < count; index++) {
+    const page = tableView.getUint32(fib.fcChpx + (count + 1) * 4 + index * 4, true) * 512;
+    if (page + 512 > word.length) continue;
+    const fkp = word.subarray(page, page + 512);
+    const view = dataView(fkp);
+    const runs = fkp[511];
+    const headerSize = (runs + 1) * 4 + runs;
+    if (headerSize > 511) continue;
+    for (let run = 0; run < runs; run++) {
+      const offset = fkp[(runs + 1) * 4 + run] * 2;
+      if (offset === 0 || offset < headerSize || offset + 1 + fkp[offset] > 511) continue;
+      ranges.push({
+        start: view.getUint32(run * 4, true), end: view.getUint32(run * 4 + 4, true),
+        properties: readWordProperties(fkp.subarray(offset + 1, offset + 1 + fkp[offset]))
+      });
+    }
+  }
+  const propertiesAt = (cp: number) => {
+    const piece = pieces.find((item) => cp >= item.cpStart && cp < item.cpEnd);
+    const fc = piece ? piece.fileOffset + (cp - piece.cpStart) * (piece.compressed ? 1 : 2)
+      : fib.fcMin + cp * (fib.textIsUnicode ? 2 : 1);
+    return ranges.find((range) => fc >= range.start && fc < range.end)?.properties || [];
+  };
+  const pictureCache = new Map<number, Extract<LegacyWordInlineRun, { asset: LegacyWordAsset }> | undefined>();
+  const pictureAt = (cp: number) => {
+    const properties = propertiesAt(cp);
+    if (properties.find((property) => property.code === 0x0855)?.value[0] !== 1 ||
+      properties.find((property) => property.code === 0x0806)?.value[0] === 1) return;
+    const location = properties.find((property) => property.code === 0x6a03);
+    if (!location || location.value.length !== 4) return;
+    const offset = dataView(location.value).getUint32(0, true);
+    if (pictureCache.has(offset)) return pictureCache.get(offset);
+    pictureCache.set(offset, undefined);
+    if (offset + 68 > data.length) return;
+    const view = dataView(data.subarray(offset));
+    const length = view.getUint32(0, true);
+    const headerSize = view.getUint16(4, true);
+    // PICFAndOfficeArtData, not OLE data or an old Windows metafile.
+    if (headerSize !== 68 || view.getUint16(6, true) !== 100 || length < headerSize || offset + length > data.length) return;
+    const width = view.getInt16(28, true) * view.getUint16(32, true) / 15000;
+    const height = view.getInt16(30, true) * view.getUint16(34, true) / 15000;
+    if (width <= 0 || height <= 0 || width > 2112 || height > 2112) return;
+    const image = extractImagesFromBytes(data.subarray(offset + headerSize, offset + length), "Data")[0];
+    if (!image) return;
+    const dataUrl = `data:${image.mimeType};base64,${bytesToBase64(image.bytes)}`;
+    const asset = assets.find((item) => item.dataUrl === dataUrl);
+    if (!asset) return;
+    const run = { asset, width, height };
+    pictureCache.set(offset, run);
+    return run;
+  };
+  return {
+    paragraphRuns(text, startCp) {
+      if (!text.includes("\u0001")) return;
+      const runs: LegacyWordInlineRun[] = [];
+      let hasImage = false;
+      for (let index = 0; index < text.length; index++) {
+        if (text[index] === "\u0001") {
+          const image = pictureAt(startCp + index);
+          if (image) { runs.push(image); hasImage = true; }
+          continue;
+        }
+        if (/[\u0000-\u0008\u000e-\u001f]/.test(text[index])) continue;
+        const properties = propertiesAt(startCp + index);
+        const boldValue = properties.find((property) => property.code === 0x0835)?.value[0];
+        const bold = boldValue === 0 || boldValue === 1 ? Boolean(boldValue) : undefined;
+        const sizeValue = properties.find((property) => property.code === 0x4a43)?.value;
+        const fontSize = sizeValue ? dataView(sizeValue).getUint16(0, true) / 2 : undefined;
+        const previous = runs[runs.length - 1];
+        if (previous && "text" in previous && previous.bold === bold && previous.fontSize === fontSize) previous.text += text[index];
+        else runs.push({ text: text[index], bold, fontSize });
+      }
+      return hasImage ? runs : undefined;
+    }
+  };
+}
+
+function readWordPageGeometry(word: Uint8Array, table: Uint8Array, fib: FibInfo): LegacyWordLayoutHints["pageGeometry"] {
+  if (fib.lcbSed < 20 || (fib.lcbSed - 4) % 16 !== 0 || fib.fcSed + fib.lcbSed > table.length) return;
+  const count = (fib.lcbSed - 4) / 16;
+  // One geometry is only valid for single-section documents.
+  if (count !== 1) return;
+  const offset = dataView(table).getUint32(fib.fcSed + (count + 1) * 4 + 2, true);
+  if (offset + 2 > word.length) return;
+  const size = dataView(word).getUint16(offset, true);
+  if (offset + 2 + size > word.length) return;
+  const properties = readWordProperties(word.subarray(offset + 2, offset + 2 + size));
+  const value = (code: number, fallback: number) => {
+    const property = properties.find((item) => item.code === code);
+    return property && property.value.length === 2 ? dataView(property.value).getInt16(0, true) / 15 : fallback;
+  };
+  const geometry = {
+    width: value(0xb01f, 816), height: value(0xb020, 1056),
+    left: value(0xb021, 120), right: value(0xb022, 120),
+    top: value(0x9023, 96), bottom: value(0x9024, 96)
+  };
+  if (Object.values(geometry).some((number) => !Number.isFinite(number) || number < 0) ||
+    geometry.width <= geometry.left + geometry.right || geometry.height <= geometry.top + geometry.bottom) return;
+  return geometry;
+}
+
 type WordSegment =
   | { kind: "pageBreak" }
-  | { kind: "paragraph"; text: string }
+  | { kind: "paragraph"; text: string; runs?: LegacyWordInlineRun[] }
   | { kind: "row"; cells: string[] };
 
 // Word 97 文本流中单元格以单个 0x07 结束，行再以一个额外的 0x07 结束；
 // 连续 n 个 0x07 表示：当前单元格结束 + (n-2) 个空单元格 + 行结束。
-function segmentWordText(text: string): WordSegment[] {
-  const normalized = text.replace(/\u0000/g, "").replace(/\u000b/g, "\n");
+function segmentWordText(text: string, inline?: InlineWordContext): WordSegment[] {
+  const normalized = text.replace(/\u000b/g, "\n");
   const segments: WordSegment[] = [];
   let cells: string[] | null = null;
   let buffer = "";
+  let bufferStart = 0;
 
   const flushParagraphs = () => {
-    for (const piece of buffer.split(/\n{2,}/)) {
+    let offset = 0;
+    for (const piece of buffer.split(/(\n{2,})/)) {
       const cleaned = cleanWordText(piece);
-      if (cleaned.length > 0 && isDisplayableParagraph(cleaned)) {
-        segments.push({ kind: "paragraph", text: cleaned });
+      const runs = inline?.paragraphRuns(piece, bufferStart + offset);
+      if (runs || (cleaned.length > 0 && isDisplayableParagraph(cleaned))) {
+        segments.push({ kind: "paragraph", text: cleaned, ...(runs ? { runs } : {}) });
       }
+      offset += piece.length;
     }
     buffer = "";
   };
@@ -1381,6 +1585,7 @@ function segmentWordText(text: string): WordSegment[] {
       }
       continue;
     }
+    if (buffer.length === 0) bufferStart = index;
     buffer += char;
   }
   cells === null ? flushParagraphs() : endRow();
@@ -1476,6 +1681,11 @@ function buildWordBlocks(segments: WordSegment[]): LegacyWordBlock[] {
       continue;
     }
 
+    if (segment.runs) {
+      blocks.push({ type: "paragraph", text: segment.text, runs: segment.runs });
+      index += 1;
+      continue;
+    }
     const paragraph = segment.text;
     const toc = parseTocEntry(paragraph);
     if (toc) {
@@ -1707,6 +1917,10 @@ function estimatedLineCount(block: LegacyWordBlock): number {
   }
   if (block.type === "toc") {
     return 1;
+  }
+  if ("runs" in block && block.runs) {
+    const height = Math.max(0, ...block.runs.map((run) => "asset" in run ? run.height : 0));
+    return Math.max(1, Math.ceil(height / 18));
   }
   const baseWidth = "indent" in block && block.indent ? 78 : 96;
   return Math.max(1, Math.ceil(block.text.length / baseWidth));

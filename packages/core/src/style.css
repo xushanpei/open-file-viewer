@@ -1179,6 +1179,35 @@
   line-height: 1.32;
 }
 
+.ofv-msdoc-page .ofv-msdoc-inline-paragraph {
+  margin: 0;
+  color: #000;
+  font-weight: normal;
+  white-space: pre-wrap;
+}
+
+.ofv-msdoc-inline-image {
+  display: inline-block;
+  vertical-align: baseline;
+  max-width: none;
+  margin: 0;
+}
+
+.ofv-msdoc-image-page {
+  /* Recovered images have no reliable anchors; let the body grow instead of clipping them. */
+  height: auto;
+}
+
+.ofv-msdoc-body-image {
+  display: block;
+  margin: calc(16px * var(--ofv-office-zoom, 1)) auto;
+  max-width: 100%;
+  max-height: calc(951px * var(--ofv-office-zoom, 1));
+  width: auto;
+  height: auto;
+  object-fit: contain;
+}
+
 .ofv-msdoc-page-footer {
   position: absolute;
   right: calc(64px * var(--ofv-office-zoom, 1));
