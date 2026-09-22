@@ -6935,6 +6935,7 @@ type PptxAutoNumberingCorrection = PptxShapeGeometry & {
 type PptxAutofitWrapCorrection = {
   slideIndex: number;
   text: string;
+  wrap: boolean;
 };
 
 type PptxTextAlignmentCorrection = {
@@ -7177,11 +7178,11 @@ function normalizePptxAutofitWrapping(container: HTMLElement, corrections: PptxA
       );
     });
     for (const paragraph of paragraphs) {
-      paragraph.style.whiteSpace = "nowrap";
+      paragraph.style.whiteSpace = correction.wrap ? "normal" : "nowrap";
       paragraph.style.overflowWrap = "normal";
       paragraph.style.wordBreak = "normal";
-      paragraph.style.maxWidth = "none";
-      paragraph.dataset.ofvPptxAutofitWrap = "true";
+      paragraph.style.maxWidth = correction.wrap ? "100%" : "none";
+      paragraph.dataset.ofvPptxAutofitWrap = correction.wrap ? "wrap" : "nowrap";
     }
   }
 }
@@ -7199,17 +7200,17 @@ function normalizePptxTextAlignment(container: HTMLElement, corrections: PptxTex
         normalizePptxParagraphText(element.textContent || "") === shapeText &&
         element.querySelector("span")
     );
-    if (!shape) {
-      continue;
-    }
-    const paragraphElements = Array.from(shape.querySelectorAll<HTMLElement>("div")).filter((element) => {
+    const paragraphElements = Array.from((shape || wrapper).querySelectorAll<HTMLElement>("div")).filter((element) => {
       const children = Array.from(element.children);
       return children.length > 0 && children.every((child) => child.tagName === "SPAN");
     });
     const unused = new Set(paragraphElements);
     for (const paragraph of correction.paragraphs) {
       const match = Array.from(unused).find(
-        (element) => normalizePptxParagraphText(element.textContent || "") === paragraph.text
+        (element) => {
+          const renderedText = normalizePptxParagraphText(element.textContent || "");
+          return renderedText === paragraph.text || renderedText.endsWith(paragraph.text);
+        }
       );
       if (!match) {
         continue;
@@ -7624,10 +7625,27 @@ async function inspectPptxVisualCorrections(zip: JSZip): Promise<{
       if (textBody && bodyProperties && findPptxChild(bodyProperties, "spAutoFit")) {
         const text = paragraphs.length === 1 ? normalizePptxParagraphText(paragraphs[0]?.textContent || "") : "";
         if (text && !findPptxDescendant(paragraphs[0]!, "br")) {
-          autofitWrapCorrections.push({ slideIndex, text });
+          autofitWrapCorrections.push({
+            slideIndex,
+            text,
+            // Group-local coordinates are scaled by the parent transform and
+            // pptx-renderer already preserves those short autofit labels as a
+            // single line. Direct text boxes keep their declared square wrap.
+            wrap:
+              (bodyProperties.getAttribute("wrap") || "square").toLowerCase() !== "none" &&
+              (shape.parentElement?.localName !== "grpSp" || estimatePptxTextWidth(text) > 32)
+          });
         }
       }
-      if (textBody && shape.parentElement?.localName === "grpSp" && paragraphs.length > 1) {
+      const hasAutoNumbering = paragraphs.some((paragraph) => {
+        const paragraphProperties = findPptxChild(paragraph, "pPr");
+        return Boolean(paragraphProperties && findPptxChild(paragraphProperties, "buAutoNum"));
+      });
+      if (
+        textBody &&
+        paragraphs.length > 1 &&
+        (shape.parentElement?.localName === "grpSp" || hasAutoNumbering)
+      ) {
         const listStyle = findPptxChild(textBody, "lstStyle");
         const paragraphCorrections = paragraphs.flatMap((paragraph) => {
           const text = normalizePptxParagraphText(paragraph.textContent || "");
@@ -7691,6 +7709,10 @@ async function inspectPptxVisualCorrections(zip: JSZip): Promise<{
     imageClipCorrections,
     transparentChartCorrections
   };
+}
+
+function estimatePptxTextWidth(text: string): number {
+  return [...text].reduce((width, character) => width + (/^[\x00-\xff]$/.test(character) ? 0.55 : 1), 0);
 }
 
 function readPptxDefaultTextAlignments(presentation: Document): Map<number, string> {

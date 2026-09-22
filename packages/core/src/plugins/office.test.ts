@@ -254,6 +254,28 @@ const openPptx = vi.hoisted(() =>
     issueAutofitRun.textContent = "传统办公与运营过程中的挑战！";
     issueAutofitParagraph.append(issueAutofitRun);
     issueAutofitText.append(issueAutofitParagraph);
+    const issueNoWrapText = document.createElement("div");
+    issueNoWrapText.className = "pptx-issue-no-wrap-text";
+    const issueNoWrapParagraph = document.createElement("div");
+    const issueNoWrapRun = document.createElement("span");
+    issueNoWrapRun.textContent = "不得换行的标题";
+    issueNoWrapParagraph.append(issueNoWrapRun);
+    issueNoWrapText.append(issueNoWrapParagraph);
+    const issueGroupedWrapText = document.createElement("div");
+    issueGroupedWrapText.className = "pptx-issue-grouped-wrap-text";
+    const issueGroupedWrapParagraph = document.createElement("div");
+    const issueGroupedWrapRun = document.createElement("span");
+    issueGroupedWrapRun.textContent =
+      "大型集团员工多，同事之间并不互相熟知，工作过程中需要找不同部门的同事沟通协作。";
+    issueGroupedWrapParagraph.append(issueGroupedWrapRun);
+    issueGroupedWrapText.append(issueGroupedWrapParagraph);
+    const issueGroupedTitle = document.createElement("div");
+    issueGroupedTitle.className = "pptx-issue-grouped-title";
+    const issueGroupedTitleParagraph = document.createElement("div");
+    const issueGroupedTitleRun = document.createElement("span");
+    issueGroupedTitleRun.textContent = "保持单行标题";
+    issueGroupedTitleParagraph.append(issueGroupedTitleRun);
+    issueGroupedTitle.append(issueGroupedTitleParagraph);
     const issueDefaultAlignment = document.createElement("div");
     issueDefaultAlignment.className = "pptx-issue-default-alignment";
     issueDefaultAlignment.style.position = "absolute";
@@ -303,6 +325,9 @@ const openPptx = vi.hoisted(() =>
       issueNumbering,
       issueCjkNumbering,
       issueAutofitText,
+      issueNoWrapText,
+      issueGroupedWrapText,
+      issueGroupedTitle,
       issueDefaultAlignment,
       issueSlideNumber,
       issueMaskedImage,
@@ -3484,8 +3509,17 @@ describe("officePlugin", () => {
         (element) => element.textContent?.trim()
       )
     ).toEqual(["一．", "二．", "三．", "四．", "五．"]);
-    expect(container.querySelector<HTMLElement>(".pptx-issue-autofit-text > div")?.style.whiteSpace).toBe("nowrap");
+    expect(container.querySelector<HTMLElement>(".pptx-issue-autofit-text > div")?.style.whiteSpace).toBe("normal");
     expect(container.querySelector<HTMLElement>(".pptx-issue-autofit-text > div")?.style.overflowWrap).toBe("normal");
+    expect(container.querySelector<HTMLElement>(".pptx-issue-autofit-text > div")?.style.maxWidth).toBe("100%");
+    expect(container.querySelector<HTMLElement>(".pptx-issue-no-wrap-text > div")?.style.whiteSpace).toBe("nowrap");
+    expect(container.querySelector<HTMLElement>(".pptx-issue-grouped-wrap-text > div")?.style.whiteSpace).toBe("normal");
+    expect(container.querySelector<HTMLElement>(".pptx-issue-grouped-title > div")?.style.whiteSpace).toBe("nowrap");
+    expect(
+      Array.from(container.querySelectorAll<HTMLElement>(".pptx-issue-numbering > div")).map(
+        (element) => element.style.textAlign
+      )
+    ).toEqual(["left", "left", "left", "left"]);
     expect(
       Array.from(container.querySelectorAll<HTMLElement>(".pptx-issue-default-alignment > div")).map(
         (element) => element.style.textAlign
@@ -5525,11 +5559,29 @@ async function createPptxVisualCorrectionFixture(): Promise<Blob> {
               <a:p><a:pPr><a:buAutoNum type="ea1JpnChsDbPeriod"/></a:pPr><a:r><a:t>客户案例</a:t></a:r></a:p>
             </p:txBody>
           </p:sp>
+          <p:sp>
+            <p:spPr><a:xfrm><a:off x="100" y="100"/><a:ext cx="1000" cy="100"/></a:xfrm></p:spPr>
+              <p:txBody><a:bodyPr wrap="square"><a:spAutoFit/></a:bodyPr><a:lstStyle/>
+                <a:p><a:r><a:t>传统办公与运营过程中的挑战！</a:t></a:r></a:p>
+              </p:txBody>
+            </p:sp>
+            <p:sp>
+              <p:spPr><a:xfrm><a:off x="100" y="200"/><a:ext cx="1000" cy="100"/></a:xfrm></p:spPr>
+              <p:txBody><a:bodyPr wrap="none"><a:spAutoFit/></a:bodyPr><a:lstStyle/>
+                <a:p><a:r><a:t>不得换行的标题</a:t></a:r></a:p>
+              </p:txBody>
+            </p:sp>
           <p:grpSp>
             <p:sp>
-              <p:spPr><a:xfrm><a:off x="100" y="100"/><a:ext cx="1000" cy="100"/></a:xfrm></p:spPr>
-              <p:txBody><a:bodyPr><a:spAutoFit/></a:bodyPr><a:lstStyle/>
-                <a:p><a:r><a:t>传统办公与运营过程中的挑战！</a:t></a:r></a:p>
+              <p:spPr><a:xfrm><a:off x="100" y="220"/><a:ext cx="1000" cy="100"/></a:xfrm></p:spPr>
+              <p:txBody><a:bodyPr wrap="square"><a:spAutoFit/></a:bodyPr><a:lstStyle/>
+                <a:p><a:r><a:t>大型集团员工多，同事之间并不互相熟知，工作过程中需要找不同部门的同事沟通协作。</a:t></a:r></a:p>
+              </p:txBody>
+            </p:sp>
+            <p:sp>
+              <p:spPr><a:xfrm><a:off x="100" y="260"/><a:ext cx="1000" cy="100"/></a:xfrm></p:spPr>
+              <p:txBody><a:bodyPr wrap="square"><a:spAutoFit/></a:bodyPr><a:lstStyle/>
+                <a:p><a:r><a:t>保持单行标题</a:t></a:r></a:p>
               </p:txBody>
             </p:sp>
             <p:sp>
