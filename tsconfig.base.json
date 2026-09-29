@@ -14,6 +14,7 @@
     "baseUrl": ".",
     "paths": {
       "@open-file-viewer/core": ["packages/core/src/index.ts"],
+      "@open-file-viewer/core/lite": ["packages/core/src/lite.ts"],
       "@open-file-viewer/react": ["packages/react/src/index.tsx"],
       "@open-file-viewer/vue": ["packages/vue/src/index.ts"],
       "@open-file-viewer/svelte": ["packages/svelte/src/index.ts"]

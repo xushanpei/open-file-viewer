@@ -84,6 +84,24 @@ PDF 预览需要安装 `pdfjs-dist`：
 pnpm add pdfjs-dist
 ```
 
+### Angular CLI 20 图片与 PDF 轻量入口
+
+Angular CLI 20 使用 Vite 预构建依赖。业务只需要图片和 PDF 预览时，请改用轻量入口，
+这样优化器不会进入 Office 转换依赖链：
+
+```ts
+import {
+  createViewer,
+  fallbackPlugin,
+  imagePlugin,
+  pdfPlugin
+} from "@open-file-viewer/core/lite";
+import "@open-file-viewer/core/style.css";
+```
+
+`lite` 入口只包含预览器运行时、图片、PDF 和 fallback 插件。需要 Office、CAD、压缩包或
+其他格式时继续使用完整的 `@open-file-viewer/core` 入口；同一个应用内不要混用两个入口。
+
 ### Vite / Rollup 依赖分包
 
 文本语法、Markdown 和邮件解析依赖会在对应插件首次使用时异步加载。Prism 语言组件会按照依赖关系

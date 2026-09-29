@@ -19,7 +19,11 @@ it("keeps optional CAD peers out of esbuild static resolution", async () => {
         {
           name: "missing-optional-cad-peers",
           setup(context) {
-            context.onResolve({ filter: /^[^./]/ }, ({ path }) => {
+            context.onResolve({ filter: /^[^./]/ }, ({ kind, path }) => {
+              if (kind === "entry-point") {
+                return;
+              }
+
               if (path.startsWith("@mlightcad/")) {
                 resolvedCadPeers.push(path);
                 return {
@@ -36,4 +40,25 @@ it("keeps optional CAD peers out of esbuild static resolution", async () => {
   ).resolves.toBeDefined();
 
   expect(resolvedCadPeers).toEqual([]);
+});
+
+it("keeps Office native dependencies out of the lite browser entry", async () => {
+  const result = await build({
+    entryPoints: [fileURLToPath(new URL("./lite.ts", import.meta.url))],
+    bundle: true,
+    format: "esm",
+    platform: "browser",
+    write: false,
+    metafile: true,
+    logLevel: "silent"
+  });
+
+  const inputs = Object.keys(result.metafile.inputs).map((path) => path.replaceAll("\\", "/"));
+
+  expect(inputs.some((path) => path.endsWith("/src/lite.ts"))).toBe(true);
+  expect(inputs.some((path) => path.endsWith("/plugins/image.ts"))).toBe(true);
+  expect(inputs.some((path) => path.endsWith("/plugins/pdf.ts"))).toBe(true);
+  expect(inputs.some((path) => path.endsWith("/plugins/office.ts"))).toBe(false);
+  expect(inputs.some((path) => path.includes("/node_modules/emf-converter/"))).toBe(false);
+  expect(inputs.some((path) => path.includes("/node_modules/@napi-rs/canvas"))).toBe(false);
 });

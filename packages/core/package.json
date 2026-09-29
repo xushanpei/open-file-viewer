@@ -22,6 +22,11 @@
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
     },
+    "./lite": {
+      "types": "./dist/lite.d.ts",
+      "import": "./dist/lite.js",
+      "require": "./dist/lite.cjs"
+    },
     "./style.css": {
       "default": "./dist/style.css"
     }
@@ -34,7 +39,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsup src/index.ts --format esm,cjs --dts --sourcemap --clean && node ../../scripts/copy-file.mjs src/style.css dist/style.css",
+    "build": "tsup src/index.ts src/lite.ts --format esm,cjs --dts --sourcemap --clean && node ../../scripts/copy-file.mjs src/style.css dist/style.css",
     "typecheck": "tsc --noEmit"
   },
   "peerDependenciesMeta": {

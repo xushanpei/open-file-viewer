@@ -24,6 +24,26 @@ PDF preview requires `pdfjs-dist`:
 npm install pdfjs-dist
 ```
 
+### Angular CLI 20 image and PDF apps
+
+Angular CLI 20 uses Vite to pre-bundle dependencies. Applications that only need image and PDF
+preview should use the lightweight entry so the optimizer does not traverse the Office conversion
+dependency graph:
+
+```ts
+import {
+  createViewer,
+  fallbackPlugin,
+  imagePlugin,
+  pdfPlugin
+} from "@open-file-viewer/core/lite";
+import "@open-file-viewer/core/style.css";
+```
+
+The `lite` entry contains only the viewer runtime, image, PDF, and fallback plugins. Use the main
+`@open-file-viewer/core` entry when the application needs Office, CAD, archive, or other formats.
+Do not mix the two entries in the same application.
+
 ### Vite / Rollup dependency chunks
 
 Text grammars, Markdown, and email parsers load asynchronously when their plugins are first used.

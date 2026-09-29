@@ -84,6 +84,26 @@ PDF preview requires `pdfjs-dist` when you use `pdfPlugin()`:
 pnpm add pdfjs-dist
 ```
 
+### Angular CLI 20 image and PDF apps
+
+Angular CLI 20 uses Vite to pre-bundle dependencies. If an application only needs image and PDF
+preview, use the lightweight entry so the optimizer never enters the Office conversion dependency
+graph:
+
+```ts
+import {
+  createViewer,
+  fallbackPlugin,
+  imagePlugin,
+  pdfPlugin
+} from "@open-file-viewer/core/lite";
+import "@open-file-viewer/core/style.css";
+```
+
+The `lite` entry deliberately contains only the viewer runtime, image, PDF, and fallback plugins.
+Use the main `@open-file-viewer/core` entry when the application needs Office, CAD, archive, or
+other formats. Do not mix the two entries in the same application.
+
 When using `officePlugin()` with Vite, exclude the converter from dependency pre-bundling and
 externalize its optional Node canvas fallback from the browser build. EMF/WMF conversion in the
 browser still uses Canvas:
