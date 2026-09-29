@@ -254,6 +254,28 @@ const openPptx = vi.hoisted(() =>
     issueAutofitRun.textContent = "传统办公与运营过程中的挑战！";
     issueAutofitParagraph.append(issueAutofitRun);
     issueAutofitText.append(issueAutofitParagraph);
+    const issueNoWrapText = document.createElement("div");
+    issueNoWrapText.className = "pptx-issue-no-wrap-text";
+    const issueNoWrapParagraph = document.createElement("div");
+    const issueNoWrapRun = document.createElement("span");
+    issueNoWrapRun.textContent = "不得换行的标题";
+    issueNoWrapParagraph.append(issueNoWrapRun);
+    issueNoWrapText.append(issueNoWrapParagraph);
+    const issueGroupedWrapText = document.createElement("div");
+    issueGroupedWrapText.className = "pptx-issue-grouped-wrap-text";
+    const issueGroupedWrapParagraph = document.createElement("div");
+    const issueGroupedWrapRun = document.createElement("span");
+    issueGroupedWrapRun.textContent =
+      "大型集团员工多，同事之间并不互相熟知，工作过程中需要找不同部门的同事沟通协作。";
+    issueGroupedWrapParagraph.append(issueGroupedWrapRun);
+    issueGroupedWrapText.append(issueGroupedWrapParagraph);
+    const issueGroupedTitle = document.createElement("div");
+    issueGroupedTitle.className = "pptx-issue-grouped-title";
+    const issueGroupedTitleParagraph = document.createElement("div");
+    const issueGroupedTitleRun = document.createElement("span");
+    issueGroupedTitleRun.textContent = "保持单行标题";
+    issueGroupedTitleParagraph.append(issueGroupedTitleRun);
+    issueGroupedTitle.append(issueGroupedTitleParagraph);
     const issueDefaultAlignment = document.createElement("div");
     issueDefaultAlignment.className = "pptx-issue-default-alignment";
     issueDefaultAlignment.style.position = "absolute";
@@ -303,6 +325,9 @@ const openPptx = vi.hoisted(() =>
       issueNumbering,
       issueCjkNumbering,
       issueAutofitText,
+      issueNoWrapText,
+      issueGroupedWrapText,
+      issueGroupedTitle,
       issueDefaultAlignment,
       issueSlideNumber,
       issueMaskedImage,
@@ -967,6 +992,103 @@ describe("officePlugin", () => {
     expect(container.querySelectorAll(".ofv-chart-svg polyline")).toHaveLength(1);
   });
 
+  it.each(["pie", "doughnut"] as const)("renders %s slices instead of a line in workbook charts", async (type) => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    createViewer({ container, file: await createWorkbookWithChart(type), fileName: "circular.xlsx", plugins: [officePlugin()] });
+    await waitFor(() => Boolean(container.querySelector(".ofv-chart-svg")));
+    expect(container.querySelectorAll("path[data-slice-index]")).toHaveLength(3);
+    expect(container.querySelector("polyline")).toBeNull();
+    expect(container.querySelector(".ofv-chart-axis")).toBeNull();
+    expect(container.querySelector('path[data-slice-index="0"] title')?.textContent).toBe("Q1: 12 (20%)");
+  });
+
+  it("keeps pie values inside slices and category legends above the chart", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const zip = await JSZip.loadAsync(await createWorkbookWithChart("pie"));
+    const xml = (await zip.file("xl/charts/chart1.xml")!.async("text"))
+      .replace("</c:ser>", '</c:ser><c:dLbls><c:dLblPos val="inEnd"/><c:showVal val="1"/><c:showPercent val="0"/></c:dLbls>')
+      .replace("</c:chart>", '<c:legend><c:legendPos val="t"/></c:legend></c:chart>');
+    zip.file("xl/charts/chart1.xml", xml);
+    createViewer({ container, file: await zip.generateAsync({ type: "blob" }), fileName: "labels.xlsx", plugins: [officePlugin()] });
+    await waitFor(() => Boolean(container.querySelector(".ofv-chart-svg")));
+    const labels = Array.from(container.querySelectorAll(".ofv-chart-data-label"));
+    expect(labels.map((label) => label.textContent)).toEqual(["12", "18", "30"]);
+    for (const label of labels) {
+      const x = Number(label.getAttribute("x")), y = Number(label.getAttribute("y"));
+      expect(Math.hypot(x - 320, y - 212)).toBeLessThan(118);
+    }
+    const legends = Array.from(container.querySelectorAll("text.ofv-chart-label:not(.ofv-chart-data-label)"));
+    expect(legends.map((label) => label.textContent)).toEqual(["Q1", "Q2", "Q3"]);
+    expect(legends.every((label) => Number(label.getAttribute("y")) === 64)).toBe(true);
+    expect(container.querySelector(".ofv-chart-svg")?.textContent).not.toContain("Q1: 20%");
+  });
+
+  it("uses document theme colors and readable labels on dark and light pie slices", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const zip = await JSZip.loadAsync(await createWorkbookWithChart("pie"));
+    zip.file("xl/_rels/workbook.xml.rels", '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="theme" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="theme/theme1.xml"/></Relationships>');
+    zip.file("xl/theme/theme1.xml", '<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:themeElements><a:clrScheme name="test"><a:accent1><a:srgbClr val="102030"/></a:accent1><a:accent2><a:srgbClr val="FFFF00"/></a:accent2></a:clrScheme></a:themeElements></a:theme>');
+    const xml = (await zip.file("xl/charts/chart1.xml")!.async("text"))
+      .replace("<c:ser>", '<c:ser><c:dPt><c:idx val="0"/><c:spPr><a:solidFill><a:schemeClr val="accent1"/></a:solidFill></c:spPr></c:dPt><c:dPt><c:idx val="1"/><c:spPr><a:solidFill><a:schemeClr val="accent2"/></a:solidFill></c:spPr></c:dPt>')
+      .replace("</c:ser>", '</c:ser><c:dLbls><c:dLblPos val="inEnd"/><c:showVal val="1"/></c:dLbls>');
+    zip.file("xl/charts/chart1.xml", xml);
+    createViewer({ container, file: await zip.generateAsync({ type: "blob" }), fileName: "theme.xlsx", plugins: [officePlugin()] });
+    await waitFor(() => Boolean(container.querySelector(".ofv-chart-svg")));
+    expect(container.querySelector('[data-slice-index="0"]')?.getAttribute("fill")).toBe("#102030");
+    expect(container.querySelector('[data-slice-index="1"]')?.getAttribute("fill")).toBe("#FFFF00");
+    expect(container.querySelector<SVGElement>('[data-label-index="0"]')?.style.fill).toBe("rgb(255, 255, 255)");
+    expect(container.querySelector<SVGElement>('[data-label-index="1"]')?.style.fill).toBe("rgb(0, 0, 0)");
+    expect(container.querySelector<SVGElement>('[data-label-index="0"]')?.style.fontSize).toBe("12px");
+  });
+
+  it("honors small source fonts, wraps legends by width, and moves best-fit labels outside narrow slices", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const zip = await JSZip.loadAsync(await createWorkbookWithChart("pie"));
+    const xml = (await zip.file("xl/charts/chart1.xml")!.async("text"))
+      .replace("</c:ser>", '<c:dLbls><c:dLbl><c:idx val="0"/><c:tx><c:rich><a:p><a:r><a:rPr sz="600"/><a:t>非常长的分类名称以及完整的数值和百分比标签 12 20%</a:t></a:r></a:p></c:rich></c:tx><c:dLblPos val="bestFit"/></c:dLbl></c:dLbls></c:ser>')
+      .replace("</c:chart>", '<c:legend><c:legendPos val="t"/><c:txPr><a:p><a:pPr><a:defRPr sz="600"/></a:pPr></a:p></c:txPr></c:legend></c:chart>');
+    zip.file("xl/charts/chart1.xml", xml);
+    createViewer({ container, file: await zip.generateAsync({ type: "blob" }), fileName: "small-font.xlsx", plugins: [officePlugin()] });
+    await waitFor(() => Boolean(container.querySelector(".ofv-chart-data-label")));
+    const label = container.querySelector<SVGElement>(".ofv-chart-data-label")!;
+    expect(label.style.fontSize).toBe("8px");
+    expect(label.getAttribute("data-label-placement")).toBe("outside");
+    expect(Array.from(container.querySelectorAll<SVGElement>("[data-chart-legend]")).every((legend) => legend.style.fontSize === "8px")).toBe(true);
+  });
+
+  it("shows an explicit fallback for unsupported chart types", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    createViewer({ container, file: await createWorkbookWithChart("radar"), fileName: "radar.xlsx", plugins: [officePlugin()] });
+    await waitFor(() => Boolean(container.querySelector(".ofv-chart-svg")));
+    expect(container.querySelector(".ofv-chart-svg")?.textContent).toContain("暂不支持此图表类型（radar）");
+    expect(container.querySelector("polyline")).toBeNull();
+  });
+
+  it("renders DOCX pie charts with point colors and custom labels", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    renderDocxAsync.mockImplementationOnce(async (_data: unknown, bodyContainer: HTMLElement) => {
+      bodyContainer.innerHTML = '<div class="ofv-docx-wrapper"><section class="ofv-docx"><p><span><div style="display:inline-block;position:relative;width:320pt;height:180pt"></div></span></p></section></div>';
+    });
+    const zip = await JSZip.loadAsync(await createDocxWithChart());
+    const xml = (await zip.file("word/charts/chart1.xml")!.async("text"))
+      .replaceAll("barChart", "pieChart")
+      .replace("<c:ser>", '<c:firstSliceAng val="90"/><c:ser><c:dPt><c:idx val="0"/><c:spPr><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill></c:spPr></c:dPt><c:dLbls><c:dLbl><c:idx val="0"/><c:tx><c:rich><a:p><a:r><a:t>第一季度 20%</a:t></a:r></a:p></c:rich></c:tx></c:dLbl></c:dLbls>');
+    zip.file("word/charts/chart1.xml", xml);
+    createViewer({ container, file: await zip.generateAsync({ type: "blob" }), fileName: "pie.docx", plugins: [officePlugin()] });
+    await waitFor(() => Boolean(container.querySelector(".ofv-docx-chart-preview path")));
+    expect(container.querySelectorAll("path[data-slice-index]")).toHaveLength(3);
+    expect(container.querySelector('path[data-slice-index="0"]')?.getAttribute("fill")).toBe("#FF0000");
+    expect(container.querySelector('path[data-slice-index="0"]')?.getAttribute("d")).toMatch(/^M 452,208 /);
+    expect(container.querySelector(".ofv-chart-svg")?.textContent).toContain("第一季度 20%");
+    expect(container.querySelector("polyline")).toBeNull();
+  });
+
   it("renders DOCX embedded chart placeholders from OOXML chart parts", async () => {
     const container = document.createElement("div");
     document.body.append(container);
@@ -1153,6 +1275,89 @@ describe("officePlugin", () => {
       renderFooters: true
     });
     expect(container.querySelector(".ofv-docx-document")?.textContent).toContain("DOCX layout page");
+  });
+
+  it("passes officePlugin docx options through to the layout DOCX renderer", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    createViewer({
+      container,
+      file: new Blob(["docx"], {
+        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      }),
+      fileName: "letter.docx",
+      plugins: [officePlugin({ docx: { renderAltChunks: false, renderComments: false } })]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-docx-document")));
+
+    expect(renderDocxAsync.mock.calls.at(-1)?.[3]).toMatchObject({
+      className: "ofv-docx",
+      breakPages: true,
+      experimental: true,
+      renderAltChunks: false,
+      renderComments: false
+    });
+  });
+
+  it("keeps the default docx renderer options when officePlugin receives none", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    createViewer({
+      container,
+      file: new Blob(["docx"], {
+        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      }),
+      fileName: "letter.docx",
+      plugins: [officePlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-docx-document")));
+
+    expect(renderDocxAsync.mock.calls.at(-1)?.[3]).toMatchObject({
+      renderAltChunks: true,
+      renderComments: true
+    });
+  });
+
+  it("sanitizes DOCX preview links and sandboxes altChunk frames without removing SVG", async () => {
+    renderDocxAsync.mockImplementationOnce(async (_data: unknown, bodyContainer: HTMLElement) => {
+      bodyContainer.innerHTML = `<div class="ofv-docx-wrapper"><section class="ofv-docx">
+        <p><a href="javascript:window.__OFV_PROBE_JS=1">LINK-JAVASCRIPT</a></p>
+        <p><a href="data:text/html;base64,PHNjcmlwdD4xPC9zY3JpcHQ+">LINK-DATA</a></p>
+        <p><a href="https://example.com/control" onclick="window.__OFV_PROBE_CLICK=1">LINK-HTTPS-CONTROL</a></p>
+        <p><a href="mailto:help@example.com">LINK-MAILTO</a></p>
+        <iframe srcdoc="&lt;p&gt;ALTCHUNK-CONTENT&lt;/p&gt;&lt;script&gt;window.top.__OFV_ALTCHUNK_SCRIPT=1&lt;/script&gt;"></iframe>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M0 0h10v10H0z"/></svg>
+      </section></div>`;
+    });
+    const container = document.createElement("div");
+    document.body.append(container);
+    createViewer({
+      container,
+      file: new Blob(["docx"], {
+        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      }),
+      fileName: "hyperlink-scheme.docx",
+      plugins: [officePlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-docx-document")));
+    const links = Array.from(container.querySelectorAll<HTMLAnchorElement>(".ofv-docx-document a"));
+    expect(links.map((link) => link.getAttribute("href"))).toEqual([
+      null,
+      null,
+      "https://example.com/control",
+      "mailto:help@example.com"
+    ]);
+    expect(container.querySelector(".ofv-docx-document iframe")?.getAttribute("sandbox")).toBe("");
+    const srcdoc = container.querySelector(".ofv-docx-document iframe")?.getAttribute("srcdoc");
+    expect(srcdoc).toContain("ALTCHUNK-CONTENT");
+    expect(srcdoc).not.toContain("__OFV_ALTCHUNK_SCRIPT");
+    expect(links[2]?.hasAttribute("onclick")).toBe(false);
+    expect(container.querySelector(".ofv-docx-document svg path")?.getAttribute("d")).toBe("M0 0h10v10H0z");
   });
 
   it("restores Word default page margins when a generated DOCX omits pgMar", async () => {
@@ -1662,7 +1867,7 @@ describe("officePlugin", () => {
     expect(container.querySelector<HTMLParagraphElement>("td > p")?.style.marginTop).toBe("0px");
   });
 
-  it("repairs vertical-merge placeholders, terminal borders, and diagonal DOCX cell borders", async () => {
+  it("removes vertical-merge placeholder paragraphs and restores diagonal DOCX cell borders", async () => {
     renderDocxAsync.mockImplementationOnce(async (_data: unknown, bodyContainer: HTMLElement) => {
       const wrapper = document.createElement("div");
       wrapper.className = "ofv-docx-wrapper";
@@ -1677,17 +1882,8 @@ describe("officePlugin", () => {
       label.textContent = "部门";
       mergedCell.append(label, document.createElement("p"), document.createElement("p"));
       firstRow.insertCell().textContent = "第一行";
-      const secondRow = table.insertRow();
-      const secondContinuation = secondRow.insertCell();
-      secondContinuation.style.display = "none";
-      secondRow.insertCell().textContent = "第二行";
-      const thirdRow = table.insertRow();
-      const finalContinuation = thirdRow.insertCell();
-      finalContinuation.style.display = "none";
-      finalContinuation.style.borderBottomWidth = "1pt";
-      finalContinuation.style.borderBottomStyle = "solid";
-      finalContinuation.style.borderBottomColor = "#123456";
-      thirdRow.insertCell().textContent = "第三行";
+      table.insertRow().insertCell().textContent = "第二行";
+      table.insertRow().insertCell().textContent = "第三行";
       article.append(table);
       page.append(article);
       wrapper.append(page);
@@ -1702,7 +1898,7 @@ describe("officePlugin", () => {
           <w:tc><w:p><w:r><w:t>第一行</w:t></w:r></w:p></w:tc>
         </w:tr>
         <w:tr><w:tc><w:tcPr><w:vMerge/></w:tcPr><w:p/></w:tc><w:tc><w:p><w:r><w:t>第二行</w:t></w:r></w:p></w:tc></w:tr>
-        <w:tr><w:tc><w:tcPr><w:vMerge/><w:tcBorders><w:bottom w:val="single" w:sz="8" w:color="123456"/></w:tcBorders></w:tcPr><w:p/></w:tc><w:tc><w:p><w:r><w:t>第三行</w:t></w:r></w:p></w:tc></w:tr>
+        <w:tr><w:tc><w:tcPr><w:vMerge/></w:tcPr><w:p/></w:tc><w:tc><w:p><w:r><w:t>第三行</w:t></w:r></w:p></w:tc></w:tr>
       </w:tbl></w:body></w:document>`
     );
     const container = document.createElement("div");
@@ -1724,10 +1920,62 @@ describe("officePlugin", () => {
     expect(mergedCell?.dataset.ofvDocxDiagonalTl2br).toBe("true");
     expect(mergedCell?.style.getPropertyValue("--ofv-docx-diagonal-color")).toBe("#FF0000");
     expect(mergedCell?.style.getPropertyValue("--ofv-docx-diagonal-half-width")).toBe("0.5pt");
-    expect(mergedCell?.dataset.ofvDocxMergedBottomBorderRepaired).toBe("true");
-    expect(mergedCell?.style.borderBottomWidth).toBe("1pt");
-    expect(mergedCell?.style.borderBottomStyle).toBe("solid");
-    expect(mergedCell?.style.borderBottomColor).toBe("rgb(18, 52, 86)");
+  });
+
+  it("restores a DOCX table bottom border hidden by terminal vertical-merge cells", async () => {
+    renderDocxAsync.mockImplementationOnce(async (_data: unknown, bodyContainer: HTMLElement) => {
+      const wrapper = document.createElement("div");
+      wrapper.className = "ofv-docx-wrapper";
+      const page = document.createElement("section");
+      page.className = "ofv-docx";
+      const article = document.createElement("article");
+      const table = document.createElement("table");
+      const firstRow = table.insertRow();
+      const mergedCell = firstRow.insertCell();
+      mergedCell.rowSpan = 2;
+      mergedCell.style.borderBottom = "none";
+      mergedCell.textContent = "三类";
+      firstRow.insertCell().textContent = "地区";
+      const lastRow = table.insertRow();
+      const terminalMergeCell = lastRow.insertCell();
+      terminalMergeCell.style.display = "none";
+      terminalMergeCell.style.borderBottom = "0.5pt solid #000";
+      const lastVisibleCell = lastRow.insertCell();
+      lastVisibleCell.style.borderBottom = "0.5pt solid #000";
+      lastVisibleCell.textContent = "甘南州";
+      article.append(table);
+      page.append(article);
+      wrapper.append(page);
+      bodyContainer.append(wrapper);
+    });
+    const zip = new JSZip();
+    zip.file(
+      "word/document.xml",
+      `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:tbl>
+        <w:tblPr><w:tblBorders><w:bottom w:val="single" w:sz="4" w:color="000000"/></w:tblBorders></w:tblPr>
+        <w:tr><w:tc><w:tcPr><w:vMerge w:val="restart"/></w:tcPr><w:p><w:r><w:t>三类</w:t></w:r></w:p></w:tc>
+          <w:tc><w:p><w:r><w:t>地区</w:t></w:r></w:p></w:tc></w:tr>
+        <w:tr><w:tc><w:tcPr><w:vMerge/></w:tcPr><w:p/></w:tc>
+          <w:tc><w:p><w:r><w:t>甘南州</w:t></w:r></w:p></w:tc></w:tr>
+      </w:tbl></w:body></w:document>`
+    );
+    const container = document.createElement("div");
+    document.body.append(container);
+    createViewer({
+      container,
+      file: await zip.generateAsync({
+        type: "blob",
+        mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      }),
+      fileName: "merged-table-bottom-border.docx",
+      plugins: [officePlugin()]
+    });
+
+    await waitFor(() => Boolean(container.querySelector("[data-ofv-docx-merged-bottom-border-repaired='true']")));
+
+    const table = container.querySelector<HTMLTableElement>("table");
+    expect(table?.style.borderBottomStyle).toBe("solid");
+    expect(table?.style.borderBottomWidth).not.toBe("");
   });
 
   it("aligns right-tab DOCX text to the OOXML tab position", async () => {
@@ -3299,8 +3547,17 @@ describe("officePlugin", () => {
         (element) => element.textContent?.trim()
       )
     ).toEqual(["一．", "二．", "三．", "四．", "五．"]);
-    expect(container.querySelector<HTMLElement>(".pptx-issue-autofit-text > div")?.style.whiteSpace).toBe("nowrap");
+    expect(container.querySelector<HTMLElement>(".pptx-issue-autofit-text > div")?.style.whiteSpace).toBe("normal");
     expect(container.querySelector<HTMLElement>(".pptx-issue-autofit-text > div")?.style.overflowWrap).toBe("normal");
+    expect(container.querySelector<HTMLElement>(".pptx-issue-autofit-text > div")?.style.maxWidth).toBe("100%");
+    expect(container.querySelector<HTMLElement>(".pptx-issue-no-wrap-text > div")?.style.whiteSpace).toBe("nowrap");
+    expect(container.querySelector<HTMLElement>(".pptx-issue-grouped-wrap-text > div")?.style.whiteSpace).toBe("normal");
+    expect(container.querySelector<HTMLElement>(".pptx-issue-grouped-title > div")?.style.whiteSpace).toBe("nowrap");
+    expect(
+      Array.from(container.querySelectorAll<HTMLElement>(".pptx-issue-numbering > div")).map(
+        (element) => element.style.textAlign
+      )
+    ).toEqual(["left", "left", "left", "left"]);
     expect(
       Array.from(container.querySelectorAll<HTMLElement>(".pptx-issue-default-alignment > div")).map(
         (element) => element.style.textAlign
@@ -3617,7 +3874,7 @@ describe("officePlugin", () => {
     expect(rows[7].cells[0].textContent).toContain("请查阅相关资料");
   });
 
-  it("collapses duplicate page breaks and keeps compact seven-column notice tables together", () => {
+  it("moves duplicate page breaks to trailing blank pages and keeps compact seven-column notice tables together", () => {
     const container = document.createElement("div");
     document.body.append(container);
     const table3: LegacyWordDocument["blocks"][number] = {
@@ -3690,14 +3947,14 @@ describe("officePlugin", () => {
 
     const pages = Array.from(container.querySelectorAll<HTMLElement>(".ofv-msdoc-page"));
     expect(container.querySelector(".ofv-msdoc-notice-document")).not.toBeNull();
-    expect(pages).toHaveLength(5);
+    expect(pages).toHaveLength(6);
     expect(pages[0].querySelector(".ofv-msdoc-title")?.textContent).toBe("关于移动端应用问题");
     expect(pages[0].querySelector(".ofv-msdoc-subtitle")?.textContent).toBe("整改的通知");
     expect(pages[1].textContent).toContain("3.接口改造应用清单");
-    expect(pages.every((page) => page.textContent?.trim() !== "")).toBe(true);
     expect(pages[2].querySelectorAll(".ofv-msdoc-notice-table tr")).toHaveLength(20);
     expect(pages[3].querySelectorAll(".ofv-msdoc-notice-table tr")).toHaveLength(2);
     expect(pages[4].querySelectorAll(".ofv-msdoc-notice-table tr")).toHaveLength(17);
+    expect(pages[5].textContent?.trim()).toBe("");
     expect(pages[3].querySelector(".ofv-msdoc-notice-table th")).toBeNull();
     expect(Array.from(pages[2].querySelectorAll<HTMLTableColElement>("col")).map((column) => column.style.width)).toEqual([
       "6%",
@@ -4715,7 +4972,7 @@ async function createVariableMdwColumnWorkbook(): Promise<Blob> {
   });
 }
 
-async function createWorkbookWithChart(type: "bar" | "line" = "bar"): Promise<Blob> {
+async function createWorkbookWithChart(type: "bar" | "line" | "pie" | "doughnut" | "radar" = "bar"): Promise<Blob> {
   const zip = new JSZip();
   zip.file(
     "[Content_Types].xml",
@@ -5339,11 +5596,29 @@ async function createPptxVisualCorrectionFixture(): Promise<Blob> {
               <a:p><a:pPr><a:buAutoNum type="ea1JpnChsDbPeriod"/></a:pPr><a:r><a:t>客户案例</a:t></a:r></a:p>
             </p:txBody>
           </p:sp>
+          <p:sp>
+            <p:spPr><a:xfrm><a:off x="100" y="100"/><a:ext cx="1000" cy="100"/></a:xfrm></p:spPr>
+              <p:txBody><a:bodyPr wrap="square"><a:spAutoFit/></a:bodyPr><a:lstStyle/>
+                <a:p><a:r><a:t>传统办公与运营过程中的挑战！</a:t></a:r></a:p>
+              </p:txBody>
+            </p:sp>
+            <p:sp>
+              <p:spPr><a:xfrm><a:off x="100" y="200"/><a:ext cx="1000" cy="100"/></a:xfrm></p:spPr>
+              <p:txBody><a:bodyPr wrap="none"><a:spAutoFit/></a:bodyPr><a:lstStyle/>
+                <a:p><a:r><a:t>不得换行的标题</a:t></a:r></a:p>
+              </p:txBody>
+            </p:sp>
           <p:grpSp>
             <p:sp>
-              <p:spPr><a:xfrm><a:off x="100" y="100"/><a:ext cx="1000" cy="100"/></a:xfrm></p:spPr>
-              <p:txBody><a:bodyPr><a:spAutoFit/></a:bodyPr><a:lstStyle/>
-                <a:p><a:r><a:t>传统办公与运营过程中的挑战！</a:t></a:r></a:p>
+              <p:spPr><a:xfrm><a:off x="100" y="220"/><a:ext cx="1000" cy="100"/></a:xfrm></p:spPr>
+              <p:txBody><a:bodyPr wrap="square"><a:spAutoFit/></a:bodyPr><a:lstStyle/>
+                <a:p><a:r><a:t>大型集团员工多，同事之间并不互相熟知，工作过程中需要找不同部门的同事沟通协作。</a:t></a:r></a:p>
+              </p:txBody>
+            </p:sp>
+            <p:sp>
+              <p:spPr><a:xfrm><a:off x="100" y="260"/><a:ext cx="1000" cy="100"/></a:xfrm></p:spPr>
+              <p:txBody><a:bodyPr wrap="square"><a:spAutoFit/></a:bodyPr><a:lstStyle/>
+                <a:p><a:r><a:t>保持单行标题</a:t></a:r></a:p>
               </p:txBody>
             </p:sp>
             <p:sp>

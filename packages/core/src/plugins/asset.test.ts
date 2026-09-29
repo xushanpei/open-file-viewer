@@ -2,11 +2,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createViewer } from "../viewer";
 import { assetPlugin } from "./asset";
 
+const readPsdMock = vi.hoisted(() => vi.fn());
+
 vi.mock("ag-psd", () => ({
-  readPsd: vi.fn()
+  readPsd: readPsdMock
 }));
 
 vi.mock("pdfjs-dist", () => createPdfJsMock());
+vi.mock("pdfjs-dist/legacy/build/pdf.mjs", () => createPdfJsMock());
 
 const hyparquetMock = vi.hoisted(() => ({
   parquetMetadataAsync: vi.fn(),
@@ -18,6 +21,7 @@ vi.mock("hyparquet", () => hyparquetMock);
 
 describe("assetPlugin", () => {
   afterEach(() => {
+    readPsdMock.mockReset();
     document.body.replaceChildren();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -467,7 +471,16 @@ describe("assetPlugin", () => {
     viewer.destroy();
   });
 
-  it("recognizes PDF-compatible Illustrator headers", async () => {
+  it.each(["modern", "legacy"] as const)("recognizes PDF-compatible Illustrator headers (%s)", async (build) => {
+    const modernPdf = await import("pdfjs-dist");
+    const legacyPdf = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    vi.mocked(modernPdf.getDocument).mockClear();
+    vi.mocked(legacyPdf.getDocument).mockClear();
+    vi.spyOn(navigator, "userAgent", "get").mockReturnValue(
+      build === "legacy"
+        ? "Mozilla/5.0 (iPhone) AppleWebKit/605.1.15 Version/17.0 Mobile Safari/604.1"
+        : "Mozilla/5.0 AppleWebKit/537.36 Chrome/130.0.0.0 Safari/537.36"
+    );
     const container = document.createElement("div");
     document.body.append(container);
 
@@ -491,6 +504,8 @@ describe("assetPlugin", () => {
     expect(container.querySelector(".ofv-asset-summary")).toBeNull();
     expect(container.querySelector(".ofv-asset-hex")).toBeNull();
     expect(viewer.goToPage(1)).toBe(true);
+    expect((build === "legacy" ? legacyPdf : modernPdf).getDocument).toHaveBeenCalledTimes(1);
+    expect((build === "legacy" ? modernPdf : legacyPdf).getDocument).not.toHaveBeenCalled();
 
     viewer.destroy();
   });

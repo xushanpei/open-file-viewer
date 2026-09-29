@@ -1,9 +1,13 @@
-# Open File Viewer
+<p align="center">
+  <img src="./doc/public/favicon.svg" width="104" height="104" alt="Open File Viewer logo" />
+</p>
+
+<h1 align="center">Open File Viewer</h1>
 
 <p align="right">
-  <strong>简体中文</strong>
-  |
   <a href="./README.md">English</a>
+  |
+  <strong>简体中文</strong>
   |
   <a href="./README.ja.md">日本語</a>
   |
@@ -109,6 +113,19 @@ export default defineConfig({
 
 `manualChunks` 不是必需配置。如果项目已有统一的 vendor 分包函数，请让 `/prismjs/components/`
 返回 `undefined`，避免把所有带副作用的语言组件折叠到同一个 chunk。
+
+使用 `officePlugin()` 时，`emf-converter` 的可选 Node canvas 回退代码可能被 Vite 的依赖预构建或
+Rollup 提前解析，导致浏览器构建尝试加载原生 `.node` 文件。将下面两项合并进现有 Vite 配置；浏览器
+中的 EMF/WMF 转换仍使用 Canvas，不会执行 Node 回退代码：
+
+```ts
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  optimizeDeps: { exclude: ["emf-converter"] },
+  build: { rollupOptions: { external: ["@napi-rs/canvas"] } }
+});
+```
 
 也可以使用 npm 或 yarn：
 
@@ -931,14 +948,17 @@ pnpm pack:check
 
 ## 路线图
 
-| 版本 | 重点 |
-| --- | --- |
-| `0.1.x` | Core 插件系统、容器内预览、React/Vue/Svelte/Vanilla 接入、多格式基础预览 |
-| `0.2.x` | 工具栏、主题、图片交互、PDF 搜索、统一状态和 fallback |
-| `0.3.x` | Markdown/代码阅读器、Office 表格和文档体验增强 |
-| `0.4.x` | OFD、邮件、压缩包、绘图和国内业务高频格式增强 |
-| `0.5.x` | CAD、3D、GIS、专用解析器和服务端转换协作 |
-| `1.0.0` | API 稳定、完整文档站、视觉回归测试和插件开发指南 |
+当前工作区版本为 `1.0.0-rc.1`，用于验证公开 API 和已有预览能力。
+
+| 版本 | 重点 | 发布条件 |
+| --- | --- | --- |
+| `1.0.0-rc.1` | 验证 Core、框架适配、插件协议和现有格式能力 | 收集接入兼容性与真实文件反馈，为正式版定稿 |
+| `1.0.0` | 稳定公开 API 和可靠的浏览器接入 | `pnpm check` 通过，验证消费端构建和代表性视觉回归，完善格式支持边界与插件开发文档 |
+| `1.x` | 兼容地增强格式、保真度、无障碍与性能 | 保持 1.0 公开 API 兼容，按变更性质发布次版本或补丁版本 |
+| `2.0.0` | 格式能力模块化、按需加载，统一 Worker/WASM 资源配置 | 仅当导入路径或插件 API 必须发生不兼容变更时发布，并提供迁移指南 |
+| `3.0.0` | 统一页面/场景/文本模型与前端/服务端转换协议，让搜索和打印跨格式一致 | 仅当新渲染协议需要不兼容的公开 API 变更时发布 |
+
+2.0 和 3.0 是方向规划，不代表发布日期或必然升级主版本；兼容性改进优先在 1.x 中发布。
 
 ## 社区与支持
 

@@ -2,8 +2,14 @@ import { fileURLToPath, URL } from "node:url";
 import { defineConfig } from "vite";
 
 export default defineConfig({
+  optimizeDeps: {
+    exclude: ["emf-converter"]
+  },
   build: {
-    chunkSizeWarningLimit: 2500
+    chunkSizeWarningLimit: 2500,
+    rollupOptions: {
+      external: ["@napi-rs/canvas"]
+    }
   },
   resolve: {
     alias: {

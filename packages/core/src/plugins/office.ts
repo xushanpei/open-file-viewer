@@ -159,6 +159,7 @@ export type OfficeConversionResult =
 export interface OfficePluginOptions {
   convert?: (ctx: OfficeConversionContext) => Promise<OfficeConversionResult | null | undefined> | OfficeConversionResult | null | undefined;
   preferConversion?: boolean | ((ctx: OfficeConversionContext) => boolean | Promise<boolean>);
+  docx?: Partial<docxPreview.Options>;
   pdf?: PdfPluginOptions;
 }
 
@@ -201,13 +202,13 @@ export function officePlugin(options: OfficePluginOptions = {}): PreviewPlugin {
       } else if (wordXml) {
         renderWord2003XmlDocument(panel, wordXml);
       } else if (packageFormat === "docx" && !fileIsDocx(extension)) {
-        disposeDocxFit = await renderDocx(panel, arrayBuffer, ctx.options.fit);
+        disposeDocxFit = await renderDocx(panel, arrayBuffer, ctx.options.fit, options.docx);
       } else if (packageFormat === "xlsx" && !sheetExtensions.has(extension)) {
         await renderSheet(panel, arrayBuffer, "xlsx", ctx.options.messages);
       } else if (packageFormat === "pptx" && !["pptx", "pptm", "ppsx", "ppsm", "potx", "potm"].includes(extension)) {
         await renderPptx(panel, arrayBuffer);
       } else if (fileIsDocx(extension)) {
-        disposeDocxFit = await renderDocx(panel, arrayBuffer, ctx.options.fit);
+        disposeDocxFit = await renderDocx(panel, arrayBuffer, ctx.options.fit, options.docx);
       } else if (extension === "rtf") {
         renderPlainDocument(panel, "RTF 文档", rtfToText(await readTextFromBuffer(arrayBuffer)));
       } else if (extension === "odt") {
@@ -218,7 +219,7 @@ export function officePlugin(options: OfficePluginOptions = {}): PreviewPlugin {
         renderFlatOds(panel, await readTextFromBuffer(arrayBuffer));
       } else if (
         packagedOfficeCandidates.has(extension) &&
-        (await renderPackagedOfficePreview(panel, arrayBuffer, extension, ctx.options.fit, ctx.options.messages))
+        (await renderPackagedOfficePreview(panel, arrayBuffer, extension, ctx.options.fit, ctx.options.messages, options.docx))
       ) {
         // Rendered by package sniffing.
       } else if (sheetExtensions.has(extension)) {
@@ -587,7 +588,12 @@ function renderWordHtmlDocument(panel: HTMLElement, html: string): void {
   panel.append(section);
 }
 
-async function renderDocx(panel: HTMLElement, arrayBuffer: ArrayBuffer, fit: PreviewFit): Promise<() => void> {
+async function renderDocx(
+  panel: HTMLElement,
+  arrayBuffer: ArrayBuffer,
+  fit: PreviewFit,
+  docxOptions?: Partial<docxPreview.Options>
+): Promise<() => void> {
   panel.classList.add("ofv-office-docx");
   const content = document.createElement("div");
   content.className = "ofv-docx-document";
@@ -613,7 +619,8 @@ async function renderDocx(panel: HTMLElement, arrayBuffer: ArrayBuffer, fit: Pre
           renderComments: true,
           renderAltChunks: true,
           experimental: true,
-          useBase64URL: true
+          useBase64URL: true,
+          ...(docxOptions || {})
         });
       })(),
       docxRenderTimeoutMs(),
@@ -624,6 +631,7 @@ async function renderDocx(panel: HTMLElement, arrayBuffer: ArrayBuffer, fit: Pre
     // complete set of rendered images (including late-loaded seals).
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
     await normalizeDocxLayout(content, arrayBuffer, styleContainer);
+    sanitizeDocxPreview(content);
     const shouldUseTextboxFallback =
       (await docxPreviewLooksBlank(content, arrayBuffer)) ||
       (await docxPreviewMissesRichTextboxContent(content, arrayBuffer)) ||
@@ -658,6 +666,32 @@ async function renderDocx(panel: HTMLElement, arrayBuffer: ArrayBuffer, fit: Pre
     console.warn("DOCX layout preview failed, fell back to Mammoth:", error);
   }
   return () => undefined;
+}
+
+function sanitizeDocxPreview(content: HTMLElement): void {
+  // docx-preview creates elements from OOXML relationships and altChunk HTML.
+  // Keep SVG drawings and isolated altChunk content while sanitizing the DOM
+  // before it is attached to the viewer.
+  const altChunks = new Map<HTMLIFrameElement, string>();
+  for (const frame of content.querySelectorAll("iframe")) {
+    if (frame.hasAttribute("srcdoc")) {
+      altChunks.set(frame, frame.srcdoc);
+    }
+    frame.setAttribute("sandbox", "");
+  }
+  DOMPurify.sanitize(content, {
+    IN_PLACE: true,
+    USE_PROFILES: { html: true, svg: true, svgFilters: true },
+    ADD_TAGS: ["iframe", "foreignObject"],
+    ADD_ATTR: ["target", "sandbox"]
+  });
+  for (const [frame, srcdoc] of altChunks) {
+    if (content.contains(frame) && frame.getAttribute("sandbox") === "") {
+      frame.srcdoc = DOMPurify.sanitize(srcdoc, {
+        USE_PROFILES: { html: true, svg: true, svgFilters: true }
+      });
+    }
+  }
 }
 
 function docxRenderTimeoutMs(): number {
@@ -1438,8 +1472,8 @@ async function normalizeDocxLayout(container: HTMLElement, arrayBuffer: ArrayBuf
   repairDocxComplexScriptFontSizes(container, hints.complexScriptFontSizeParagraphs);
   repairDocxCharacterSpacing(container, hints.characterSpacingParagraphs);
   repairDocxAutoLineHeights(container, hints.autoLineHeightParagraphs);
-  repairDocxVerticalMergeBottomBorders(container, hints.verticalMergeEndCells);
   repairDocxMergedCellEmptyParagraphs(container, hints.mergedCellEmptyParagraphs);
+  repairDocxMergedCellTableBottomBorders(container);
   markDocxSectionBreakParagraphs(container, hints.sectionBreakParagraphIndexes);
   repairDocxCharacterScaling(container, hints.characterScaleParagraphs);
   const pages = container.querySelectorAll<HTMLElement>("section.ofv-docx");
@@ -1520,6 +1554,7 @@ async function readDocxCharts(arrayBuffer: ArrayBuffer): Promise<DocxChartPrevie
       return [];
     }
     const relationships = await readOfficeRelationships(zip, "word/document.xml");
+    const themeColors = await readOfficeChartTheme(zip, "word/document.xml");
     const chartDrawings = Array.from(documentDoc.getElementsByTagName("*"))
       .filter((element) => element.localName === "inline" || element.localName === "anchor")
       .map((element) => readDocxChartDrawing(element))
@@ -1529,7 +1564,7 @@ async function readDocxCharts(arrayBuffer: ArrayBuffer): Promise<DocxChartPrevie
       const chartRel = relationships.find((rel) => rel.id === drawing.relationshipId && /\/chart$/i.test(rel.type));
       const chartPath = resolveOfficeRelationshipTarget("word/document.xml", chartRel?.target);
       const chartXml = chartPath ? await zip.file(chartPath)?.async("text") : undefined;
-      const chart = chartXml ? parseChartXml(chartXml, chartPath?.split("/").pop() || `chart${index + 1}.xml`) : null;
+      const chart = chartXml ? parseChartXml(chartXml, chartPath?.split("/").pop() || `chart${index + 1}.xml`, themeColors) : null;
       if (chart) {
         charts.push({ ...chart, widthPt: drawing.widthPt, heightPt: drawing.heightPt });
       }
@@ -1768,13 +1803,6 @@ type DocxLayoutHints = {
     columnIndex: number;
     count: number;
   }>;
-  verticalMergeEndCells: Array<{
-    tableIndex: number;
-    startRowIndex: number;
-    endRowIndex: number;
-    columnIndex: number;
-    endCellIndex: number;
-  }>;
   sectionBreakParagraphIndexes: number[];
   needsDefaultPageMargins: boolean;
   hasVerticalTextDirection: boolean;
@@ -1810,7 +1838,6 @@ async function readDocxLayoutHints(arrayBuffer: ArrayBuffer): Promise<DocxLayout
       autoLineHeightParagraphs: documentXml ? extractDocxAutoLineHeightHints(documentXml) : [],
       diagonalCellBorders: documentXml ? extractDocxDiagonalCellBorders(documentXml) : [],
       mergedCellEmptyParagraphs: documentXml ? extractDocxMergedCellEmptyParagraphs(documentXml) : [],
-      verticalMergeEndCells: documentXml ? extractDocxVerticalMergeEndCells(documentXml) : [],
       sectionBreakParagraphIndexes: documentXml ? extractDocxSectionBreakParagraphIndexes(documentXml) : [],
       needsDefaultPageMargins: Boolean(documentXml && /<w:sectPr\b/.test(documentXml) && !/<w:pgMar\b/.test(documentXml)),
       hasVerticalTextDirection: Boolean(documentXml && /<w:textDirection\b/.test(documentXml))
@@ -1828,7 +1855,6 @@ async function readDocxLayoutHints(arrayBuffer: ArrayBuffer): Promise<DocxLayout
       autoLineHeightParagraphs: [],
       diagonalCellBorders: [],
       mergedCellEmptyParagraphs: [],
-      verticalMergeEndCells: [],
       sectionBreakParagraphIndexes: [],
       needsDefaultPageMargins: false,
       hasVerticalTextDirection: false
@@ -2366,76 +2392,6 @@ function extractDocxMergedCellEmptyParagraphs(xml: string): DocxLayoutHints["mer
   return hints;
 }
 
-function extractDocxVerticalMergeEndCells(xml: string): DocxLayoutHints["verticalMergeEndCells"] {
-  const document = parseOfficeXml(xml);
-  if (!document) {
-    return [];
-  }
-  const hints: DocxLayoutHints["verticalMergeEndCells"] = [];
-  const tables = Array.from(document.getElementsByTagName("*")).filter((element) => element.localName === "tbl");
-  tables.forEach((table, tableIndex) => {
-    const active = new Map<number, {
-      startRowIndex: number;
-      endRowIndex: number;
-      columnIndex: number;
-      endCellIndex: number;
-    }>();
-    const finish = (columnIndex: number): void => {
-      const merge = active.get(columnIndex);
-      if (merge && merge.endRowIndex > merge.startRowIndex) {
-        hints.push({ tableIndex, ...merge });
-      }
-      active.delete(columnIndex);
-    };
-    const rows = Array.from(table.children).filter((element) => element.localName === "tr");
-    rows.forEach((row, rowIndex) => {
-      const rowProperties = firstDirectOfficeChild(row, "trPr");
-      const gridBefore = rowProperties ? firstDirectOfficeChild(rowProperties, "gridBefore") : undefined;
-      const parsedGridBefore = Number(gridBefore ? getXmlAttribute(gridBefore, "val") : 0);
-      let columnIndex = Number.isFinite(parsedGridBefore) && parsedGridBefore > 0 ? parsedGridBefore : 0;
-      const mergedColumns = new Set<number>();
-      const cells = Array.from(row.children).filter((element) => element.localName === "tc");
-      cells.forEach((cell, cellIndex) => {
-        const properties = firstDirectOfficeChild(cell, "tcPr");
-        const verticalMerge = properties ? firstDirectOfficeChild(properties, "vMerge") : undefined;
-        if (verticalMerge) {
-          mergedColumns.add(columnIndex);
-          const value = (getXmlAttribute(verticalMerge, "val") || "continue").toLowerCase();
-          if (value === "restart") {
-            finish(columnIndex);
-            active.set(columnIndex, {
-              startRowIndex: rowIndex,
-              endRowIndex: rowIndex,
-              columnIndex,
-              endCellIndex: cellIndex
-            });
-          } else {
-            const merge = active.get(columnIndex);
-            if (merge) {
-              merge.endRowIndex = rowIndex;
-              merge.endCellIndex = cellIndex;
-            }
-          }
-        } else {
-          finish(columnIndex);
-        }
-        const gridSpan = properties ? firstDirectOfficeChild(properties, "gridSpan") : undefined;
-        const parsedGridSpan = Number(gridSpan ? getXmlAttribute(gridSpan, "val") : 1);
-        columnIndex += Number.isFinite(parsedGridSpan) && parsedGridSpan > 0 ? parsedGridSpan : 1;
-      });
-      for (const activeColumn of Array.from(active.keys())) {
-        if (!mergedColumns.has(activeColumn)) {
-          finish(activeColumn);
-        }
-      }
-    });
-    for (const activeColumn of Array.from(active.keys())) {
-      finish(activeColumn);
-    }
-  });
-  return hints;
-}
-
 function findRenderedDocxTableCell(
   table: HTMLTableElement,
   rowIndex: number,
@@ -2502,42 +2458,25 @@ function repairDocxMergedCellEmptyParagraphs(
   }
 }
 
-function repairDocxVerticalMergeBottomBorders(
-  container: HTMLElement,
-  hints: DocxLayoutHints["verticalMergeEndCells"]
-): void {
-  const tables = Array.from(container.querySelectorAll<HTMLTableElement>("section.ofv-docx article table"));
-  for (const hint of hints) {
-    const table = tables[hint.tableIndex];
-    const mergedCell = table
-      ? findRenderedDocxTableCell(table, hint.startRowIndex, hint.columnIndex)
-      : undefined;
-    const endCell = table?.rows.item(hint.endRowIndex)?.cells.item(hint.endCellIndex);
-    if (!mergedCell || mergedCell.rowSpan <= 1 || !endCell || endCell === mergedCell) {
+function repairDocxMergedCellTableBottomBorders(container: HTMLElement): void {
+  const tables = container.querySelectorAll<HTMLTableElement>("section.ofv-docx article table");
+  for (const table of tables) {
+    const lastRow = table.rows.item(table.rows.length - 1);
+    if (!lastRow || (table.style.borderBottomStyle && table.style.borderBottomStyle !== "none")) {
       continue;
     }
-    const border = readVisibleDocxCellBottomBorder(endCell);
-    if (!border) {
+    const terminalMergeCell = Array.from(lastRow.cells).find((cell) => {
+      const style = cell.style;
+      return style.display === "none" && style.borderBottomStyle !== "none" && parseCssPixelValue(style.borderBottomWidth) > 0;
+    });
+    if (!terminalMergeCell) {
       continue;
     }
-    mergedCell.style.borderBottomWidth = border.width;
-    mergedCell.style.borderBottomStyle = border.style;
-    mergedCell.style.borderBottomColor = border.color;
-    mergedCell.dataset.ofvDocxMergedBottomBorderRepaired = "true";
+    table.style.borderBottomWidth = terminalMergeCell.style.borderBottomWidth;
+    table.style.borderBottomStyle = terminalMergeCell.style.borderBottomStyle;
+    table.style.borderBottomColor = terminalMergeCell.style.borderBottomColor;
+    table.dataset.ofvDocxMergedBottomBorderRepaired = "true";
   }
-}
-
-function readVisibleDocxCellBottomBorder(
-  cell: HTMLTableCellElement
-): { width: string; style: string; color: string } | undefined {
-  const computed = cell.ownerDocument.defaultView?.getComputedStyle(cell);
-  const width = cell.style.borderBottomWidth || computed?.borderBottomWidth || "";
-  const style = cell.style.borderBottomStyle || computed?.borderBottomStyle || "";
-  const color = cell.style.borderBottomColor || computed?.borderBottomColor || "";
-  if (!width || /^(?:0(?:\.0+)?(?:px|pt)?|none)$/i.test(width.trim()) || /^(?:none|hidden)$/i.test(style.trim())) {
-    return undefined;
-  }
-  return { width, style, color };
 }
 
 function extractDocxSectionBreakParagraphIndexes(xml: string): number[] {
@@ -4862,6 +4801,9 @@ type ChartPreview = {
   title: string;
   categories: string[];
   showLegend: boolean;
+  legendPosition?: string;
+  legendFontSize?: number;
+  palette?: string[];
   axes: ChartAxisPreview[];
   series: Array<{
     name: string;
@@ -4869,6 +4811,12 @@ type ChartPreview = {
     color?: string;
     type: string;
     valueAxisId?: string;
+    pointColors?: Array<string | undefined>;
+    labels?: string[];
+    labelPositions?: string[];
+    labelFontSizes?: number[];
+    firstSliceAngle?: number;
+    holeSize?: number;
   }>;
 };
 
@@ -4986,15 +4934,32 @@ function renderParsedSheets(panel: HTMLElement, sheets: ParsedSheet[], emptyMess
   panel.append(tabs, content);
 }
 
+async function readOfficeChartTheme(zip: JSZip, partPath: string): Promise<Record<string, string>> {
+  const relationships = await readOfficeRelationships(zip, partPath);
+  const themeRel = relationships.find((rel) => /\/theme$/i.test(rel.type));
+  const themePath = resolveOfficeRelationshipTarget(partPath, themeRel?.target);
+  const xml = themePath ? await zip.file(themePath)?.async("text") : undefined;
+  const doc = xml ? parseOfficeXml(xml) : undefined;
+  const scheme = doc && Array.from(doc.getElementsByTagName("*")).find((element) => element.localName === "clrScheme");
+  const colors: Record<string, string> = {};
+  for (const entry of Array.from(scheme?.children || [])) {
+    const color = entry.firstElementChild;
+    const value = color?.getAttribute(color.localName === "sysClr" ? "lastClr" : "val") || "";
+    if (/^[\da-f]{6}$/i.test(value)) colors[entry.localName] = `#${value}`;
+  }
+  return colors;
+}
+
 async function readWorkbookCharts(arrayBuffer: ArrayBuffer): Promise<ChartPreview[]> {
   const zip = await JSZip.loadAsync(arrayBuffer);
+  const themeColors = await readOfficeChartTheme(zip, "xl/workbook.xml");
   const chartEntries = Object.values(zip.files)
     .filter((entry) => !entry.dir && /^xl\/charts\/chart\d+\.xml$/i.test(entry.name))
     .sort((a, b) => a.name.localeCompare(b.name));
   const charts: ChartPreview[] = [];
   for (const [index, entry] of chartEntries.entries()) {
     const xml = await entry.async("text");
-    const chart = parseChartXml(xml, entry.name.split("/").pop() || `chart${index + 1}.xml`);
+    const chart = parseChartXml(xml, entry.name.split("/").pop() || `chart${index + 1}.xml`, themeColors);
     if (chart) {
       charts.push(chart);
     }
@@ -5002,7 +4967,7 @@ async function readWorkbookCharts(arrayBuffer: ArrayBuffer): Promise<ChartPrevie
   return charts;
 }
 
-function parseChartXml(xml: string, fallbackName: string): ChartPreview | null {
+function parseChartXml(xml: string, fallbackName: string, themeColors: Record<string, string> = {}): ChartPreview | null {
   const doc = new DOMParser().parseFromString(xml, "application/xml");
   if (doc.querySelector("parsererror")) {
     return null;
@@ -5028,8 +4993,16 @@ function parseChartXml(xml: string, fallbackName: string): ChartPreview | null {
         seriesIndex += 1;
         return {
           ...parsed,
-          color: readChartSeriesColor(element),
+          color: readChartSeriesColor(element, themeColors),
           type: seriesType,
+          pointColors: parsed.values.map((_, index) => {
+            const point = Array.from(element.children).find((child) => child.localName === "dPt" &&
+              Array.from(child.children).some((item) => item.localName === "idx" && Number(item.getAttribute("val")) === index));
+            return readChartSeriesColor(point, themeColors);
+          }),
+          ...readCircularChartLabels(element, chartType, parsed),
+          firstSliceAngle: Number(Array.from(chartType.children).find((child) => child.localName === "firstSliceAng")?.getAttribute("val") || 0),
+          holeSize: Number(Array.from(chartType.children).find((child) => child.localName === "holeSize")?.getAttribute("val") || 50),
           valueAxisId: axisIds[1]
         };
       });
@@ -5049,15 +5022,56 @@ function parseChartXml(xml: string, fallbackName: string): ChartPreview | null {
         element.localName === "legend" &&
         !Array.from(element.children).some((child) => child.localName === "delete" && child.getAttribute("val") === "1")
     ),
+    legendPosition: Array.from(doc.getElementsByTagName("*")).find((element) => element.localName === "legendPos")?.getAttribute("val") || "r",
+    legendFontSize: readChartFontSize(Array.from(doc.getElementsByTagName("*")).find((element) => element.localName === "legend")),
+    palette: Array.from({ length: 6 }, (_, index) => themeColors[`accent${index + 1}`] || chartSchemeColor(`accent${index + 1}`)!),
     axes: readChartValueAxes(doc),
     series: series.map((item) => ({
       name: item.name,
       values: item.values,
       color: item.color,
       type: item.type,
-      valueAxisId: item.valueAxisId
+      valueAxisId: item.valueAxisId,
+      pointColors: item.pointColors,
+      labels: item.labels,
+      labelPositions: item.labelPositions,
+      labelFontSizes: item.labelFontSizes,
+      firstSliceAngle: item.firstSliceAngle,
+      holeSize: item.holeSize
     }))
   };
+}
+
+function readChartFontSize(element: Element | undefined): number | undefined {
+  const properties = Array.from(element?.getElementsByTagName("*") || []).find((child) => ["rPr", "defRPr"].includes(child.localName) && child.hasAttribute("sz"));
+  const size = Number(properties?.getAttribute("sz"));
+  return size > 0 ? size / 100 * 4 / 3 : undefined;
+}
+
+function readCircularChartLabels(element: Element, chartType: Element, parsed: { name: string; values: number[]; categories: string[] }): { labels: string[]; labelPositions: string[]; labelFontSizes: number[] } {
+  const direct = (parent: Element | undefined, name: string) => Array.from(parent?.children || []).find((child) => child.localName === name);
+  const seriesLabels = direct(element, "dLbls");
+  const chartLabels = direct(chartType, "dLbls");
+  const total = parsed.values.reduce((sum, value) => sum + Math.abs(value), 0);
+  const positions: string[] = [];
+  const fontSizes: number[] = [];
+  const labels = parsed.values.map((value, index) => {
+    const pointLabel = Array.from(seriesLabels?.children || []).find((child) => child.localName === "dLbl" && Number(direct(child, "idx")?.getAttribute("val")) === index);
+    const setting = (name: string) => direct(pointLabel, name) || direct(seriesLabels, name) || direct(chartLabels, name);
+    const enabled = (name: string) => ["1", "true"].includes(setting(name)?.getAttribute("val") || "");
+    fontSizes.push(readChartFontSize(pointLabel) || readChartFontSize(seriesLabels) || readChartFontSize(chartLabels) || 12);
+    positions.push(setting("dLblPos")?.getAttribute("val") || "bestFit");
+    if (enabled("delete")) return "";
+    const custom = direct(pointLabel, "tx");
+    if (custom) return chartText(custom);
+    const parts: string[] = [];
+    if (enabled("showSerName")) parts.push(parsed.name);
+    if (enabled("showCatName")) parts.push(parsed.categories[index] || String(index + 1));
+    if (enabled("showVal")) parts.push(String(value));
+    if (enabled("showPercent")) parts.push(`${Number((total > 0 ? Math.abs(value) / total * 100 : 0).toFixed(1))}%`);
+    return parts.join(direct(pointLabel, "separator")?.textContent || direct(seriesLabels, "separator")?.textContent || ", ");
+  });
+  return { labels, labelPositions: positions, labelFontSizes: fontSizes };
 }
 
 function readChartTitle(doc: Document): string {
@@ -5134,7 +5148,7 @@ function readChartValueAxes(doc: Document): ChartAxisPreview[] {
     });
 }
 
-function readChartSeriesColor(element: Element | undefined): string | undefined {
+function readChartSeriesColor(element: Element | undefined, themeColors: Record<string, string> = {}): string | undefined {
   const shape = Array.from(element?.children || []).find((child) => child.localName === "spPr");
   const color = Array.from(shape?.getElementsByTagName("*") || []).find(
     (child) => child.localName === "srgbClr" || child.localName === "schemeClr"
@@ -5146,7 +5160,7 @@ function readChartSeriesColor(element: Element | undefined): string | undefined 
     const value = color.getAttribute("val") || "";
     return /^[\da-f]{6}$/i.test(value) ? `#${value}` : undefined;
   }
-  return chartSchemeColor(color.getAttribute("val") || "");
+  return themeColors[color.getAttribute("val") || ""] || chartSchemeColor(color.getAttribute("val") || "");
 }
 
 function chartSchemeColor(value: string): string | undefined {
@@ -5213,6 +5227,17 @@ function renderChartSvg(chart: ChartPreview): SVGSVGElement {
   svg.classList.add("ofv-chart-svg");
 
   const colors = ["#156082", "#e97132", "#196b24", "#0f9ed5", "#a02b93", "#4ea72e"];
+  const circularTypes = new Set(["pie", "doughnut"]);
+  if (chart.series.length === 1 && circularTypes.has(chart.series[0].type)) {
+    renderCircularChart(svg, chart, colors);
+    return svg;
+  }
+  // Never substitute a line chart for an unsupported chart family.
+  if (chart.series.some((series) => !["bar", "line"].includes(series.type))) {
+    const label = appendSvg(svg, "text", { x: 320, y: 190, "text-anchor": "middle", class: "ofv-chart-label" });
+    label.textContent = `暂不支持此图表类型（${chart.type}），请下载原文件查看`;
+    return svg;
+  }
   const hasTitle = Boolean(chart.title);
   const primarySeries = chart.series[0];
   const primaryAxisId = primarySeries?.valueAxisId;
@@ -5287,7 +5312,7 @@ function renderChartSvg(chart: ChartPreview): SVGSVGElement {
   });
 
   const barSeries = chart.series.filter((series) => series.type.includes("bar") || series.type.includes("col"));
-  const lineSeries = chart.series.filter((series) => !barSeries.includes(series));
+  const lineSeries = chart.series.filter((series) => series.type === "line");
   const categoryCount = Math.max(1, categories.length, ...chart.series.map((series) => series.values.length));
   const categoryStep = categoryCount > 1 ? plot.width / (categoryCount - 1) : plot.width;
   appendChartCategoryLabels(
@@ -5347,6 +5372,129 @@ function renderChartSvg(chart: ChartPreview): SVGSVGElement {
     appendChartLegend(svg, chart, colors, 348);
   }
   return svg;
+}
+
+function renderCircularChart(svg: SVGSVGElement, chart: ChartPreview, colors: string[]): void {
+  const series = chart.series[0];
+  const values = series.values.map((value) => Math.abs(value));
+  const total = values.reduce((sum, value) => sum + value, 0);
+  if (chart.title) {
+    const title = appendSvg(svg, "text", { x: 320, y: 34, class: "ofv-chart-title", "text-anchor": "middle" });
+    title.textContent = chart.title;
+  }
+  const legendPosition = chart.legendPosition || "r";
+  const horizontalLegend = ["t", "b"].includes(legendPosition);
+  const legendFontSize = chart.legendFontSize || 12;
+  const textWidth = (text: string, size: number) => Array.from(text).reduce((width, character) => width + (/[^\x00-\x7f]/.test(character) ? size : size * 0.52), 0);
+  const legendWidths = values.map((_, index) => textWidth(chart.categories[index] || String(index + 1), legendFontSize) + legendFontSize * 2);
+  const legendLocations: Array<{ x: number; row: number }> = [];
+  let legendX = 0, row = 0;
+  legendWidths.forEach((width) => {
+    if (legendX + width > 600 && legendX > 0) { row++; legendX = 0; }
+    legendLocations.push({ x: legendX, row });
+    legendX += width;
+  });
+  const legendRows = row + 1;
+  const rowWidths = Array.from({ length: legendRows }, (_, rowIndex) => legendWidths.reduce((sum, width, index) => sum + (legendLocations[index].row === rowIndex ? width : 0), 0));
+  const topLegendHeight = chart.showLegend && legendPosition === "t" ? legendRows * (legendFontSize + 6) : 0;
+  const cx = chart.showLegend && !horizontalLegend ? (legendPosition === "l" ? 450 : 190) : 320;
+  const plotTop = (chart.title ? 48 : 10) + topLegendHeight + 18;
+  const plotBottom = chart.showLegend && legendPosition === "b" ? 350 - legendRows * (legendFontSize + 6) : 350;
+  const cy = (plotTop + plotBottom) / 2;
+  const radius = Math.min(155, (plotBottom - plotTop) / 2 - 10);
+  const labelBoxes: Array<{ x: number; y: number; width: number; height: number }> = [];
+  const inner = series.type === "doughnut" ? radius * Math.max(0.1, Math.min(0.9, (series.holeSize ?? 50) / 100)) : 0;
+  let angle = ((series.firstSliceAngle || 0) - 90) * Math.PI / 180;
+  const point = (r: number, a: number) => `${cx + r * Math.cos(a)},${cy + r * Math.sin(a)}`;
+  values.forEach((value, index) => {
+    const sweep = total > 0 ? value / total * Math.PI * 2 : 0;
+    const end = angle + sweep;
+    const palette = chart.palette || colors;
+    const baseColor = palette[index % palette.length];
+    const cycle = Math.floor(index / palette.length);
+    const color = series.pointColors?.[index] || (cycle > 0 ? tintChartColor(baseColor, Math.min(0.8, cycle * 0.5)) : baseColor);
+    if (sweep > 0) {
+      // Two arcs also handle a single slice covering the full circle.
+      const middle = angle + sweep / 2;
+      let path = `M ${point(radius, angle)} A ${radius},${radius} 0 0 1 ${point(radius, middle)} A ${radius},${radius} 0 0 1 ${point(radius, end)}`;
+      path += inner > 0
+        ? ` L ${point(inner, end)} A ${inner},${inner} 0 0 0 ${point(inner, middle)} A ${inner},${inner} 0 0 0 ${point(inner, angle)} Z`
+        : ` L ${cx},${cy} Z`;
+      const slice = appendSvg(svg, "path", { d: path, fill: color, stroke: "#fff", "stroke-width": 1, "data-slice-index": index });
+      const title = appendSvg(slice, "title", {});
+      title.textContent = `${chart.categories[index] || index + 1}: ${series.values[index]} (${total > 0 ? Number((value / total * 100).toFixed(1)) : 0}%)`;
+    }
+    const label = series.labels?.[index];
+    if (label && sweep > 0) {
+      const position = series.labelPositions?.[index] || "bestFit";
+      const middle = angle + sweep / 2;
+      const fontSize = series.labelFontSizes?.[index] || 12;
+      const width = textWidth(label, fontSize);
+      const insideRadius = inner + (radius - inner) * (position === "ctr" ? 0.5 : 0.65);
+      let x = cx + insideRadius * Math.cos(middle);
+      let y = cy + insideRadius * Math.sin(middle);
+      const corners = [-1, 1].flatMap((dx) => [-1, 1].map((dy) => ({ x: x + dx * width / 2, y: y + dy * fontSize / 2 })));
+      const fits = corners.every((corner) => {
+        const distance = Math.hypot(corner.x - cx, corner.y - cy);
+        let cornerAngle = Math.atan2(corner.y - cy, corner.x - cx);
+        while (cornerAngle < angle) cornerAngle += Math.PI * 2;
+        return distance < radius - 3 && distance > inner && cornerAngle <= end;
+      });
+      const outside = position === "outEnd" || (position === "bestFit" && !fits);
+      if (outside) {
+        x = cx + (radius + 12) * Math.cos(middle);
+        y = cy + (radius + 12) * Math.sin(middle);
+      }
+      let anchor = outside ? (Math.cos(middle) >= 0 ? "start" : "end") : "middle";
+      x = Math.max(width / 2 + 4, Math.min(636 - width / 2, x));
+      // Keep automatically placed labels inside the SVG and apart from one another.
+      let left = anchor === "start" ? x : anchor === "end" ? x - width : x - width / 2;
+      if (left < 4 || left + width > 636) { anchor = "middle"; left = x - width / 2; }
+      if (position === "bestFit" || outside) {
+        for (let attempt = 0; attempt < values.length; attempt++) {
+          const overlap = labelBoxes.find((box) => left < box.x + box.width + 2 && left + width + 2 > box.x && Math.abs(y - box.y) < (fontSize + box.height) / 2 + 2);
+          if (!overlap) break;
+          y = overlap.y + (fontSize + overlap.height) / 2 + 3;
+        }
+      }
+      y = Math.min(370 - fontSize / 2, Math.max(plotTop, y));
+      labelBoxes.push({ x: left, y, width, height: fontSize });
+      const text = appendSvg(svg, "text", {
+        x, y, "text-anchor": anchor,
+        "dominant-baseline": "middle", class: "ofv-chart-label ofv-chart-data-label", "data-label-index": index,
+        "data-label-placement": outside ? "outside" : "inside"
+      });
+      text.style.fill = circularChartLabelColor(outside ? "#ffffff" : color);
+      text.style.fontSize = `${fontSize}px`;
+      text.textContent = label;
+    }
+    if (chart.showLegend) {
+      const location = legendLocations[index];
+      const x = horizontalLegend ? (640 - rowWidths[location.row]) / 2 + location.x : legendPosition === "l" ? 20 : 360;
+      const y = horizontalLegend ? (legendPosition === "t" ? (chart.title ? 64 : 20) : 350) + location.row * (legendFontSize + 6) : 73 + index * 28;
+      appendSvg(svg, "rect", { x, y: y - legendFontSize * 0.7, width: legendFontSize * 0.7, height: legendFontSize * 0.7, fill: color });
+      const text = appendSvg(svg, "text", { x: x + legendFontSize, y, class: "ofv-chart-label", "data-chart-legend": index });
+      text.style.fontSize = `${legendFontSize}px`;
+      text.textContent = chart.categories[index] || String(index + 1);
+    }
+    angle = end;
+  });
+  const height = Math.max(380, horizontalLegend ? (legendPosition === "b" ? 370 + legendRows * 24 : 380) : 90 + values.length * 28);
+  svg.setAttribute("viewBox", `0 0 640 ${height}`);
+}
+
+function tintChartColor(color: string, amount: number): string {
+  return "#" + (color.slice(1).match(/.{2}/g) || []).map((channel) => Math.round(parseInt(channel, 16) * (1 - amount) + 255 * amount).toString(16).padStart(2, "0")).join("");
+}
+
+function circularChartLabelColor(background: string): string {
+  const channels = background.replace("#", "").match(/.{2}/g)?.map((channel) => {
+    const value = parseInt(channel, 16) / 255;
+    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  });
+  if (!channels || channels.length !== 3) return "#000000";
+  const luminance = channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+  return luminance > 0.179 ? "#000000" : "#ffffff";
 }
 
 type ChartAxisScale = { min: number; max: number; ticks: number[]; formatCode?: string };
@@ -6814,6 +6962,7 @@ type PptxAutoNumberingCorrection = PptxShapeGeometry & {
 type PptxAutofitWrapCorrection = {
   slideIndex: number;
   text: string;
+  wrap: boolean;
 };
 
 type PptxTextAlignmentCorrection = {
@@ -7056,11 +7205,11 @@ function normalizePptxAutofitWrapping(container: HTMLElement, corrections: PptxA
       );
     });
     for (const paragraph of paragraphs) {
-      paragraph.style.whiteSpace = "nowrap";
+      paragraph.style.whiteSpace = correction.wrap ? "normal" : "nowrap";
       paragraph.style.overflowWrap = "normal";
       paragraph.style.wordBreak = "normal";
-      paragraph.style.maxWidth = "none";
-      paragraph.dataset.ofvPptxAutofitWrap = "true";
+      paragraph.style.maxWidth = correction.wrap ? "100%" : "none";
+      paragraph.dataset.ofvPptxAutofitWrap = correction.wrap ? "wrap" : "nowrap";
     }
   }
 }
@@ -7078,17 +7227,17 @@ function normalizePptxTextAlignment(container: HTMLElement, corrections: PptxTex
         normalizePptxParagraphText(element.textContent || "") === shapeText &&
         element.querySelector("span")
     );
-    if (!shape) {
-      continue;
-    }
-    const paragraphElements = Array.from(shape.querySelectorAll<HTMLElement>("div")).filter((element) => {
+    const paragraphElements = Array.from((shape || wrapper).querySelectorAll<HTMLElement>("div")).filter((element) => {
       const children = Array.from(element.children);
       return children.length > 0 && children.every((child) => child.tagName === "SPAN");
     });
     const unused = new Set(paragraphElements);
     for (const paragraph of correction.paragraphs) {
       const match = Array.from(unused).find(
-        (element) => normalizePptxParagraphText(element.textContent || "") === paragraph.text
+        (element) => {
+          const renderedText = normalizePptxParagraphText(element.textContent || "");
+          return renderedText === paragraph.text || renderedText.endsWith(paragraph.text);
+        }
       );
       if (!match) {
         continue;
@@ -7503,10 +7652,27 @@ async function inspectPptxVisualCorrections(zip: JSZip): Promise<{
       if (textBody && bodyProperties && findPptxChild(bodyProperties, "spAutoFit")) {
         const text = paragraphs.length === 1 ? normalizePptxParagraphText(paragraphs[0]?.textContent || "") : "";
         if (text && !findPptxDescendant(paragraphs[0]!, "br")) {
-          autofitWrapCorrections.push({ slideIndex, text });
+          autofitWrapCorrections.push({
+            slideIndex,
+            text,
+            // Group-local coordinates are scaled by the parent transform and
+            // pptx-renderer already preserves those short autofit labels as a
+            // single line. Direct text boxes keep their declared square wrap.
+            wrap:
+              (bodyProperties.getAttribute("wrap") || "square").toLowerCase() !== "none" &&
+              (shape.parentElement?.localName !== "grpSp" || estimatePptxTextWidth(text) > 32)
+          });
         }
       }
-      if (textBody && shape.parentElement?.localName === "grpSp" && paragraphs.length > 1) {
+      const hasAutoNumbering = paragraphs.some((paragraph) => {
+        const paragraphProperties = findPptxChild(paragraph, "pPr");
+        return Boolean(paragraphProperties && findPptxChild(paragraphProperties, "buAutoNum"));
+      });
+      if (
+        textBody &&
+        paragraphs.length > 1 &&
+        (shape.parentElement?.localName === "grpSp" || hasAutoNumbering)
+      ) {
         const listStyle = findPptxChild(textBody, "lstStyle");
         const paragraphCorrections = paragraphs.flatMap((paragraph) => {
           const text = normalizePptxParagraphText(paragraph.textContent || "");
@@ -7570,6 +7736,10 @@ async function inspectPptxVisualCorrections(zip: JSZip): Promise<{
     imageClipCorrections,
     transparentChartCorrections
   };
+}
+
+function estimatePptxTextWidth(text: string): number {
+  return [...text].reduce((width, character) => width + (/^[\x00-\xff]$/.test(character) ? 0.55 : 1), 0);
 }
 
 function readPptxDefaultTextAlignments(presentation: Document): Map<number, string> {
@@ -8095,7 +8265,8 @@ async function renderPackagedOfficePreview(
   arrayBuffer: ArrayBuffer,
   extension: string,
   fit: PreviewFit,
-  messages: PreviewMessages
+  messages: PreviewMessages,
+  docxOptions?: Partial<docxPreview.Options>
 ): Promise<boolean> {
   let zip: JSZip;
   try {
@@ -8109,7 +8280,7 @@ async function renderPackagedOfficePreview(
   const contentXml = zip.file(/(^|\/)content\.xml$/i)[0];
 
   if (hasEntry("word/document.xml")) {
-    await renderDocx(panel, arrayBuffer, fit);
+    await renderDocx(panel, arrayBuffer, fit, docxOptions);
     return true;
   }
 
@@ -8724,10 +8895,11 @@ async function prepareLegacyPowerPointImages(
     }
     try {
       const buffer = toStandaloneArrayBuffer(image.bytes);
-      const dataUrl =
-        image.kind === "emf"
-          ? await converter.convertEmfToDataUrl(buffer, { maxWidth: 1600, maxHeight: 1200, dpiScale: 1.5 })
-          : await converter.convertWmfToDataUrl(buffer, { maxWidth: 1600, maxHeight: 1200, dpiScale: 1.5 });
+      const dataUrl = await converter.convertMetafileToDataUrl(buffer, {
+        maxWidth: 1600,
+        maxHeight: 1200,
+        dpiScale: 1.5
+      });
       if (dataUrl) {
         sources.set(image.index, { src: dataUrl, revoke: false });
       }

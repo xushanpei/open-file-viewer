@@ -11,7 +11,7 @@
     <meta name="theme-color" content="#05060e" media="(prefers-color-scheme: dark)" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="shortcut icon" href="/favicon.svg" type="image/svg+xml" />
-    <link rel="mask-icon" href="/favicon.svg" color="#7c5cff" />
+    <link rel="mask-icon" href="/favicon.svg" color="#191919" />
     <script>
       (() => {
         const root = document.documentElement;
@@ -67,12 +67,6 @@
   </head>
   <body>
     <svg class="icon-sprite" aria-hidden="true" focusable="false">
-      <symbol id="icon-logo" viewBox="0 0 24 24">
-        <g stroke="none">
-          <path fill="url(#ofv-body)" fill-rule="evenodd" d="M5.9 2 L13.5 2 L20.5 9 L20.5 19.6 A2.4 2.4 0 0 1 18.1 22 L5.9 22 A2.4 2.4 0 0 1 3.5 19.6 L3.5 4.4 A2.4 2.4 0 0 1 5.9 2 Z M9.2 9.2 L16 12.4 L9.2 15.6 Z" />
-          <path fill="url(#ofv-flap)" d="M13.5 2 L20.5 9 L13.5 9 Z" />
-        </g>
-      </symbol>
       <symbol id="icon-docs" viewBox="0 0 24 24">
         <path d="M7 3h7l4 4v14H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z" />
         <path d="M14 3v4h4M8.5 12h7M8.5 15h7M8.5 18h4" />
@@ -157,17 +151,7 @@
     <header class="site-header">
       <a class="brand" href="#top" aria-label="Open File Viewer home">
         <span class="brand-mark">
-          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-            <defs>
-              <linearGradient id="ofv-body" gradientUnits="userSpaceOnUse" x1="4.2" y1="2.8" x2="20" y2="21.4">
-                <stop offset="0" stop-color="#7deefb" /><stop offset="0.52" stop-color="#7c5cff" /><stop offset="1" stop-color="#3b21c4" />
-              </linearGradient>
-              <linearGradient id="ofv-flap" gradientUnits="userSpaceOnUse" x1="14.6" y1="7.9" x2="17.6" y2="4.9">
-                <stop offset="0" stop-color="#e9ffb2" /><stop offset="1" stop-color="#a2df31" />
-              </linearGradient>
-            </defs>
-            <use href="#icon-logo" />
-          </svg>
+          <img src="/favicon.svg" alt="" width="31" height="31" />
         </span>
         <span class="brand-name">Open File Viewer</span>
       </a>
@@ -253,7 +237,7 @@
             <div class="viewer-shell" data-tilt>
               <div class="shell-top">
                 <div class="traffic"><span></span><span></span><span></span></div>
-                <div class="address"><svg><use href="#icon-logo"></use></svg><span class="address-path">preview/</span><span id="stageFile">contract.pdf</span></div>
+                <div class="address"><img src="/favicon.svg" alt="" width="13" height="13" /><span class="address-path">preview/</span><span id="stageFile">contract.pdf</span></div>
                 <div class="shell-tools">
                   <svg><use href="#icon-search"></use></svg>
                   <svg><use href="#icon-zoom"></use></svg>
@@ -581,9 +565,7 @@
         <div class="footer-brand">
           <span class="footer-brand-row">
             <span class="brand-mark">
-              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                <use href="#icon-logo" />
-              </svg>
+              <img src="/favicon.svg" alt="" width="31" height="31" />
             </span>
             <strong>Open File Viewer</strong>
           </span>

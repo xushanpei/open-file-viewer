@@ -1,9 +1,13 @@
-# Open File Viewer
+<p align="center">
+  <img src="./doc/public/favicon.svg" width="104" height="104" alt="Open File Viewer logo" />
+</p>
+
+<h1 align="center">Open File Viewer</h1>
 
 <p align="right">
-  <a href="./README.zh-CN.md">简体中文</a>
-  |
   <a href="./README.md">English</a>
+  |
+  <a href="./README.zh-CN.md">简体中文</a>
   |
   <a href="./README.ja.md">日本語</a>
   |
@@ -573,14 +577,17 @@ pnpm pack:check
 
 ## Roadmap
 
-| Versión | Foco |
-| --- | --- |
-| `0.1.x` | Sistema de plugins core, vista previa dentro del contenedor, integración React/Vue/Svelte/Vanilla, vista previa básica multiformato |
-| `0.2.x` | Toolbar, temas, interacción con imágenes, búsqueda en PDF, estados unificados y fallback |
-| `0.3.x` | Lector Markdown/código, mejora de hojas de cálculo y documentos Office |
-| `0.4.x` | OFD, correo, archivos comprimidos, dibujos y mejoras para formatos frecuentes en negocios domésticos chinos |
-| `0.5.x` | CAD, 3D, GIS, parsers dedicados y colaboración con conversión del lado del servidor |
-| `1.0.0` | API estable, sitio de documentación completo, pruebas visuales de regresión y guía de desarrollo de plugins |
+La versión actual del espacio de trabajo es `1.0.0-rc.1`, una candidata para validar la API pública y las funciones de vista previa existentes.
+
+| Versión | Objetivo | Criterios de publicación |
+| --- | --- | --- |
+| `1.0.0-rc.1` | Validar Core, adaptadores de frameworks, contrato de plugins y formatos actuales | Recoger comentarios sobre compatibilidad y archivos reales antes de la versión estable |
+| `1.0.0` | API pública estable e integración fiable en el navegador | Aprobar `pnpm check`, verificar builds de consumidores y regresiones visuales representativas, documentar los formatos admitidos y el desarrollo de plugins |
+| `1.x` | Mejoras compatibles de formatos, fidelidad, accesibilidad y rendimiento | Mantener la compatibilidad de la API 1.0 y publicar versiones menores o parches según el cambio |
+| `2.0.0` | Paquetes de formatos modulares y bajo demanda, y configuración clara de recursos Worker/WASM | Publicar 2.0 solo si las rutas de importación o la API de plugins requieren cambios incompatibles; incluir una guía de migración |
+| `3.0.0` | Modelo unificado de páginas, escenas y texto, y contrato de conversión navegador/servidor para búsqueda e impresión coherentes | Publicar 3.0 solo si el nuevo contrato de renderizado requiere cambios incompatibles en la API pública |
+
+2.0 y 3.0 son orientaciones, no fechas ni compromisos de incrementar la versión principal. Los cambios compatibles se publicarán en 1.x.
 
 ## Comunidad y Soporte
 

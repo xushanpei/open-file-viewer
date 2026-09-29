@@ -42,6 +42,7 @@ describe("WebGL DWG engine loading", () => {
     expect(createInstance).toHaveBeenCalledWith(
       expect.objectContaining({
         container: context.panel.querySelector(".ofv-dwg-webgl-stage"),
+        busyIndicatorHost: context.panel.querySelector(".ofv-dwg-webgl-preview"),
         webworkerFileUrls: {
           dwgParser: expect.stringMatching(/\/vendor\/cad-engine\/libredwg-parser-worker\.js$/),
           mtextRender: expect.stringMatching(/\/vendor\/cad-engine\/mtext-renderer-worker\.js$/)
@@ -53,6 +54,11 @@ describe("WebGL DWG engine loading", () => {
       expect.any(ArrayBuffer),
       expect.objectContaining({ mode: "read", openViewMode: "extents" })
     );
+    expect(context.preview.setLoading).toHaveBeenCalledWith(false);
+    expect(vi.mocked(context.preview.setLoading).mock.invocationCallOrder[0]).toBeLessThan(
+      manager.openDocument.mock.invocationCallOrder[0]
+    );
+    expect(context.panel.querySelector(".ofv-dwg-webgl-status")).toBeNull();
     expect(instance.command?.("zoom-in")).toBe(true);
     expect(camera.zoom).toBeCloseTo(1.22);
     expect(context.preview.toolbar?.setZoom).toHaveBeenLastCalledWith(1.22);
@@ -93,6 +99,7 @@ function createContext(): CadBinaryPreviewContext {
     arrayBuffer: new Uint8Array([0x41, 0x43, 0x31, 0x30, 0x32, 0x37]).buffer,
     bytes: new Uint8Array([0x41, 0x43, 0x31, 0x30, 0x32, 0x37]),
     preview: {
+      setLoading: vi.fn(),
       toolbar: {
         setZoom: vi.fn()
       }

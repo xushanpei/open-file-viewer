@@ -1175,6 +1175,70 @@ describe("createViewer", () => {
     viewer.destroy();
   });
 
+  it("prints DOCX pages at their document size without preview padding or scaling", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const print = vi.fn();
+    vi.spyOn(HTMLIFrameElement.prototype, "contentWindow", "get").mockReturnValue({
+      focus: vi.fn(),
+      print
+    } as unknown as Window);
+
+    const plugin: PreviewPlugin = {
+      name: "docx-print",
+      match: () => true,
+      render(ctx) {
+        const panel = document.createElement("div");
+        panel.className = "ofv-panel ofv-office ofv-office-docx";
+        const documentView = document.createElement("div");
+        documentView.className = "ofv-docx-document";
+        const wrapper = document.createElement("div");
+        wrapper.className = "ofv-docx-wrapper";
+        wrapper.style.setProperty("--ofv-docx-scale", "0.5");
+        const pageFrame = document.createElement("div");
+        pageFrame.className = "ofv-docx-page-frame";
+        pageFrame.style.cssText = "width: 397px; height: 562px; margin-bottom: 30px";
+        const page = document.createElement("section");
+        page.className = "ofv-docx";
+        page.style.cssText = "width: 794px; height: 1123px; transform: scale(0.5)";
+        page.textContent = "DOCX page";
+        pageFrame.append(page);
+        wrapper.append(pageFrame);
+        documentView.append(wrapper);
+        panel.append(documentView);
+        ctx.viewport.append(panel);
+        return { destroy: vi.fn() };
+      }
+    };
+
+    const viewer = createViewer({
+      container,
+      file: new Blob(["docx"]),
+      fileName: "document.docx",
+      toolbar: true,
+      plugins: [plugin]
+    });
+
+    await waitFor(() => Boolean(container.querySelector(".ofv-docx-page-frame")));
+    container.querySelector<HTMLButtonElement>('button[aria-label="Print preview"]')?.click();
+    await waitFor(() => print.mock.calls.length === 1);
+
+    const printFrame = document.querySelector<HTMLIFrameElement>(".ofv-print-frame");
+    const printDocument = printFrame?.contentDocument;
+    const printStyles = Array.from(printDocument?.head.querySelectorAll("style") || [])
+      .map((style) => style.textContent || "")
+      .join("\n");
+    expect(printStyles).toContain("size: 794px 1123px");
+    expect(printStyles).toContain("--ofv-docx-scale: 1 !important");
+    expect(printStyles).toContain(".ofv-docx-page-frame > section.ofv-docx");
+    expect(printDocument?.querySelectorAll("section.ofv-docx")).toHaveLength(1);
+    expect(container.querySelector<HTMLElement>(".ofv-docx-wrapper")?.style.getPropertyValue("--ofv-docx-scale")).toBe(
+      "0.5"
+    );
+
+    viewer.destroy();
+  });
+
   it("keeps the print iframe until the browser finishes printing", async () => {
     const container = document.createElement("div");
     document.body.append(container);

@@ -4,8 +4,14 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   plugins: [react()],
+  optimizeDeps: {
+    exclude: ["emf-converter"]
+  },
   build: {
-    chunkSizeWarningLimit: 2500
+    chunkSizeWarningLimit: 2500,
+    rollupOptions: {
+      external: ["@napi-rs/canvas"]
+    }
   },
   resolve: {
     alias: {

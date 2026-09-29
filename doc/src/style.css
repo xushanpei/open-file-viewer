@@ -259,18 +259,23 @@ img {
 .brand-mark {
   display: grid;
   place-items: center;
-  filter: drop-shadow(0 3px 10px rgba(124, 92, 255, 0.35));
+  flex: 0 0 31px;
+  width: 31px;
+  height: 31px;
+  filter: drop-shadow(0 3px 9px rgba(0, 0, 0, 0.18));
   transition: transform 0.5s var(--ease-spring), filter 0.4s ease;
 }
 
 .brand:hover .brand-mark {
-  transform: rotate(-6deg) scale(1.1);
-  filter: drop-shadow(0 4px 14px rgba(34, 211, 238, 0.5));
+  transform: scale(1.08);
+  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.3));
 }
 
-.brand-mark svg {
-  width: 27px;
-  height: 27px;
+.brand-mark img {
+  display: block;
+  width: 31px;
+  height: 31px;
+  max-width: none;
 }
 
 .desktop-nav {
@@ -828,7 +833,7 @@ svg.gh-fill {
   overflow: hidden;
 }
 
-.address svg {
+.address img {
   width: 13px;
   height: 13px;
   flex-shrink: 0;

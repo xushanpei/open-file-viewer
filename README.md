@@ -1,9 +1,13 @@
-# Open File Viewer
+<p align="center">
+  <img src="./doc/public/favicon.svg" width="104" height="104" alt="Open File Viewer logo" />
+</p>
+
+<h1 align="center">Open File Viewer</h1>
 
 <p align="right">
-  <a href="./README.zh-CN.md">Simplified Chinese</a>
-  |
   <strong>English</strong>
+  |
+  <a href="./README.zh-CN.md">Simplified Chinese</a>
   |
   <a href="./README.ja.md">日本語</a>
   |
@@ -78,6 +82,20 @@ PDF preview requires `pdfjs-dist` when you use `pdfPlugin()`:
 
 ```bash
 pnpm add pdfjs-dist
+```
+
+When using `officePlugin()` with Vite, exclude the converter from dependency pre-bundling and
+externalize its optional Node canvas fallback from the browser build. EMF/WMF conversion in the
+browser still uses Canvas:
+
+```ts
+// vite.config.ts — merge these options into your existing config
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  optimizeDeps: { exclude: ["emf-converter"] },
+  build: { rollupOptions: { external: ["@napi-rs/canvas"] } }
+});
 ```
 
 You can also use npm or yarn:
@@ -830,14 +848,17 @@ pnpm pack:check
 
 ## Roadmap
 
-| Version | Focus |
-| --- | --- |
-| `0.1.x` | Core plugin system, in-container preview, React/Vue/Svelte/Vanilla integration, basic multi-format preview |
-| `0.2.x` | Toolbar, themes, image interactions, PDF search, unified states, and fallback |
-| `0.3.x` | Markdown/code reader, enhanced Office spreadsheets and document experience |
-| `0.4.x` | OFD, email, archives, drawing files, and enhancements for high-frequency domestic business formats |
-| `0.5.x` | CAD, 3D, GIS, dedicated parsers, and server-side conversion collaboration |
-| `1.0.0` | Stable API, complete documentation site, visual regression tests, and plugin development guide |
+The current workspace version is `1.0.0-rc.1`, a release candidate for validating the public API and existing preview capabilities.
+
+| Version | Focus | Release criteria |
+| --- | --- | --- |
+| `1.0.0-rc.1` | Validate Core, framework adapters, plugin contracts, and the current format support with integrators | Collect compatibility and real-file feedback before the stable release |
+| `1.0.0` | Stable public API and dependable browser integration | Pass `pnpm check`, verify consumer builds and representative visual regressions, document supported formats and plugin development |
+| `1.x` | Compatible format, fidelity, accessibility, and performance improvements | Preserve the 1.0 public API; use minor or patch releases as appropriate |
+| `2.0.0` | Modular, on-demand format packages and a clearer Worker/WASM resource contract | Release as 2.0 only if import paths or plugin APIs require incompatible changes; provide a migration guide |
+| `3.0.0` | A unified page/scene/text model and browser/server conversion contract for consistent search and printing | Release as 3.0 only if the new rendering contract requires incompatible public API changes |
+
+The 2.0 and 3.0 entries are directions, not dates or commitments to a major-version bump. Backward-compatible work belongs in 1.x.
 
 ## Community and Support
 

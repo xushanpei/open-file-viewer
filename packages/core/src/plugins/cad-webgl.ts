@@ -65,12 +65,7 @@ export async function renderWebglDwgPreview(
   const stage = document.createElement("div");
   stage.className = "ofv-dwg-webgl-stage";
 
-  const status = document.createElement("div");
-  status.className = "ofv-dwg-webgl-status";
-  status.setAttribute("role", "status");
-  status.textContent = "正在解析 DWG 图层、块和文字…";
-
-  shell.append(stage, status);
+  shell.append(stage);
   ctx.panel.append(shell);
 
   let manager: ReturnType<CadEngineModule["AcApDocManager"]["createInstance"]>;
@@ -100,6 +95,7 @@ export async function renderWebglDwgPreview(
       throw new Error("DWG worker resources are unavailable.");
     }
 
+    ctx.preview.setLoading(false);
     const opened = await manager.openDocument(ctx.fileName, ctx.arrayBuffer.slice(0), {
       mode: engine.AcEdOpenMode.Read,
       openViewMode: engine.AcApOpenViewMode.Extents,
@@ -109,7 +105,6 @@ export async function renderWebglDwgPreview(
       throw new Error("The DWG document could not be opened.");
     }
 
-    status.hidden = true;
     manager.curView.zoomToFitDrawing();
     ctx.preview.toolbar?.setZoom(1);
   } catch (error) {

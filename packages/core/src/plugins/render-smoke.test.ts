@@ -143,6 +143,7 @@ vi.mock("@aiden0z/pptx-renderer", () => ({
 }));
 
 vi.mock("pdfjs-dist", () => pdfJsDistMock);
+vi.mock("pdfjs-dist/legacy/build/pdf.mjs", () => pdfJsDistMock);
 
 vi.mock("utif", () => utifMock);
 

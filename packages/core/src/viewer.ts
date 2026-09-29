@@ -1446,6 +1446,15 @@ function printPreview(viewport: HTMLElement): void {
   copyCanvasContent(viewport, clone);
   clone.classList.add("ofv-print-root", "ofv-root"); // Add ofv-root class so CSS variables can resolve
 
+  const docxPage = viewport.querySelector<HTMLElement>(".ofv-docx-page-frame > section.ofv-docx");
+  const docxPageStyle = docxPage ? getComputedStyle(docxPage) : undefined;
+  const docxPageWidth = Number.parseFloat(docxPageStyle?.width || "");
+  const docxPageHeight = Number.parseFloat(docxPageStyle?.height || "");
+  const docxPageSizeRule =
+    Number.isFinite(docxPageWidth) && Number.isFinite(docxPageHeight)
+      ? `size: ${docxPageWidth}px ${docxPageHeight}px;`
+      : "";
+
   // Handle PPTX printing layout adaptation
   const pptxViewer = clone.querySelector(".ofv-pptx-viewer") || (clone.classList.contains("ofv-pptx-viewer") ? clone : null);
   let intrinsicWidth = 960;
@@ -1562,6 +1571,63 @@ function printPreview(viewport: HTMLElement): void {
     }
   `;
   doc.head.appendChild(baseStyle);
+
+  if (docxPage) {
+    // Preview frames carry fit scaling and padding; the DOCX page already has its own margins.
+    const docxStyle = doc.createElement("style");
+    docxStyle.textContent = `
+      @media print {
+        @page {
+          ${docxPageSizeRule}
+          margin: 0;
+        }
+        html, body,
+        .ofv-print-root,
+        .ofv-office-docx,
+        .ofv-docx-document {
+          width: 100% !important;
+          max-width: none !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          overflow: visible !important;
+        }
+        .ofv-office-docx {
+          --ofv-office-zoom: 1 !important;
+        }
+        .ofv-docx-document .ofv-docx-wrapper {
+          display: block !important;
+          width: 100% !important;
+          max-width: none !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          overflow: visible !important;
+          --ofv-docx-scale: 1 !important;
+        }
+        .ofv-docx-page-frame {
+          display: block !important;
+          width: max-content !important;
+          max-width: none !important;
+          height: auto !important;
+          margin: 0 !important;
+          break-after: page;
+          page-break-after: always;
+        }
+        .ofv-docx-page-frame:last-child {
+          break-after: auto;
+          page-break-after: auto;
+        }
+        .ofv-docx-page-frame > section.ofv-docx {
+          max-width: none !important;
+          margin: 0 !important;
+          box-shadow: none !important;
+          transform: none !important;
+          break-inside: avoid;
+          page-break-inside: avoid;
+        }
+      }
+    `;
+    doc.head.appendChild(docxStyle);
+  }
 
   // 4. Inject PPTX-specific style overrides if slides are present
   if (hasSlides) {

@@ -200,8 +200,8 @@ importers:
         specifier: ^3.4.10
         version: 3.4.10
       emf-converter:
-        specifier: ^2.0.2
-        version: 2.0.2
+        specifier: ^3.0.2
+        version: 3.0.2
       heic2any:
         specifier: ^0.0.4
         version: 0.0.4
@@ -1902,8 +1902,13 @@ packages:
   electron-to-chromium@1.5.364:
     resolution: {integrity: sha512-G/dYE3+AYhyHwzTwg8UbnXf7zqMERYh7l2jJ3QujhFsH8agSYwtnGAR2aZ7f0AakIKJXd5En/Hre4igIUrdlYw==}
 
-  emf-converter@2.0.2:
-    resolution: {integrity: sha512-QLUufb45P3LlOudCoizBtJpO8cBw8LayH0mkvkRvIjvMlb6junwP0EXgUkdDyZUEF2QSEZUPV8rO8DS5rsJmkA==}
+  emf-converter@3.0.2:
+    resolution: {integrity: sha512-DyMYuz/2bYcQECXeVqtg9w/WadI4vK5bSikydOozL67/rEYaujS8Ob/hHbWwCwqe7j+v7mO+/r+gzAJriSgyTw==}
+    peerDependencies:
+      '@napi-rs/canvas': ^1.0.9
+    peerDependenciesMeta:
+      '@napi-rs/canvas':
+        optional: true
 
   emoji-regex@8.0.0:
     resolution: {integrity: sha512-MSjYzcWNOA0ewAHpz0MxpYFvwg6yjy1NG3xteoqz644VCo/RPgnr1/GGt+ic3iJTzQ8Eu3TdM14SawnVUmGE6A==}
@@ -4428,7 +4433,7 @@ snapshots:
 
   electron-to-chromium@1.5.364: {}
 
-  emf-converter@2.0.2: {}
+  emf-converter@3.0.2: {}
 
   emoji-regex@8.0.0: {}
 

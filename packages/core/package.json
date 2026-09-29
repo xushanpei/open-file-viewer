@@ -1,6 +1,6 @@
 {
   "name": "@open-file-viewer/core",
-  "version": "0.1.47",
+  "version": "1.0.0-rc.1",
   "description": "Framework-agnostic browser file preview core.",
   "license": "MIT",
   "type": "module",
@@ -82,7 +82,7 @@
     "ag-psd": "^30.2.0",
     "docx-preview": "^0.3.7",
     "dompurify": "^3.4.10",
-    "emf-converter": "^2.0.2",
+    "emf-converter": "^3.0.2",
     "heic2any": "^0.0.4",
     "hls.js": "^1.6.16",
     "hyparquet": "^1.26.1",

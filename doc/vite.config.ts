@@ -3,9 +3,14 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   server: process.env.PORT ? { port: Number(process.env.PORT), strictPort: true } : {},
+  // Keep the converter's optional Node canvas fallback out of browser bundling.
+  optimizeDeps: {
+    exclude: ["emf-converter"]
+  },
   build: {
     chunkSizeWarningLimit: 2500,
     rollupOptions: {
+      external: ["@napi-rs/canvas"],
       input: {
         main: fileURLToPath(new URL("./index.html", import.meta.url)),
         api: fileURLToPath(new URL("./api.html", import.meta.url)),
