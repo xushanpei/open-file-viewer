@@ -95,6 +95,247 @@ describe("pdfPlugin", () => {
     viewer.destroy();
   });
 
+  it("lays out large PDFs before loading metadata for offscreen pages", async () => {
+    let observerCallback!: IntersectionObserverCallback;
+    class ControlledIntersectionObserver {
+      constructor(callback: IntersectionObserverCallback) {
+        observerCallback = callback;
+      }
+      observe = vi.fn();
+      disconnect = vi.fn();
+    }
+    vi.stubGlobal("IntersectionObserver", ControlledIntersectionObserver);
+
+    let resolveThirdPage!: (page: any) => void;
+    const thirdPagePromise = new Promise<any>((resolve) => {
+      resolveThirdPage = resolve;
+    });
+    const portraitPage = createPdfPageMock();
+    const landscapePage = createPdfPageMock({ rotation: 90 });
+    const getPage = vi.fn((pageNumber: number) =>
+      pageNumber === 3 ? thirdPagePromise : Promise.resolve(portraitPage)
+    );
+    const pdfjs = {
+      version: "4.0.0-test",
+      GlobalWorkerOptions: { workerSrc: "" },
+      getDocument: vi.fn(() => ({
+        promise: Promise.resolve({ numPages: 5, getPage, destroy: vi.fn() })
+      }))
+    };
+    const container = createSizedContainer();
+    const viewer = createViewer({
+      container,
+      file: new Blob(["pdf"], { type: "application/pdf" }),
+      fileName: "large.pdf",
+      plugins: [pdfPlugin({ pdfjs: pdfjs as any })]
+    });
+
+    try {
+      await waitFor(() => container.querySelectorAll(".ofv-pdf-page-wrapper").length === 5);
+      await waitFor(() => getPage.mock.calls.length >= 2);
+      await waitFor(() => container.querySelectorAll("canvas.ofv-pdf-page").length === 2);
+
+      expect(getPage.mock.calls.map(([pageNumber]) => pageNumber)).toEqual([1, 2]);
+      expect(portraitPage.render).toHaveBeenCalledTimes(2);
+      const thirdWrapper = container.querySelector<HTMLElement>('[data-page-index="2"]');
+      if (!thirdWrapper) {
+        throw new Error("Expected the third PDF page wrapper.");
+      }
+      expect(thirdWrapper.querySelector(".ofv-pdf-skeleton")).not.toBeNull();
+      const initialHeight = thirdWrapper.style.height;
+
+      observerCallback(
+        [{ isIntersecting: true, target: thirdWrapper } as unknown as IntersectionObserverEntry],
+        {} as IntersectionObserver
+      );
+      await waitFor(() => getPage.mock.calls.some(([pageNumber]) => pageNumber === 3));
+      expect(getPage).toHaveBeenCalledTimes(3);
+
+      resolveThirdPage(landscapePage);
+      await waitFor(() => Boolean(container.querySelector('[data-page-index="2"] canvas.ofv-pdf-page')));
+
+      const liveThirdWrapper = container.querySelector<HTMLElement>('[data-page-index="2"]');
+      if (!liveThirdWrapper) {
+        throw new Error("Expected the rendered third PDF page wrapper.");
+      }
+      expect(liveThirdWrapper.isConnected).toBe(true);
+      expect(parseCssPx(liveThirdWrapper.style.width)).toBeGreaterThan(parseCssPx(liveThirdWrapper.style.height));
+      expect(liveThirdWrapper.style.height).not.toBe(initialHeight);
+      expect(getPage).toHaveBeenCalledTimes(3);
+    } finally {
+      resolveThirdPage(landscapePage);
+      viewer.destroy();
+    }
+  });
+
+  it("retries a lazy page after a transient loading failure", async () => {
+    let observerCallback!: IntersectionObserverCallback;
+    class ControlledIntersectionObserver {
+      constructor(callback: IntersectionObserverCallback) {
+        observerCallback = callback;
+      }
+      observe = vi.fn();
+      disconnect = vi.fn();
+    }
+    vi.stubGlobal("IntersectionObserver", ControlledIntersectionObserver);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const page = createPdfPageMock();
+    let thirdPageAttempts = 0;
+    const getPage = vi.fn((pageNumber: number) => {
+      if (pageNumber === 3 && thirdPageAttempts++ === 0) {
+        return Promise.reject(new Error("Temporary range request failure"));
+      }
+      return Promise.resolve(page);
+    });
+    const pdfjs = {
+      version: "4.0.0-test",
+      GlobalWorkerOptions: { workerSrc: "" },
+      getDocument: vi.fn(() => ({
+        promise: Promise.resolve({ numPages: 5, getPage, destroy: vi.fn() })
+      }))
+    };
+    const container = createSizedContainer();
+    const viewer = createViewer({
+      container,
+      file: new Blob(["pdf"], { type: "application/pdf" }),
+      fileName: "retry.pdf",
+      plugins: [pdfPlugin({ pdfjs: pdfjs as any })]
+    });
+
+    try {
+      await waitFor(() => container.querySelectorAll("canvas.ofv-pdf-page").length === 2);
+      const thirdWrapper = container.querySelector<HTMLElement>('[data-page-index="2"]');
+      if (!thirdWrapper) {
+        throw new Error("Expected the third PDF page wrapper.");
+      }
+      const entry = [{ isIntersecting: true, target: thirdWrapper } as unknown as IntersectionObserverEntry];
+
+      observerCallback(entry, {} as IntersectionObserver);
+      await waitFor(() => Boolean(thirdWrapper.querySelector(".ofv-pdf-error")));
+      expect(getPage.mock.calls.filter(([pageNumber]) => pageNumber === 3)).toHaveLength(1);
+
+      observerCallback(entry, {} as IntersectionObserver);
+      await waitFor(() => Boolean(thirdWrapper.querySelector("canvas.ofv-pdf-page")));
+      expect(getPage.mock.calls.filter(([pageNumber]) => pageNumber === 3)).toHaveLength(2);
+    } finally {
+      viewer.destroy();
+    }
+  });
+
+  it("ignores a lazy page render from a replaced layout", async () => {
+    const observerCallbacks: IntersectionObserverCallback[] = [];
+    class ControlledIntersectionObserver {
+      constructor(callback: IntersectionObserverCallback) {
+        observerCallbacks.push(callback);
+      }
+      observe = vi.fn();
+      disconnect = vi.fn();
+    }
+    vi.stubGlobal("IntersectionObserver", ControlledIntersectionObserver);
+
+    let resolveThirdPage!: (page: any) => void;
+    const thirdPagePromise = new Promise<any>((resolve) => {
+      resolveThirdPage = resolve;
+    });
+    const firstPages = createPdfPageMock();
+    const thirdPage = createPdfPageMock({ rotation: 90 });
+    const getPage = vi.fn((pageNumber: number) =>
+      pageNumber === 3 ? thirdPagePromise : Promise.resolve(firstPages)
+    );
+    const pdfjs = {
+      version: "4.0.0-test",
+      GlobalWorkerOptions: { workerSrc: "" },
+      getDocument: vi.fn(() => ({
+        promise: Promise.resolve({ numPages: 5, getPage, destroy: vi.fn() })
+      }))
+    };
+    const container = createSizedContainer();
+    const viewer = createViewer({
+      container,
+      file: new Blob(["pdf"], { type: "application/pdf" }),
+      fileName: "relayout.pdf",
+      toolbar: true,
+      plugins: [pdfPlugin({ pdfjs: pdfjs as any })]
+    });
+
+    try {
+      await waitFor(() => observerCallbacks.length === 1);
+      await waitFor(() => container.querySelectorAll("canvas.ofv-pdf-page").length === 2);
+      const oldThirdWrapper = container.querySelector<HTMLElement>('[data-page-index="2"]');
+      if (!oldThirdWrapper) {
+        throw new Error("Expected the original third PDF page wrapper.");
+      }
+      observerCallbacks[0](
+        [{ isIntersecting: true, target: oldThirdWrapper } as unknown as IntersectionObserverEntry],
+        {} as IntersectionObserver
+      );
+      await waitFor(() => getPage.mock.calls.some(([pageNumber]) => pageNumber === 3));
+
+      container.querySelector<HTMLButtonElement>('button[aria-label="Zoom in"]')?.click();
+      await waitFor(() => observerCallbacks.length === 2);
+      const liveThirdWrapper = container.querySelector<HTMLElement>('[data-page-index="2"]');
+      if (!liveThirdWrapper) {
+        throw new Error("Expected the replacement third PDF page wrapper.");
+      }
+      expect(liveThirdWrapper).not.toBe(oldThirdWrapper);
+
+      resolveThirdPage(thirdPage);
+      await waitFor(() => thirdPage.getViewport.mock.calls.length > 0);
+      expect(thirdPage.render).not.toHaveBeenCalled();
+      expect(liveThirdWrapper.querySelector(".ofv-pdf-skeleton")).not.toBeNull();
+      expect(liveThirdWrapper.querySelector("canvas.ofv-pdf-page")).toBeNull();
+
+      observerCallbacks[1](
+        [{ isIntersecting: true, target: liveThirdWrapper } as unknown as IntersectionObserverEntry],
+        {} as IntersectionObserver
+      );
+      await waitFor(() => Boolean(liveThirdWrapper.querySelector("canvas.ofv-pdf-page")));
+      expect(thirdPage.render).toHaveBeenCalledTimes(1);
+      expect(getPage.mock.calls.filter(([pageNumber]) => pageNumber === 3)).toHaveLength(1);
+    } finally {
+      resolveThirdPage(thirdPage);
+      viewer.destroy();
+    }
+  });
+
+  it("does not render pages that finish loading after the viewer is destroyed", async () => {
+    class IdleIntersectionObserver {
+      observe = vi.fn();
+      disconnect = vi.fn();
+    }
+    vi.stubGlobal("IntersectionObserver", IdleIntersectionObserver);
+
+    let resolvePage!: (page: any) => void;
+    const pendingPage = new Promise<any>((resolve) => {
+      resolvePage = resolve;
+    });
+    const page = createPdfPageMock();
+    const getPage = vi.fn(() => pendingPage);
+    const pdfjs = {
+      version: "4.0.0-test",
+      GlobalWorkerOptions: { workerSrc: "" },
+      getDocument: vi.fn(() => ({
+        promise: Promise.resolve({ numPages: 2, getPage, destroy: vi.fn() })
+      }))
+    };
+    const container = createSizedContainer();
+    const viewer = createViewer({
+      container,
+      file: new Blob(["pdf"], { type: "application/pdf" }),
+      fileName: "closed.pdf",
+      plugins: [pdfPlugin({ pdfjs: pdfjs as any })]
+    });
+
+    await waitFor(() => getPage.mock.calls.length === 2);
+    viewer.destroy();
+    resolvePage(page);
+    await waitFor(() => page.getViewport.mock.calls.length === 2);
+
+    expect(page.render).not.toHaveBeenCalled();
+    expect(container.querySelector("canvas.ofv-pdf-page")).toBeNull();
+  });
+
   it("renders every lazy PDF page before capturing the print snapshot", async () => {
     class IdleIntersectionObserver {
       observe = vi.fn();

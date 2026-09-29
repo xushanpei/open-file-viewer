@@ -12,6 +12,12 @@ type PdfDocumentProxyLike = {
   destroy?: unknown;
   cleanup?: unknown;
 };
+type PdfPageMeta = {
+  width: number;
+  height: number;
+  rotation: number;
+  resolved: boolean;
+};
 
 export interface PdfPluginOptions {
   pdfjs?: PdfJsModule;
@@ -225,20 +231,40 @@ export async function renderPdfDocumentPreview(
   }
   const pdfDocument = doc;
 
-  const pagesMeta: Array<{ width: number; height: number; rotation: number }> = [];
-  for (let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber += 1) {
-    try {
-      const page = await pdfDocument.getPage(pageNumber);
-      const baseViewport = page.getViewport({ scale: 1 });
-      pagesMeta.push({
-        width: baseViewport.width,
-        height: baseViewport.height,
-        rotation: getPdfPageRotation(page)
-      });
-    } catch {
-      pagesMeta.push({ width: 612, height: 792, rotation: 0 });
+  const pagesMeta: PdfPageMeta[] = Array.from({ length: pdfDocument.numPages }, () => ({
+    width: 612,
+    height: 792,
+    rotation: 0,
+    resolved: false
+  }));
+  const pagePromises: Array<Promise<any> | undefined> = Array(pdfDocument.numPages);
+  const loadPage = (pageIdx: number): Promise<any> => {
+    const existing = pagePromises[pageIdx];
+    if (existing) {
+      return existing;
     }
-  }
+    let promise: Promise<any>;
+    promise = pdfDocument
+      .getPage(pageIdx + 1)
+      .then((page) => {
+        const baseViewport = page.getViewport({ scale: 1 });
+        pagesMeta[pageIdx] = {
+          width: baseViewport.width,
+          height: baseViewport.height,
+          rotation: getPdfPageRotation(page),
+          resolved: true
+        };
+        return page;
+      })
+      .catch((error) => {
+        if (pagePromises[pageIdx] === promise) {
+          pagePromises[pageIdx] = undefined;
+        }
+        throw error;
+      });
+    pagePromises[pageIdx] = promise;
+    return promise;
+  };
 
   const pageStates: Array<{
     wrapper: HTMLDivElement;
@@ -246,10 +272,13 @@ export async function renderPdfDocumentPreview(
     renderTask: any | null;
     renderPromise: Promise<void> | null;
     rendered: boolean;
+    renderVersion: number;
   }> = [];
 
   let observer: IntersectionObserver | null = null;
   let printPreparation: Promise<void> | undefined;
+  let layoutVersion = 0;
+  let destroyed = false;
   let currentSize = options.size;
   let zoomFactor = getInitialZoom({ options: { zoom: options.zoom ?? 1 } }, 0.25, 4);
   let rotation = 0;
@@ -299,18 +328,45 @@ export async function renderPdfDocumentPreview(
       currentPage = nearestPage;
       pageNavigator.setCurrent(currentPage);
     }
+    if (!observer) {
+      const firstPage = Math.max(0, nearestPage - 2);
+      const lastPage = Math.min(pdfDocument.numPages - 1, nearestPage);
+      for (let pageIdx = firstPage; pageIdx <= lastPage; pageIdx += 1) {
+        void renderPage(pageIdx, currentSize);
+      }
+    }
   };
   scroller.addEventListener("scroll", handleScrollerScroll, { passive: true });
 
   const updateSummary = () => {
-    renderPdfSummary(summary, pdfDocument.numPages, pagesMeta, options.fit, zoomFactor, messages);
+    renderPdfSummary(
+      summary,
+      pdfDocument.numPages,
+      pagesMeta.filter((meta) => meta.resolved),
+      options.fit,
+      zoomFactor,
+      messages
+    );
     options.toolbar?.setZoom(zoomFactor);
   };
 
-  const clearPage = (pageIdx: number) => {
-    const state = pageStates[pageIdx];
-    if (!state || !state.rendered) return;
+  const updatePageWrapperDimensions = (wrapper: HTMLElement, meta: PdfPageMeta, size: PreviewSize) => {
+    const rotatedWidth = rotatedPdfWidth(meta, rotation);
+    const rotatedHeight = rotatedPdfHeight(meta, rotation);
+    const scale = resolvePdfPageScale(
+      meta,
+      options.fit,
+      resolveLayoutWidth(size),
+      resolveLayoutHeight(size),
+      zoomFactor,
+      rotation
+    );
+    wrapper.style.width = `${Math.floor(rotatedWidth * scale)}px`;
+    wrapper.style.height = `${Math.floor(rotatedHeight * scale)}px`;
+  };
 
+  const invalidatePageState = (state: (typeof pageStates)[number]) => {
+    state.renderVersion += 1;
     if (state.renderTask) {
       try {
         state.renderTask.cancel();
@@ -319,9 +375,16 @@ export async function renderPdfDocumentPreview(
       }
       state.renderTask = null;
     }
-
     state.canvas = null;
     state.rendered = false;
+  };
+
+  const clearPage = (pageIdx: number) => {
+    const state = pageStates[pageIdx];
+    if (!state || (!state.rendered && !state.renderPromise)) return;
+
+    invalidatePageState(state);
+    if (destroyed || pageStates[pageIdx] !== state) return;
     state.wrapper.replaceChildren();
     state.wrapper.append(
       createPageStatus("ofv-pdf-skeleton", formatPreviewMessage(messages.pdfPageLoading, { page: pageIdx + 1 }))
@@ -330,18 +393,25 @@ export async function renderPdfDocumentPreview(
 
   const renderPage = async (pageIdx: number, size: PreviewSize) => {
     const state = pageStates[pageIdx];
-    if (!state) return;
+    if (!state || destroyed) return;
 
     while (state.renderPromise) {
       await state.renderPromise;
     }
-    if (state.rendered) return;
+    if (destroyed || pageStates[pageIdx] !== state || state.rendered) return;
 
+    const renderVersion = state.renderVersion + 1;
+    state.renderVersion = renderVersion;
     state.rendered = true;
+    const isCurrentRender = () =>
+      !destroyed && pageStates[pageIdx] === state && state.renderVersion === renderVersion;
     const renderPromise = (async () => {
       try {
-        const page = await pdfDocument.getPage(pageIdx + 1);
+        const page = await loadPage(pageIdx);
+        if (!isCurrentRender()) return;
         const meta = pagesMeta[pageIdx];
+        updatePageWrapperDimensions(state.wrapper, meta, size);
+        updateSummary();
         const scale = resolvePdfPageScale(
           meta,
           options.fit,
@@ -367,6 +437,7 @@ export async function renderPdfDocumentPreview(
           throw new Error("Canvas 2D context is not available.");
         }
 
+        if (!isCurrentRender()) return;
         state.wrapper.replaceChildren(canvas);
         state.canvas = canvas;
 
@@ -378,9 +449,13 @@ export async function renderPdfDocumentPreview(
         state.renderTask = renderTask;
 
         await renderTask.promise;
-        state.renderTask = null;
+        if (state.renderTask === renderTask) {
+          state.renderTask = null;
+        }
+        if (!isCurrentRender()) return;
 
         const textContent = await page.getTextContent();
+        if (!isCurrentRender()) return;
         const textLayer = document.createElement("div");
         textLayer.className = "ofv-pdf-text-layer";
         textLayer.style.width = `${cssWidth}px`;
@@ -424,6 +499,7 @@ export async function renderPdfDocumentPreview(
           );
         }
       } catch (err) {
+        if (!isCurrentRender()) return;
         console.error(`Failed to render PDF page ${pageIdx + 1}:`, err);
         state.rendered = false;
         state.wrapper.replaceChildren(
@@ -442,7 +518,11 @@ export async function renderPdfDocumentPreview(
   };
 
   const renderLayout = (size: PreviewSize) => {
+    if (destroyed) return;
+    const activeLayoutVersion = ++layoutVersion;
     observer?.disconnect();
+    observer = null;
+    pageStates.forEach(invalidatePageState);
     updateSummary();
     scroller.replaceChildren();
     pageStates.length = 0;
@@ -450,6 +530,7 @@ export async function renderPdfDocumentPreview(
     if (typeof IntersectionObserver !== "undefined") {
       observer = new IntersectionObserver(
         (entries) => {
+          if (destroyed || layoutVersion !== activeLayoutVersion) return;
           entries.forEach((entry) => {
             const pageIdx = parseInt(entry.target.getAttribute("data-page-index") || "0", 10);
             const state = pageStates[pageIdx];
@@ -473,26 +554,12 @@ export async function renderPdfDocumentPreview(
 
     for (let i = 0; i < pdfDocument.numPages; i++) {
       const meta = pagesMeta[i];
-      const rotatedWidth = rotatedPdfWidth(meta, rotation);
-      const rotatedHeight = rotatedPdfHeight(meta, rotation);
-      const scale = resolvePdfPageScale(
-        meta,
-        options.fit,
-        resolveLayoutWidth(size),
-        resolveLayoutHeight(size),
-        zoomFactor,
-        rotation
-      );
-
-      const w = Math.floor(rotatedWidth * scale);
-      const h = Math.floor(rotatedHeight * scale);
 
       const wrapper = document.createElement("div");
       wrapper.className = "ofv-pdf-page-wrapper";
       wrapper.setAttribute("data-page-index", String(i));
       wrapper.setAttribute("aria-label", formatPreviewMessage(messages.pdfPageLabel, { page: i + 1 }));
-      wrapper.style.width = `${w}px`;
-      wrapper.style.height = `${h}px`;
+      updatePageWrapperDimensions(wrapper, meta, size);
       wrapper.append(createPageStatus("ofv-pdf-skeleton", formatPreviewMessage(messages.pdfPageLoading, { page: i + 1 })));
 
       scroller.appendChild(wrapper);
@@ -502,24 +569,21 @@ export async function renderPdfDocumentPreview(
         canvas: null,
         renderTask: null,
         renderPromise: null,
-        rendered: false
+        rendered: false,
+        renderVersion: 0
       });
 
       if (observer) {
         observer.observe(wrapper);
-      } else {
-        void renderPage(i, size);
       }
     }
 
-    if (observer) {
-      window.setTimeout(() => {
-        const eagerPages = pdfDocument.numPages > 8 ? 2 : pdfDocument.numPages;
-        for (let i = 0; i < eagerPages; i++) {
-          void renderPage(i, size);
-        }
-      }, 0);
+    const eagerPages = new Set<number>();
+    for (let i = 0; i < Math.min(2, pdfDocument.numPages); i += 1) {
+      eagerPages.add(i);
     }
+    eagerPages.add(currentPage - 1);
+    eagerPages.forEach((pageIdx) => void renderPage(pageIdx, size));
     goToPage(currentPage, false);
   };
 
@@ -587,16 +651,21 @@ export async function renderPdfDocumentPreview(
       const activeObserver = observer;
       activeObserver?.disconnect();
       printPreparation = (async () => {
-        let nextPage = 0;
-        const renderNext = async () => {
-          while (nextPage < pageStates.length) {
-            const pageIndex = nextPage;
-            nextPage += 1;
-            await renderPage(pageIndex, currentSize);
-          }
-        };
-        const workerCount = Math.min(3, pageStates.length);
-        await Promise.all(Array.from({ length: workerCount }, () => renderNext()));
+        let renderedLayoutVersion: number;
+        do {
+          renderedLayoutVersion = layoutVersion;
+          let nextPage = 0;
+          const pageCount = pageStates.length;
+          const renderNext = async () => {
+            while (!destroyed && nextPage < pageCount) {
+              const pageIndex = nextPage;
+              nextPage += 1;
+              await renderPage(pageIndex, currentSize);
+            }
+          };
+          const workerCount = Math.min(3, pageCount);
+          await Promise.all(Array.from({ length: workerCount }, () => renderNext()));
+        } while (!destroyed && renderedLayoutVersion !== layoutVersion);
       })().finally(() => {
         if (observer === activeObserver) {
           for (const state of pageStates) {
@@ -608,21 +677,15 @@ export async function renderPdfDocumentPreview(
       return printPreparation;
     },
     destroy() {
+      destroyed = true;
+      layoutVersion += 1;
       options.toolbar?.setZoom(undefined);
       pageNavigator.destroy();
       scroller.removeEventListener("scroll", handleScrollerScroll);
       window.clearTimeout(resizeTimer);
       observer?.disconnect();
 
-      pageStates.forEach((state) => {
-        if (state.renderTask) {
-          try {
-            state.renderTask.cancel();
-          } catch (e) {
-            // Ignore
-          }
-        }
-      });
+      pageStates.forEach(invalidatePageState);
       pageStates.length = 0;
 
       destroyPdfResource(pdfDocument);
