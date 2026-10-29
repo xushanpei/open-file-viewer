@@ -74,6 +74,37 @@ export interface PdfDocumentPreviewOptions {
   revokeUrlOnDestroy?: boolean;
 }
 
+// Text width is measured through a canvas 2D context instead of reading
+// `offsetWidth` on each span. DOM measurement forces a synchronous reflow
+// per span, which blocks the main thread for seconds on large documents.
+let textMeasurementContext: CanvasRenderingContext2D | null = null;
+let textMeasurementContextReady = false;
+let textMeasurementFont = "";
+
+function getTextMeasurementContext(): CanvasRenderingContext2D | null {
+  if (textMeasurementContextReady) return textMeasurementContext;
+  textMeasurementContextReady = true;
+  try {
+    const context = document.createElement("canvas").getContext("2d", { alpha: false });
+    textMeasurementContext = context && typeof context.measureText === "function" ? context : null;
+  } catch {
+    textMeasurementContext = null;
+  }
+  return textMeasurementContext;
+}
+
+function measureTextWidth(text: string, fontHeight: number, fontFamily: string): number {
+  const context = getTextMeasurementContext();
+  if (!context) return 0;
+  const font = `${fontHeight}px ${fontFamily}`;
+  if (font !== textMeasurementFont) {
+    context.font = font;
+    textMeasurementFont = font;
+  }
+  const width = context.measureText(text).width;
+  return Number.isFinite(width) && width > 0 ? width : 0;
+}
+
 // 2D affine transform matrix multiplication helper
 function multiplyMatrices(m1: number[], m2: number[]): number[] {
   return [
@@ -472,6 +503,8 @@ export async function renderPdfDocumentPreview(
         textLayer.style.height = `${cssHeight}px`;
         state.wrapper.appendChild(textLayer);
 
+        const fragment = document.createDocumentFragment();
+
         for (const item of textContent.items) {
           if (!("str" in item)) continue;
           const str = (item as any).str;
@@ -479,27 +512,29 @@ export async function renderPdfDocumentPreview(
 
           const tx = multiplyMatrices(viewport.transform, (item as any).transform);
           const fontHeight = Math.sqrt(tx[2] * tx[2] + tx[3] * tx[3]);
+          const fontFamily = (item as any).fontName || "sans-serif";
 
           const span = document.createElement("span");
           span.textContent = str;
           span.style.fontSize = `${fontHeight}px`;
           span.style.lineHeight = "1";
           span.style.height = `${fontHeight}px`;
-          span.style.fontFamily = (item as any).fontName || "sans-serif";
+          span.style.fontFamily = fontFamily;
           span.style.left = `${tx[4]}px`;
           span.style.top = `${tx[5] - fontHeight}px`;
           span.style.transformOrigin = "0% 0%";
 
-          textLayer.appendChild(span);
-
           if ((item as any).width) {
             const itemWidth = (item as any).width * scale;
-            const actualWidth = span.offsetWidth || span.getBoundingClientRect().width;
-            if (actualWidth > 0 && Math.abs(actualWidth - itemWidth) > 1) {
-              span.style.transform = `scaleX(${itemWidth / actualWidth})`;
+            const measuredWidth = measureTextWidth(str, fontHeight, fontFamily);
+            if (measuredWidth > 0 && Math.abs(measuredWidth - itemWidth) > 1) {
+              span.style.transform = `scaleX(${itemWidth / measuredWidth})`;
             }
           }
+
+          fragment.appendChild(span);
         }
+        textLayer.appendChild(fragment);
         if (textLayer.childElementCount === 0 && isCanvasVisuallyBlank(canvas, context)) {
           state.wrapper.appendChild(
             createPageStatus(
@@ -563,6 +598,8 @@ export async function renderPdfDocumentPreview(
       );
     }
 
+    const layoutFragment = document.createDocumentFragment();
+
     for (let i = 0; i < pdfDocument.numPages; i++) {
       const meta = pagesMeta[i];
 
@@ -573,7 +610,7 @@ export async function renderPdfDocumentPreview(
       updatePageWrapperDimensions(wrapper, meta, size);
       wrapper.append(createPageStatus("ofv-pdf-skeleton", formatPreviewMessage(messages.pdfPageLoading, { page: i + 1 })));
 
-      scroller.appendChild(wrapper);
+      layoutFragment.appendChild(wrapper);
 
       pageStates.push({
         wrapper,
@@ -583,13 +620,21 @@ export async function renderPdfDocumentPreview(
         rendered: false,
         renderVersion: 0
       });
-
-      if (observer) {
-        observer.observe(wrapper);
-      }
     }
 
+    scroller.appendChild(layoutFragment);
+
     restorePageScrollAnchor(scroller, pageStates.map((state) => state.wrapper), scrollAnchor);
+
+    if (observer) {
+      // `observe()` synchronously resolves the target geometry, so registering
+      // it right after each `appendChild` would cost one full layout per page.
+      // The pages are now committed in a single batch, so only the first
+      // registration performs real work and the rest hit the layout cache.
+      for (const state of pageStates) {
+        observer.observe(state.wrapper);
+      }
+    }
 
     const eagerPages = new Set<number>();
     for (let i = 0; i < Math.min(2, pdfDocument.numPages); i += 1) {
