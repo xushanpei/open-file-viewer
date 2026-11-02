@@ -676,6 +676,162 @@ describe("pdfPlugin", () => {
     }
   });
 
+  it("keeps using the legacy worker on the second render after polyfilling Promise.withResolvers", async () => {
+    vi.stubGlobal("IntersectionObserver", undefined);
+    // Chrome 108 lacks `Promise.try`, `Promise.withResolvers` and the async
+    // iteration protocol on ReadableStream. The UA must look like a desktop
+    // Chromium build, otherwise the WebKit branch of the compatibility probe
+    // forces the legacy worker regardless of the detected engine features.
+    vi.spyOn(window.navigator, "userAgent", "get").mockReturnValue(
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/108.0.0.0 Safari/537.36"
+    );
+
+    try {
+      const firstContainer = createSizedContainer();
+      const firstPdfjs = createPdfJsMock();
+      const firstViewer = createViewer({
+        container: firstContainer,
+        file: new Blob(["pdf"], { type: "application/pdf" }),
+        fileName: "chrome-108-first.pdf",
+        plugins: [
+          pdfPlugin({
+            pdfjs: firstPdfjs,
+            workerSrc: "/assets/pdf.worker.mjs",
+            legacyWorkerSrc: "/assets/pdf.worker.legacy.mjs"
+          })
+        ]
+      });
+
+      await waitFor(() => firstContainer.querySelectorAll("canvas.ofv-pdf-page").length === 2);
+      expect(firstPdfjs.GlobalWorkerOptions.workerSrc).toBe("/assets/pdf.worker.legacy.mjs");
+      firstViewer.destroy();
+
+      // Loading the legacy bundle installs core-js polyfills on the global
+      // `Promise`. A second render must not mistake those for native engine
+      // support and silently switch back to the modern worker.
+      Object.defineProperty(Promise, "try", {
+        configurable: true,
+        writable: true,
+        value: () => Promise.resolve()
+      });
+      Object.defineProperty(Promise, "withResolvers", {
+        configurable: true,
+        writable: true,
+        value: () => ({ promise: Promise.resolve(), resolve: vi.fn(), reject: vi.fn() })
+      });
+
+      const secondContainer = createSizedContainer();
+      const secondPdfjs = createPdfJsMock();
+      const secondViewer = createViewer({
+        container: secondContainer,
+        file: new Blob(["pdf"], { type: "application/pdf" }),
+        fileName: "chrome-108-second.pdf",
+        plugins: [
+          pdfPlugin({
+            pdfjs: secondPdfjs,
+            workerSrc: "/assets/pdf.worker.mjs",
+            legacyWorkerSrc: "/assets/pdf.worker.legacy.mjs"
+          })
+        ]
+      });
+
+      await waitFor(() => secondContainer.querySelectorAll("canvas.ofv-pdf-page").length === 2);
+      expect(secondPdfjs.GlobalWorkerOptions.workerSrc).toBe("/assets/pdf.worker.legacy.mjs");
+      secondViewer.destroy();
+    } finally {
+      Reflect.deleteProperty(Promise as PromiseConstructor & { try?: unknown }, "try");
+      Reflect.deleteProperty(Promise as PromiseConstructor & { withResolvers?: unknown }, "withResolvers");
+    }
+  });
+
+  it.each([
+    // Chrome / Chromium 系
+    ["Chrome/108.0.0.0", "/assets/pdf.worker.legacy.mjs"],
+    ["Chrome/119.0.0.0", "/assets/pdf.worker.legacy.mjs"],
+    ["Chrome/124.0.0.0", "/assets/pdf.worker.legacy.mjs"],
+    ["Chrome/128.0.0.0", "/assets/pdf.worker.legacy.mjs"],
+    ["Chrome/139.0.0.0", "/assets/pdf.worker.legacy.mjs"],
+    ["Chrome/140.0.0.0", "/assets/pdf.worker.mjs"],
+    ["Chrome/150.0.0.0", "/assets/pdf.worker.mjs"],
+    // Edge / Opera / Chromium 系同样带 Chrome/<major>
+    ["Chrome/120.0.0.0 Edg/120.0.0.0", "/assets/pdf.worker.legacy.mjs"],
+    ["Chrome/141.0.0.0 Edg/141.0.0.0", "/assets/pdf.worker.mjs"],
+    // Firefox
+    ["Firefox/133.0", "/assets/pdf.worker.legacy.mjs"],
+    ["Firefox/134.0", "/assets/pdf.worker.mjs"],
+    // 桌面 Safari
+    ["Version/18.1 Safari/605.1.15", "/assets/pdf.worker.legacy.mjs"],
+    ["Version/18.2 Safari/605.1.15", "/assets/pdf.worker.legacy.mjs"],
+    ["Version/18.4 Safari/605.1.15", "/assets/pdf.worker.mjs"],
+    // 无法识别的内核一律走 legacy
+    ["SomeCustomBrowser/1.0", "/assets/pdf.worker.legacy.mjs"]
+  ])("selects the PDF worker for user agent %s", async (userAgent, expectedWorkerSrc) => {
+    vi.stubGlobal("IntersectionObserver", undefined);
+    vi.spyOn(window.navigator, "userAgent", "get").mockReturnValue(
+      `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ${userAgent}`
+    );
+
+    const container = createSizedContainer();
+    const pdfjs = createPdfJsMock();
+    const viewer = createViewer({
+      container,
+      file: new Blob(["pdf"], { type: "application/pdf" }),
+      fileName: "ua-probe.pdf",
+      plugins: [
+        pdfPlugin({
+          pdfjs,
+          workerSrc: "/assets/pdf.worker.mjs",
+          legacyWorkerSrc: "/assets/pdf.worker.legacy.mjs"
+        })
+      ]
+    });
+
+    await waitFor(() => container.querySelectorAll("canvas.ofv-pdf-page").length === 2);
+
+    expect(pdfjs.GlobalWorkerOptions.workerSrc).toBe(expectedWorkerSrc);
+    viewer.destroy();
+  });
+
+  it.each([
+    // iOS 上的所有浏览器都跑同一套 WebKit 内核，UA 里的 Chrome/<major>（CriOS）
+    // 不代表真实引擎能力，一律走 legacy。
+    [
+      "Mozilla/5.0 (iPhone; CPU iPhone OS 18_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.4 Mobile/15E148 Safari/604.1",
+      "/assets/pdf.worker.legacy.mjs"
+    ],
+    [
+      "Mozilla/5.0 (iPhone; CPU iPhone OS 18_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/140.0.0.0 Mobile/15E148 Safari/604.1",
+      "/assets/pdf.worker.legacy.mjs"
+    ],
+    [
+      "Mozilla/5.0 (iPad; CPU OS 18_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.4 Mobile/15E148 Safari/604.1",
+      "/assets/pdf.worker.legacy.mjs"
+    ]
+  ])("keeps the legacy PDF worker on iOS for user agent %s", async (userAgent, expectedWorkerSrc) => {
+    vi.stubGlobal("IntersectionObserver", undefined);
+    vi.spyOn(window.navigator, "userAgent", "get").mockReturnValue(userAgent);
+
+    const container = createSizedContainer();
+    const pdfjs = createPdfJsMock();
+    const viewer = createViewer({
+      container,
+      file: new Blob(["pdf"], { type: "application/pdf" }),
+      fileName: "ios-webkit.pdf",
+      plugins: [
+        pdfPlugin({
+          pdfjs,
+          workerSrc: "/assets/pdf.worker.mjs",
+          legacyWorkerSrc: "/assets/pdf.worker.legacy.mjs"
+        })
+      ]
+    });
+
+    await waitFor(() => container.querySelectorAll("canvas.ofv-pdf-page").length === 2);
+
+    expect(pdfjs.GlobalWorkerOptions.workerSrc).toBe(expectedWorkerSrc);
+    viewer.destroy();
+  });
+
   it("allows forcing the modern PDF worker", async () => {
     vi.stubGlobal("IntersectionObserver", undefined);
     const container = createSizedContainer();
