@@ -1077,8 +1077,15 @@ function shouldUseLegacyPdfCompatibility(mode: PdfPluginOptions["compatibilityMo
     return false;
   }
 
-  const promise = Promise as PromiseConstructor & { withResolvers?: unknown };
-  if (typeof promise.withResolvers !== "function") {
+  // PDF.js v5 的 modern build 使用了 `Promise.try`、`Promise.withResolvers`、
+  // `Uint8Array.fromBase64` / `toBase64` / `toHex` 以及 `ReadableStream` 的异步
+  // 迭代协议。这些 API 在较老的内核里缺失，且 modern build 不自带 polyfill。
+  //
+  // 这里**不能**通过探测 `Promise.withResolvers` 之类的运行时方法来判断：legacy
+  // build 内置的 core-js polyfill 会把这些方法挂到全局 `Promise` 上，第一次加载
+  // legacy 产物后运行时探测就会误判为"原生支持"，导致后续渲染切回 modern build。
+  // 因此改为按 UA 解析浏览器版本，与运行时状态完全解耦。
+  if (!supportsModernPdfCompatibility()) {
     return true;
   }
 
@@ -1086,35 +1093,132 @@ function shouldUseLegacyPdfCompatibility(mode: PdfPluginOptions["compatibilityMo
     return false;
   }
   const userAgent = navigator.userAgent;
-  const isWebKit = /AppleWebKit/i.test(userAgent);
   const isIosWebKit = /(?:iPhone|iPad|iPod)/i.test(userAgent);
-  const isNonWebKitBrowser = /(?:Chrome|Chromium|CriOS|Edg|OPR|SamsungBrowser)/i.test(userAgent);
-  return /(?:QIHU|360SE|360EE)/i.test(userAgent) || (isWebKit && (isIosWebKit || !isNonWebKitBrowser));
+  if (isIosWebKit) {
+    // iOS 上的所有浏览器（Safari / CriOS / 微信内置浏览器等）都跑同一套 WebKit
+    // 内核，UA 里的 Chrome/<major>（CriOS）并不代表真实的 JS 引擎能力，而 iOS
+    // WebKit 的版本号普遍滞后于桌面，因此一律走 legacy。
+    return true;
+  }
+  if (/(?:QIHU|360SE|360EE)/i.test(userAgent)) {
+    return true;
+  }
+  return false;
 }
 
-function installPromiseWithResolversPolyfill(): void {
-  const promise = Promise as PromiseConstructor & {
-    withResolvers?: <T>() => {
-      promise: Promise<T>;
-      resolve: (value: T | PromiseLike<T>) => void;
-      reject: (reason?: unknown) => void;
-    };
+/**
+ * PDF.js v5 modern build 所需的最低浏览器版本。
+ *
+ * 取所有被 modern build 裸调用的现代 API 里最严的那个阈值：
+ * - `Promise.try`                          Chrome 128 / Firefox 134 / Safari 18.4
+ * - `Promise.withResolvers`                Chrome 119 / Firefox 121 / Safari 17.4
+ * - `ReadableStream[Symbol.asyncIterator]` Chrome 124 / Firefox 122 / Safari 17.4
+ * - `Uint8Array.fromBase64` / `toBase64` / `toHex` Chrome 140 / Firefox 133 / Safari 18.2
+ *
+ * `Promise.try` 在 Firefox / Safari 上比 `Uint8Array` 的 Base64 系列更晚
+ *（Firefox 134 / Safari 18.4），Chrome 上则是 `Uint8Array` 系列更晚（140），
+ * 因此按浏览器分别取各自的最严阈值。
+ */
+const MODERN_PDF_MIN_VERSIONS = {
+  chrome: [140, 0],
+  firefox: [134, 0],
+  safari: [18, 4]
+} as const satisfies Record<string, readonly [number, number]>;
+
+/**
+ * 从 UA 中解析浏览器主版本号，无法识别时返回 `null`。
+ *
+ * Safari 需要比较次版本（18.2 与 18.4 对 modern build 的支持不同），因此返回
+ * `[主版本, 次版本]` 元组而非浮点数，避免 `18 + 4 / 100` 这类拼接误差。
+ */
+function parseBrowserVersion(userAgent: string): { name: string; version: readonly [number, number] } | null {
+  // Chrome / Edge / Opera / Chromium 系都带 "Chrome/<major>"，取其第一个匹配。
+  const chromeMatch = /Chrome\/(\d+)/.exec(userAgent);
+  if (chromeMatch) {
+    return { name: "chrome", version: [Number(chromeMatch[1]), 0] };
+  }
+  // Firefox
+  const firefoxMatch = /Firefox\/(\d+)/.exec(userAgent);
+  if (firefoxMatch) {
+    return { name: "firefox", version: [Number(firefoxMatch[1]), 0] };
+  }
+  // Safari 的 UA 里 "Version/<major>.<minor> Safari/..." 才是真实版本。
+  const safariMatch = /Version\/(\d+)(?:\.(\d+))?.*Safari\//.exec(userAgent);
+  if (safariMatch) {
+    return { name: "safari", version: [Number(safariMatch[1]), safariMatch[2] ? Number(safariMatch[2]) : 0] };
+  }
+  return null;
+}
+
+/**
+ * 比较 `[主版本, 次版本]` 是否达到最低要求。
+ */
+function isVersionAtLeast(actual: readonly [number, number], required: readonly [number, number]): boolean {
+  if (actual[0] !== required[0]) {
+    return actual[0] > required[0];
+  }
+  return actual[1] >= required[1];
+}
+
+/**
+ * 当前内核是否完整支持 PDF.js v5 modern build 所需的现代 API。
+ *
+ * 完全基于 UA 判断，不依赖任何运行时探测结果——这是关键：legacy build 的
+ * core-js polyfill 会污染全局 `Promise`，运行时探测在第一次加载 legacy 产物后
+ * 就会失真，导致同一个弹窗第二次打开时切回 modern build 而报错。
+ *
+ * 无法识别的内核（内网定制、国产浏览器等）一律按"不支持"处理，走 legacy build，
+ * 由其自带的 core-js polyfill 兜底。
+ */
+function supportsModernPdfCompatibility(): boolean {
+  if (typeof navigator === "undefined") {
+    return false;
+  }
+  const browser = parseBrowserVersion(navigator.userAgent);
+  if (!browser) {
+    return false;
+  }
+  const minVersion = MODERN_PDF_MIN_VERSIONS[browser.name as keyof typeof MODERN_PDF_MIN_VERSIONS];
+  if (!minVersion) {
+    return false;
+  }
+  return isVersionAtLeast(browser.version, minVersion);
+}
+
+type PromiseConstructorWithResolvers = PromiseConstructor & {
+  withResolvers?: <T>() => {
+    promise: Promise<T>;
+    resolve: (value: T | PromiseLike<T>) => void;
+    reject: (reason?: unknown) => void;
   };
+};
+
+/**
+ * 为缺少 `Promise.withResolvers` 的内核补上实现。
+ *
+ * 仅在 legacy 模式下调用。此时加载的是 `pdfjs-dist/legacy/build/pdf.mjs`，它本身
+ * 已内置 core-js 的 `Promise.withResolvers`；这里的兜底是为了覆盖宿主显式传入
+ * 自定义 `pdfjs` 模块（可能是 modern build）的情况。
+ */
+function installPromiseWithResolversPolyfill(): void {
+  const promise = Promise as PromiseConstructorWithResolvers;
   if (typeof promise.withResolvers === "function") {
     return;
   }
 
+  const withResolvers = <T>() => {
+    let resolve!: (value: T | PromiseLike<T>) => void;
+    let reject!: (reason?: unknown) => void;
+    const pending = new Promise<T>((resolvePromise, rejectPromise) => {
+      resolve = resolvePromise;
+      reject = rejectPromise;
+    });
+    return { promise: pending, resolve, reject };
+  };
+
   Object.defineProperty(promise, "withResolvers", {
     configurable: true,
     writable: true,
-    value: <T>() => {
-      let resolve!: (value: T | PromiseLike<T>) => void;
-      let reject!: (reason?: unknown) => void;
-      const pending = new Promise<T>((resolvePromise, rejectPromise) => {
-        resolve = resolvePromise;
-        reject = rejectPromise;
-      });
-      return { promise: pending, resolve, reject };
-    }
+    value: withResolvers
   });
 }
