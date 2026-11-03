@@ -441,6 +441,46 @@ describe("pdfPlugin", () => {
     viewer.destroy();
   });
 
+  it("keeps the page DOM when a resize does not change the layout size", async () => {
+    vi.stubGlobal("IntersectionObserver", undefined);
+    const container = createSizedContainer();
+    const viewer = createViewer({
+      container, file: new Blob(["pdf"], { type: "application/pdf" }),
+      fileName: "stable-layout.pdf", toolbar: true,
+      plugins: [pdfPlugin({ pdfjs: createPdfJsMock({ numPages: 4 }) })]
+    });
+    await waitFor(() => container.querySelectorAll(".ofv-pdf-page-wrapper").length === 4);
+
+    const scroller = container.querySelector<HTMLElement>(".ofv-pdf-pages")!;
+    Object.defineProperty(scroller, "clientWidth", { configurable: true, get: () => 800 });
+    Object.defineProperty(scroller, "clientHeight", { configurable: true, get: () => 600 });
+
+    // The first resize with a measurable scroller changes the layout for real,
+    // so it has to rebuild the document.
+    const beforeSettle = scroller.firstElementChild;
+    viewer.resize();
+    await waitFor(() => scroller.firstElementChild !== beforeSettle);
+
+    const stableWrapper = scroller.firstElementChild;
+    expect(stableWrapper).not.toBeNull();
+
+    // A host that animates its container reports a new viewport size while the
+    // scroller keeps the same layout box. Rebuilding the document for that
+    // would recreate every page wrapper and flicker the visible pages.
+    mockViewportSize(container, 820, 560);
+    viewer.resize();
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect(scroller.firstElementChild).toBe(stableWrapper);
+
+    // A real layout change must still rebuild the document.
+    Object.defineProperty(scroller, "clientWidth", { configurable: true, get: () => 1200 });
+    viewer.resize();
+    await waitFor(() => scroller.firstElementChild !== stableWrapper);
+    expect(container.querySelectorAll(".ofv-pdf-page-wrapper")).toHaveLength(4);
+
+    viewer.destroy();
+  });
+
   it("lays out PDF pages and responds to zoom commands", async () => {
     const container = createSizedContainer();
     const objectUrl = "blob:ofv-pdf";

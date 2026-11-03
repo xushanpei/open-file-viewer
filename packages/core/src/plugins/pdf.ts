@@ -293,6 +293,38 @@ export async function renderPdfDocumentPreview(
   const resolveLayoutHeight = (size: PreviewSize) =>
     scroller.clientHeight > 0 ? scroller.clientHeight : size.height;
 
+  // Page geometry is derived from the scroller's client box, not from the
+  // reported viewport size. A host that animates its container (a dialog
+  // fading in, for instance) reports a new viewport size on every step while
+  // the scroller keeps the same layout width. Rebuilding the whole document
+  // for those no-op resizes destroys and recreates every page wrapper, which
+  // resets in-flight renders and makes the visible pages flicker. Compare only
+  // the dimensions that actually drive the page scale and skip the rebuild
+  // when they are unchanged.
+  let lastLayoutWidth = 0;
+  let lastLayoutHeight = 0;
+
+  // Records the layout size the current page geometry was built from.
+  const rememberLayoutSize = (size: PreviewSize): void => {
+    lastLayoutWidth = resolveLayoutWidth(size);
+    lastLayoutHeight = resolveLayoutHeight(size);
+  };
+
+  // Returns true when the resize changed a dimension that affects the page
+  // scale. `fit: "width"` scales by the layout width only, so a height-only
+  // change cannot alter the page geometry and must not trigger a rebuild.
+  const layoutSizeAffectsPages = (size: PreviewSize): boolean => {
+    const width = resolveLayoutWidth(size);
+    const height = resolveLayoutHeight(size);
+    const widthMatters = options.fit !== "actual" && options.fit !== "height";
+    const heightMatters = options.fit !== "actual" && options.fit !== "width";
+    const changed = (widthMatters && width !== lastLayoutWidth) ||
+      (heightMatters && height !== lastLayoutHeight);
+    lastLayoutWidth = width;
+    lastLayoutHeight = height;
+    return changed;
+  };
+
   const goToPage = (page: number, scroll = true) => {
     currentPage = Math.min(pdfDocument.numPages, Math.max(1, Math.round(page) || 1));
     pageNavigator.setCurrent(currentPage);
@@ -601,6 +633,9 @@ export async function renderPdfDocumentPreview(
     goToPage(currentPage, false);
   };
 
+  // Seed the layout size baseline with the size the first layout is built
+  // from, so the first resize only rebuilds when the layout really changed.
+  rememberLayoutSize(options.size);
   renderLayout(options.size);
 
   // Zooming past the container width anchors the page at its left edge, which
@@ -655,6 +690,13 @@ export async function renderPdfDocumentPreview(
       currentSize = size;
       window.clearTimeout(resizeTimer);
       resizeTimer = window.setTimeout(() => {
+        // Skip the rebuild when the resize cannot change the page geometry.
+        // The observer can report a new viewport size while the scroller keeps
+        // the same layout box, and rebuilding would recreate every page wrapper
+        // for nothing, which flickers the visible pages.
+        if (!layoutSizeAffectsPages(size)) {
+          return;
+        }
         renderLayout(size);
       }, 120);
     },
