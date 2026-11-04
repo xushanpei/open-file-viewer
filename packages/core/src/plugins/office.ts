@@ -3824,7 +3824,16 @@ function fitDocxPages(container: HTMLElement, fit: PreviewFit): () => void {
     };
   }
 
-  const observer = new ResizeObserver(update);
+  // Fitting writes the dimensions of both observed elements. Defer those
+  // writes until the next frame instead of resizing during observer delivery.
+  let fitFrame: number | undefined;
+  const observer = new ResizeObserver(() => {
+    if (fitFrame !== undefined) return;
+    fitFrame = window.requestAnimationFrame(() => {
+      fitFrame = undefined;
+      update();
+    });
+  });
   observer.observe(container);
   observer.observe(wrapper);
   panel?.addEventListener("ofv-office-zoom", update);
@@ -3832,6 +3841,7 @@ function fitDocxPages(container: HTMLElement, fit: PreviewFit): () => void {
     timers.forEach((timer) => window.clearTimeout(timer));
     panel?.removeEventListener("ofv-office-zoom", update);
     observer.disconnect();
+    if (fitFrame !== undefined) window.cancelAnimationFrame(fitFrame);
   };
 }
 
