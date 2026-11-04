@@ -1125,6 +1125,84 @@ describe("officePlugin", () => {
     expect(container.querySelectorAll(".ofv-docx-chart-preview .ofv-chart-gridline").length).toBeGreaterThan(0);
   });
 
+  it("defers DOCX fit writes to the next animation frame during resize observation", async () => {
+    const observerCallbacks: ResizeObserverCallback[] = [];
+    class ResizeObserverStub {
+      constructor(callback: ResizeObserverCallback) {
+        observerCallbacks.push(callback);
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+    vi.stubGlobal("ResizeObserver", ResizeObserverStub);
+
+    const frameCallbacks = new Map<number, FrameRequestCallback>();
+    let nextFrameId = 0;
+    const requestSpy = vi
+      .spyOn(window, "requestAnimationFrame")
+      .mockImplementation((callback: FrameRequestCallback) => {
+        nextFrameId += 1;
+        frameCallbacks.set(nextFrameId, callback);
+        return nextFrameId;
+      });
+    const cancelSpy = vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id: number) => {
+      frameCallbacks.delete(id);
+    });
+
+    const container = document.createElement("div");
+    document.body.append(container);
+    const viewer = createViewer({
+      container,
+      file: await createDocxWithChart(),
+      fileName: "fit.docx",
+      plugins: [officePlugin()],
+      fit: "width"
+    });
+
+    try {
+      await waitFor(() => Boolean(container.querySelector(".ofv-docx-wrapper")));
+      const wrapper = container.querySelector<HTMLElement>(".ofv-docx-wrapper");
+      expect(wrapper).not.toBeNull();
+      expect(observerCallbacks.length).toBeGreaterThan(0);
+
+      let hostWidth = 800;
+      Object.defineProperty(wrapper!.parentElement, "clientWidth", {
+        configurable: true,
+        get: () => hostWidth
+      });
+
+      // Rendering scheduled its own frames; only observe what a resize delivers.
+      frameCallbacks.clear();
+      const widthBeforeResize = wrapper!.style.width;
+
+      hostWidth = 400;
+      observerCallbacks.forEach((callback) => callback([] as unknown as ResizeObserverEntry[], {} as ResizeObserver));
+      expect(wrapper!.style.width).toBe(widthBeforeResize);
+      expect(frameCallbacks.size).toBe(1);
+
+      // Delivering the deferred frame applies the fitting writes once.
+      const frame = Array.from(frameCallbacks.values())[0];
+      frameCallbacks.clear();
+      frame(performance.now());
+      expect(wrapper!.style.width).not.toBe(widthBeforeResize);
+      expect(frameCallbacks.size).toBe(0);
+
+      // A pending deferred frame is cancelled when the preview is destroyed.
+      observerCallbacks.forEach((callback) => callback([] as unknown as ResizeObserverEntry[], {} as ResizeObserver));
+      expect(frameCallbacks.size).toBe(1);
+      viewer.destroy();
+      expect(cancelSpy).toHaveBeenCalled();
+      expect(frameCallbacks.size).toBe(0);
+    } finally {
+      requestSpy.mockRestore();
+      cancelSpy.mockRestore();
+      vi.unstubAllGlobals();
+      viewer.destroy();
+      container.remove();
+    }
+  });
+
   it("renders anchored DOCX chart placeholders that fill the available line width", async () => {
     const container = document.createElement("div");
     document.body.append(container);
