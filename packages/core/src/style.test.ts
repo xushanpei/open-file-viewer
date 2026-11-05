@@ -174,6 +174,9 @@ describe("core responsive styles", () => {
     expect(rule(".ofv-pdf-page-wrapper")).not.toContain("border: 1px solid var(--ofv-border)");
     expect(rule(".ofv-pdf-page-wrapper")).not.toContain("max-width: 100%");
     expect(rule(".ofv-pdf-text-layer")).toContain("text-size-adjust: none");
+    // The layer must stay hit-testable; otherwise dragging across the gaps
+    // between lines resolves to the layer's start and selections jump.
+    expect(rule(".ofv-pdf-text-layer")).not.toContain("pointer-events: none");
     expect(rule(".ofv-pdf-text-layer span")).toContain("line-height: 1");
     expect(rule(".ofv-ofd")).toContain("--ofv-ofd-zoom: 1");
     expect(rule(".ofv-ofd")).toContain("--ofv-ofd-rotation: 0deg");
