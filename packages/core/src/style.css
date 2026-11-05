@@ -6263,7 +6263,9 @@ a.ofv-xmind-topic-title:hover {
   bottom: 0;
   overflow: hidden;
   line-height: 1;
-  pointer-events: none;
+  /* Keep the layer hit-testable so dragging over the gaps between lines
+     resolves to the nearest text position instead of snapping to the
+     layer's start (which made PDF selections jump). */
   user-select: text;
   -webkit-text-size-adjust: none;
   text-size-adjust: none;
@@ -6276,7 +6278,6 @@ a.ofv-xmind-topic-title:hover {
   line-height: 1;
   cursor: text;
   transform-origin: 0% 0%;
-  pointer-events: auto;
 }
 
 .ofv-pdf-text-layer span::selection {
