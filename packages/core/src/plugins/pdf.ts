@@ -86,6 +86,34 @@ function multiplyMatrices(m1: number[], m2: number[]): number[] {
   ];
 }
 
+const textLayerFontAscentCache = new Map<string, number>();
+
+// Text layer boxes are laid out from the fallback font's ascent, like PDF.js
+// does, so the selection highlight wraps the glyphs painted on the canvas.
+function resolveTextLayerFontAscent(fontFamily: string): number {
+  const cached = textLayerFontAscentCache.get(fontFamily);
+  if (cached !== undefined) {
+    return cached;
+  }
+  let ratio = 0.8;
+  try {
+    const context = document.createElement("canvas").getContext("2d");
+    if (context) {
+      context.font = `100px ${fontFamily}`;
+      const metrics = context.measureText("");
+      const ascent = metrics.fontBoundingBoxAscent;
+      const descent = Math.abs(metrics.fontBoundingBoxDescent);
+      if (ascent && ascent + descent > 0) {
+        ratio = ascent / (ascent + descent);
+      }
+    }
+  } catch {
+    // Keep PDF.js's default ascent ratio when canvas metrics are unavailable.
+  }
+  textLayerFontAscentCache.set(fontFamily, ratio);
+  return ratio;
+}
+
 export function pdfPlugin(options: PdfJsModule | PdfPluginOptions = {}): PreviewPlugin {
   return {
     name: "pdf",
@@ -472,6 +500,10 @@ export async function renderPdfDocumentPreview(
         textLayer.style.height = `${cssHeight}px`;
         state.wrapper.appendChild(textLayer);
 
+        const textStyles = ((textContent as any).styles || {}) as Record<
+          string,
+          { fontFamily?: string } | undefined
+        >;
         for (const item of textContent.items) {
           if (!("str" in item)) continue;
           const str = (item as any).str;
@@ -479,15 +511,20 @@ export async function renderPdfDocumentPreview(
 
           const tx = multiplyMatrices(viewport.transform, (item as any).transform);
           const fontHeight = Math.sqrt(tx[2] * tx[2] + tx[3] * tx[3]);
+          // The item's fontName is PDF.js's internal font id, not a CSS family.
+          // Resolve it the way PDF.js does; falling back to the id would make
+          // the browser pick a font whose metrics cut the highlight short.
+          const fontFamily = textStyles[(item as any).fontName]?.fontFamily || "sans-serif";
+          const fontAscent = fontHeight * resolveTextLayerFontAscent(fontFamily);
 
           const span = document.createElement("span");
           span.textContent = str;
           span.style.fontSize = `${fontHeight}px`;
           span.style.lineHeight = "1";
           span.style.height = `${fontHeight}px`;
-          span.style.fontFamily = (item as any).fontName || "sans-serif";
+          span.style.fontFamily = fontFamily;
           span.style.left = `${tx[4]}px`;
-          span.style.top = `${tx[5] - fontHeight}px`;
+          span.style.top = `${tx[5] - fontAscent}px`;
           span.style.transformOrigin = "0% 0%";
 
           textLayer.appendChild(span);
