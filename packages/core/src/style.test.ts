@@ -312,6 +312,10 @@ describe("core responsive styles", () => {
     expect(rule(".ofv-map-stage .leaflet-overlay-pane svg,\n.ofv-map-stage.leaflet-container .leaflet-overlay-pane svg")).toContain("pointer-events: none");
     expect(rule(".ofv-map-stage .leaflet-interactive,\n.ofv-map-stage.leaflet-container .leaflet-interactive")).toContain("pointer-events: auto");
   });
+
+  it("lifts static sheet table height caps while fullscreen", () => {
+    expect(rule(".ofv-host:fullscreen .ofv-table-scroll")).toContain("max-height: none");
+  });
 });
 
 function rule(selector: string): string {
