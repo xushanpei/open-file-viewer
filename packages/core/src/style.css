@@ -2590,6 +2590,13 @@
   background: var(--ofv-surface);
 }
 
+/* Fullscreen lifts the viewport-relative cap above: with .ofv-host filling the
+   screen it would otherwise truncate the table mid-row and leave the rest of
+   the viewport blank. The outer .ofv-viewport keeps scrolling. */
+.ofv-host:fullscreen .ofv-table-scroll {
+  max-height: none;
+}
+
 .ofv-table-scroll table {
   border-collapse: collapse;
   min-width: 100%;
