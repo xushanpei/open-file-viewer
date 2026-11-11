@@ -17,6 +17,7 @@ import { renderPdfDocumentPreview, type PdfPluginOptions } from "./pdf";
 import { capturePageScrollAnchor, restorePageScrollAnchor, type PageScrollAnchor } from "./page-scroll";
 import { parseLegacyWordDocument, renderLegacyWordDocument } from "./msdoc";
 import { parseWord2003XmlDocument, renderWord2003XmlDocument } from "./wordml";
+import { readLegacyWorkbookSheetImages, type WorkbookSheetImage } from "./xls-images";
 import {
   parseLegacyPowerPoint,
   type LegacyPowerPointCharacterStyle,
@@ -4069,13 +4070,15 @@ async function renderSheet(
     return;
   }
   const chartPreviews = await readWorkbookCharts(arrayBuffer).catch(() => []);
-  const workbookImages = await readWorkbookSheetImages(arrayBuffer).catch(() => new Map<string, WorkbookSheetImage[]>());
-  const workbookRichText = await readWorkbookRichText(arrayBuffer).catch(() => new Map<string, Map<string, WorkbookRichTextRun[]>>());
+  const workbookImages = await readWorkbookSheetImages(arrayBuffer, xlsx).catch(() => new Map<number, WorkbookSheetImage[]>());
+  const workbookRichText = await readWorkbookRichText(arrayBuffer).catch(
+    () => new Map<number, Map<string, WorkbookRichTextRun[]>>()
+  );
   const workbookCellStyles = await readWorkbookCellStyles(arrayBuffer).catch(
-    () => new Map<string, Map<string, WorkbookCellStyleMetadata>>()
+    () => new Map<number, Map<string, WorkbookCellStyleMetadata>>()
   );
   const workbookColumnWidths = await readWorkbookSheetColumnWidths(arrayBuffer).catch(
-    () => new Map<string, WorkbookSheetColumnWidthMetadata>()
+    () => new Map<number, WorkbookSheetColumnWidthMetadata>()
   );
   const columnSizingBySheet = new Map<string, SheetColumnSizing>();
   const tabs = document.createElement("div");
@@ -4098,10 +4101,13 @@ async function renderSheet(
     const heading = document.createElement("h3");
     heading.textContent = sheetName;
     const sheet = workbook.Sheets[sheetName];
-    const sheetImages = workbookImages.get(sheetName) || [];
-    const sheetRichText = workbookRichText.get(sheetName) || new Map<string, WorkbookRichTextRun[]>();
-    const sheetCellStyles = workbookCellStyles.get(sheetName) || new Map<string, WorkbookCellStyleMetadata>();
-    const columnSizing = getWorkbookSheetColumnSizing(columnSizingBySheet, sheetName, workbookColumnWidths.get(sheetName));
+    // SheetJS and the OOXML parser can decode the same sheet display name
+    // differently. Workbook order is stable across both parsers, so sheet
+    // metadata must be associated by index rather than by the rendered name.
+    const sheetImages = workbookImages.get(sheetIndex) || [];
+    const sheetRichText = workbookRichText.get(sheetIndex) || new Map<string, WorkbookRichTextRun[]>();
+    const sheetCellStyles = workbookCellStyles.get(sheetIndex) || new Map<string, WorkbookCellStyleMetadata>();
+    const columnSizing = getWorkbookSheetColumnSizing(columnSizingBySheet, sheetName, workbookColumnWidths.get(sheetIndex));
     const range = trimWorkbookSheetRange(sheet, xlsx.utils.decode_range(sheet["!ref"] || "A1:A1"), xlsx.utils.decode_cell, sheetImages);
     const rowCount = range.e.r - range.s.r + 1;
     const columnCount = range.e.c - range.s.c + 1;
@@ -4210,7 +4216,14 @@ function renderSheetFallback(panel: HTMLElement, extension: string, detail: stri
   panel.append(section);
 }
 
-async function readWorkbookSheetImages(arrayBuffer: ArrayBuffer): Promise<Map<string, WorkbookSheetImage[]>> {
+async function readWorkbookSheetImages(
+  arrayBuffer: ArrayBuffer,
+  xlsx: typeof import("xlsx")
+): Promise<Map<number, WorkbookSheetImage[]>> {
+  const legacyImages = readLegacyWorkbookSheetImages(arrayBuffer, xlsx);
+  if (legacyImages) {
+    return legacyImages;
+  }
   const zip = await JSZip.loadAsync(arrayBuffer);
   const fileNames = Object.keys(zip.files);
   const hasWorkbookImages = fileNames.some(
@@ -4230,19 +4243,18 @@ async function readWorkbookSheetImages(arrayBuffer: ArrayBuffer): Promise<Map<st
 
   const workbookRels = await readOfficeRelationships(zip, "xl/workbook.xml");
   const cellImageContext: WorkbookCellImageContext = {};
-  const result = new Map<string, WorkbookSheetImage[]>();
+  const result = new Map<number, WorkbookSheetImage[]>();
   const sheetElements = Array.from(workbookDoc.getElementsByTagName("*")).filter((element) => element.localName === "sheet");
-  for (const sheetElement of sheetElements) {
-    const sheetName = sheetElement.getAttribute("name") || "";
+  for (const [sheetIndex, sheetElement] of sheetElements.entries()) {
     const relationshipId = getXmlAttribute(sheetElement, "id");
     const sheetRel = workbookRels.find((rel) => rel.id === relationshipId && /\/worksheet$/i.test(rel.type));
     const sheetPath = resolveOfficeRelationshipTarget("xl/workbook.xml", sheetRel?.target);
-    if (!sheetName || !sheetPath) {
+    if (!sheetPath) {
       continue;
     }
     const images = await readWorksheetImages(zip, sheetPath, cellImageContext);
     if (images.length > 0) {
-      result.set(sheetName, images);
+      result.set(sheetIndex, images);
     }
   }
   return result;
@@ -4267,7 +4279,7 @@ function getWorkbookSheetColumnSizing(
   return sizing;
 }
 
-async function readWorkbookSheetColumnWidths(arrayBuffer: ArrayBuffer): Promise<Map<string, WorkbookSheetColumnWidthMetadata>> {
+async function readWorkbookSheetColumnWidths(arrayBuffer: ArrayBuffer): Promise<Map<number, WorkbookSheetColumnWidthMetadata>> {
   const zip = await JSZip.loadAsync(arrayBuffer);
   const workbookXml = await zip.file("xl/workbook.xml")?.async("text");
   if (!workbookXml || typeof DOMParser === "undefined") {
@@ -4279,22 +4291,21 @@ async function readWorkbookSheetColumnWidths(arrayBuffer: ArrayBuffer): Promise<
   }
 
   const workbookRels = await readOfficeRelationships(zip, "xl/workbook.xml");
-  const result = new Map<string, WorkbookSheetColumnWidthMetadata>();
+  const result = new Map<number, WorkbookSheetColumnWidthMetadata>();
   const sheetElements = Array.from(workbookDoc.getElementsByTagName("*")).filter((element) => element.localName === "sheet");
-  for (const sheetElement of sheetElements) {
-    const sheetName = sheetElement.getAttribute("name") || "";
+  for (const [sheetIndex, sheetElement] of sheetElements.entries()) {
     const relationshipId = getXmlAttribute(sheetElement, "id");
     const sheetRel = workbookRels.find((rel) => rel.id === relationshipId && /\/worksheet$/i.test(rel.type));
     const sheetPath = resolveOfficeRelationshipTarget("xl/workbook.xml", sheetRel?.target);
     const metadata = sheetPath ? await readWorksheetColumnWidths(zip, sheetPath) : undefined;
-    if (sheetName && metadata && (metadata.columns.size > 0 || metadata.defaultColumn !== undefined)) {
-      result.set(sheetName, metadata);
+    if (metadata && (metadata.columns.size > 0 || metadata.defaultColumn !== undefined)) {
+      result.set(sheetIndex, metadata);
     }
   }
   return result;
 }
 
-async function readWorkbookRichText(arrayBuffer: ArrayBuffer): Promise<Map<string, Map<string, WorkbookRichTextRun[]>>> {
+async function readWorkbookRichText(arrayBuffer: ArrayBuffer): Promise<Map<number, Map<string, WorkbookRichTextRun[]>>> {
   const zip = await JSZip.loadAsync(arrayBuffer);
   const workbookXml = await zip.file("xl/workbook.xml")?.async("text");
   if (!workbookXml || typeof DOMParser === "undefined") {
@@ -4307,22 +4318,21 @@ async function readWorkbookRichText(arrayBuffer: ArrayBuffer): Promise<Map<strin
 
   const sharedStrings = await readWorkbookSharedStringRichText(zip);
   const workbookRels = await readOfficeRelationships(zip, "xl/workbook.xml");
-  const result = new Map<string, Map<string, WorkbookRichTextRun[]>>();
+  const result = new Map<number, Map<string, WorkbookRichTextRun[]>>();
   const sheetElements = Array.from(workbookDoc.getElementsByTagName("*")).filter((element) => element.localName === "sheet");
-  for (const sheetElement of sheetElements) {
-    const sheetName = sheetElement.getAttribute("name") || "";
+  for (const [sheetIndex, sheetElement] of sheetElements.entries()) {
     const relationshipId = getXmlAttribute(sheetElement, "id");
     const sheetRel = workbookRels.find((rel) => rel.id === relationshipId && /\/worksheet$/i.test(rel.type));
     const sheetPath = resolveOfficeRelationshipTarget("xl/workbook.xml", sheetRel?.target);
     const richText = sheetPath ? await readWorksheetRichText(zip, sheetPath, sharedStrings) : undefined;
-    if (sheetName && richText && richText.size > 0) {
-      result.set(sheetName, richText);
+    if (richText && richText.size > 0) {
+      result.set(sheetIndex, richText);
     }
   }
   return result;
 }
 
-async function readWorkbookCellStyles(arrayBuffer: ArrayBuffer): Promise<Map<string, Map<string, WorkbookCellStyleMetadata>>> {
+async function readWorkbookCellStyles(arrayBuffer: ArrayBuffer): Promise<Map<number, Map<string, WorkbookCellStyleMetadata>>> {
   const zip = await JSZip.loadAsync(arrayBuffer);
   const stylesXml = await zip.file("xl/styles.xml")?.async("text");
   const workbookXml = await zip.file("xl/workbook.xml")?.async("text");
@@ -4342,16 +4352,15 @@ async function readWorkbookCellStyles(arrayBuffer: ArrayBuffer): Promise<Map<str
   }
 
   const workbookRels = await readOfficeRelationships(zip, "xl/workbook.xml");
-  const result = new Map<string, Map<string, WorkbookCellStyleMetadata>>();
+  const result = new Map<number, Map<string, WorkbookCellStyleMetadata>>();
   const sheetElements = Array.from(workbookDoc.getElementsByTagName("*")).filter((element) => element.localName === "sheet");
-  for (const sheetElement of sheetElements) {
-    const sheetName = sheetElement.getAttribute("name") || "";
+  for (const [sheetIndex, sheetElement] of sheetElements.entries()) {
     const relationshipId = getXmlAttribute(sheetElement, "id");
     const sheetRel = workbookRels.find((rel) => rel.id === relationshipId && /\/worksheet$/i.test(rel.type));
     const sheetPath = resolveOfficeRelationshipTarget("xl/workbook.xml", sheetRel?.target);
     const cellStyles = sheetPath ? await readWorksheetCellStyles(zip, sheetPath, cellStyleByIndex) : undefined;
-    if (sheetName && cellStyles && cellStyles.size > 0) {
-      result.set(sheetName, cellStyles);
+    if (cellStyles && cellStyles.size > 0) {
+      result.set(sheetIndex, cellStyles);
     }
   }
   return result;
@@ -5835,17 +5844,6 @@ type WorkbookSheetColumnWidthMetadata = {
 type WorkbookColumnWidthSource = {
   hidden?: boolean;
   width?: number;
-};
-
-type WorkbookSheetImage = {
-  row: number;
-  column: number;
-  endRow?: number;
-  endColumn?: number;
-  fileName: string;
-  mimeType: string;
-  dataUrl: string;
-  title?: string;
 };
 
 type WorkbookRichTextRun = {

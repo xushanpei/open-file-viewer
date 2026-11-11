@@ -13,6 +13,7 @@ const shouldRenderBlankDocxPreview = vi.hoisted(() => ({ value: false }));
 const docxPreviewImageSrc = vi.hoisted(() => ({ value: "" }));
 const shouldRenderVerticalDocxTable = vi.hoisted(() => ({ value: false }));
 const shouldRenderUnsizedDocxPage = vi.hoisted(() => ({ value: false }));
+const shouldRewriteWorkbookSheetNames = vi.hoisted(() => ({ value: false }));
 const utifMock = vi.hoisted(() => ({
   decode: vi.fn(),
   decodeImage: vi.fn(),
@@ -390,6 +391,24 @@ vi.mock("@aiden0z/pptx-renderer", () => ({
 
 vi.mock("utif", () => utifMock);
 
+vi.mock("xlsx", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("xlsx")>();
+  const read: typeof actual.read = ((...args: any[]) => {
+    const workbook = actual.read(...(args as Parameters<typeof actual.read>));
+    if (!shouldRewriteWorkbookSheetNames.value) {
+      return workbook;
+    }
+    for (const [index, sheetName] of [...workbook.SheetNames].entries()) {
+      const rewrittenName = `Parser decoded sheet ${index + 1}`;
+      workbook.SheetNames[index] = rewrittenName;
+      workbook.Sheets[rewrittenName] = workbook.Sheets[sheetName];
+      delete workbook.Sheets[sheetName];
+    }
+    return workbook;
+  }) as typeof actual.read;
+  return { ...actual, read };
+});
+
 describe("officePlugin", () => {
   afterEach(() => {
     document.body.replaceChildren();
@@ -403,6 +422,7 @@ describe("officePlugin", () => {
     docxPreviewImageSrc.value = "";
     shouldRenderVerticalDocxTable.value = false;
     shouldRenderUnsizedDocxPage.value = false;
+    shouldRewriteWorkbookSheetNames.value = false;
     pptxRenderMode.value = "normal";
     utifMock.decode.mockReset();
     utifMock.decodeImage.mockReset();
@@ -552,6 +572,35 @@ describe("officePlugin", () => {
     expect(image?.src).toContain("data:image/png;base64,");
     expect(image?.alt).toBe("WPS cell image");
   });
+
+  it.each([
+    ["drawing", () => createWorkbookWithImage(), "A1", "Inserted logo"],
+    ["WPS cell", () => createWorkbookWithWpsCellImage(), "B2", "WPS cell image"]
+  ] as const)(
+    "associates XLSX %s images by sheet index when the parser rewrites sheet names",
+    async (_kind, createWorkbook, cellAddress, alt) => {
+      shouldRewriteWorkbookSheetNames.value = true;
+      try {
+        const container = document.createElement("div");
+        document.body.append(container);
+
+        createViewer({
+          container,
+          file: await createWorkbook(),
+          fileName: "renamed-sheet-image.xlsx",
+          plugins: [officePlugin()]
+        });
+
+        await waitFor(() => Boolean(container.querySelector(".ofv-workbook-image img")));
+
+        const imageCell = container.querySelector<HTMLTableCellElement>(`[data-cell="${cellAddress}"]`);
+        expect(imageCell?.classList.contains("ofv-cell-image")).toBe(true);
+        expect(imageCell?.querySelector<HTMLImageElement>("img")?.alt).toBe(alt);
+      } finally {
+        shouldRewriteWorkbookSheetNames.value = false;
+      }
+    }
+  );
 
   it("renders rich-value in-cell images stored under xl/richData", async () => {
     const container = document.createElement("div");
