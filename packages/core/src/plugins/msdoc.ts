@@ -7,6 +7,16 @@ const MINI_STREAM_CUTOFF = 4096;
 const STSH_FC_LCB_INDEX = 1;
 const CLX_FC_LCB_INDEX = 33;
 const WORD_PAGE_BREAK = "\f";
+const WORD_PICTURE_MARK_BASE = 0xe000;
+const WORD_BLIP_RECORD_KINDS: Record<number, string> = {
+  0xf01a: "emf",
+  0xf01b: "wmf",
+  0xf01c: "pict",
+  0xf01d: "jpeg",
+  0xf01e: "png",
+  0xf01f: "dib",
+  0xf029: "tiff"
+};
 
 export type LegacyWordDocument = {
   title: string;
@@ -14,6 +24,7 @@ export type LegacyWordDocument = {
   blocks: LegacyWordBlock[];
   layout: LegacyWordLayoutHints;
   assets: LegacyWordAsset[];
+  pictures?: LegacyWordPicture[];
   styles: LegacyWordStyle[];
   stats: {
     streamCount: number;
@@ -37,6 +48,13 @@ type LegacyWordAsset = {
   width?: number;
   height?: number;
 };
+
+type LegacyWordPicture = {
+  asset?: LegacyWordAsset;
+  kind?: string;
+};
+
+let legacyWordPictures: LegacyWordPicture[] = [];
 
 type LegacyWordStyle = {
   id: number;
@@ -138,7 +156,15 @@ export function parseLegacyWordDocument(input: ArrayBuffer): LegacyWordDocument 
   const pieces = parseClxPieces(tableStream, fib.fcClx, fib.lcbClx);
   const text = pieces.length > 0 ? readPieceTableText(wordDocument, pieces, fib.ccpText) : readFibTextFallback(wordDocument, fib);
   const inline = readInlineWordContext(wordDocument, tableStream, cfb.getStream("Data"), fib, pieces, assets);
-  const segments = segmentWordText(text, inline);
+  const pictures = readLegacyWordPictures(cfb.getStream("Data"), assets);
+  const placeholders = Array.from(text.matchAll(/\u0001/g), (match) => match.index || 0);
+  const usesInlinePictures = Boolean(inline) && placeholders.every((index) => inline?.pictureAt(index));
+  // Some WPS-generated tables omit PICF/CHPX picture references. Keep U+0001
+  // placeholders in that case and map them to the ordered Escher/Data blips.
+  const hasTableCellPictures = /\u0001[^\r\u0007]*\u0007/.test(text);
+  const usesSequentialPictures = pictures.length > 0 && placeholders.length > 0 && (hasTableCellPictures || !usesInlinePictures);
+  const markedText = usesSequentialPictures ? markLegacyWordPictureMarks(text, pictures.length) : text;
+  const segments = segmentWordText(markedText, usesSequentialPictures ? undefined : inline);
   const paragraphs = segmentsToParagraphs(segments);
   if (paragraphs.length === 0 && assets.length === 0) {
     throw new Error("未解析到可显示的正文段落");
@@ -157,6 +183,7 @@ export function parseLegacyWordDocument(input: ArrayBuffer): LegacyWordDocument 
     blocks,
     layout,
     assets,
+    pictures: usesSequentialPictures ? pictures : [],
     styles,
     stats: {
       streamCount: cfb.entries.length,
@@ -171,7 +198,16 @@ export function parseLegacyWordDocument(input: ArrayBuffer): LegacyWordDocument 
 
 export function renderLegacyWordDocument(panel: HTMLElement, document: LegacyWordDocument): void {
   panel.replaceChildren();
+  const previousPictures = legacyWordPictures;
+  legacyWordPictures = document.pictures || [];
+  try {
+    renderLegacyWordDocumentContent(panel, document);
+  } finally {
+    legacyWordPictures = previousPictures;
+  }
+}
 
+function renderLegacyWordDocumentContent(panel: HTMLElement, document: LegacyWordDocument): void {
   if (isEvTrainingWorkbook(document)) {
     renderEvTrainingWorkbook(panel, document);
     return;
@@ -195,8 +231,10 @@ export function renderLegacyWordDocument(panel: HTMLElement, document: LegacyWor
     "runs" in block ? (block.runs || []).flatMap((run) => "asset" in run ? [run.asset.id] : []) : []));
   const bodyImages = document.assets.filter((asset) => asset.id !== document.layout.headerImageId && !inlineImageIds.has(asset.id));
   const pageCount = inferDisplayedPageCount(document.blocks, pages.length);
+  const firstPageBlocks = pages[0] || [];
   const page = window.document.createElement("section");
   page.className = "ofv-msdoc-page";
+  allowLegacyWordPicturePageOverflow(page, firstPageBlocks);
   appendPageChrome(page, document, 1, pageCount);
 
   const meta = window.document.createElement("dl");
@@ -212,7 +250,7 @@ export function renderLegacyWordDocument(panel: HTMLElement, document: LegacyWor
   meta.hidden = true;
   page.append(meta);
 
-  let nextLineNumber = appendBlocksToPage(page, pages[0] || [], document.layout, document.layout.headerBrand === "oasis" ? 2 : 1);
+  let nextLineNumber = appendBlocksToPage(page, firstPageBlocks, document.layout, document.layout.headerBrand === "oasis" ? 2 : 1);
   if (document.layout.headerBrand === "oasis") {
     nextLineNumber -= 1;
   }
@@ -222,6 +260,7 @@ export function renderLegacyWordDocument(panel: HTMLElement, document: LegacyWor
   for (const pageBlocks of pages.slice(1)) {
     const nextPage = window.document.createElement("section");
     nextPage.className = "ofv-msdoc-page";
+    allowLegacyWordPicturePageOverflow(nextPage, pageBlocks);
     appendPageChrome(nextPage, document, article.children.length + 1, pageCount);
     nextLineNumber = appendBlocksToPage(nextPage, pageBlocks, document.layout, nextLineNumber);
     article.append(nextPage);
@@ -500,6 +539,20 @@ function appendWarnings(page: HTMLElement, document: LegacyWordDocument): void {
   page.append(warning);
 }
 
+function allowLegacyWordPicturePageOverflow(page: HTMLElement, blocks: LegacyWordBlock[]): void {
+  const hasPictureMark = blocks.some((block) => {
+    if (block.type === "table") {
+      return block.rows.some((row) => row.some((cell) => /[\ue001-\uefff]/.test(getTableCellText(cell))));
+    }
+    return "text" in block && /[\ue001-\uefff]/.test(block.text);
+  });
+  if (!hasPictureMark) {
+    return;
+  }
+  page.style.height = "auto";
+  page.style.overflow = "visible";
+}
+
 function createOasisHeader(image?: LegacyWordAsset): HTMLElement {
   const header = window.document.createElement("header");
   header.className = "ofv-msdoc-page-header ofv-msdoc-oasis-header";
@@ -633,7 +686,7 @@ function renderWordBlock(block: LegacyWordBlock): HTMLElement {
       for (let cellIndex = 0; cellIndex < row.length; cellIndex += 1) {
         const cellInfo = normalizeTableCell(row[cellIndex]);
         const cell = window.document.createElement(cellTag);
-        cell.textContent = cellInfo.text;
+        appendLegacyWordInline(cell, cellInfo.text);
         if (cellInfo.colSpan && cellInfo.colSpan > 1) {
           cell.colSpan = cellInfo.colSpan;
         }
@@ -898,7 +951,48 @@ function isGradeCell(text: string): boolean {
 }
 
 function appendInlineText(element: HTMLElement, text: string, preserveTabs: boolean): void {
-  element.append(window.document.createTextNode(preserveTabs ? text : text.replace(/\t+/g, " ")));
+  appendLegacyWordInline(element, preserveTabs ? text : text.replace(/\t+/g, " "));
+}
+
+function appendLegacyWordInline(element: HTMLElement, text: string): void {
+  if (legacyWordPictures.length === 0 || !/[\ue001-\uefff]/.test(text)) {
+    element.append(window.document.createTextNode(text));
+    return;
+  }
+  let offset = 0;
+  for (const match of text.matchAll(/[\ue001-\uefff]/g)) {
+    if (match.index && match.index > offset) {
+      element.append(window.document.createTextNode(text.slice(offset, match.index)));
+    }
+    const picture = legacyWordPictures[text.codePointAt(match.index || 0)! - WORD_PICTURE_MARK_BASE - 1];
+    if (picture) {
+      element.append(createLegacyWordPictureNode(picture));
+    }
+    offset = (match.index || 0) + 1;
+  }
+  if (offset < text.length) {
+    element.append(window.document.createTextNode(text.slice(offset)));
+  }
+}
+
+function createLegacyWordPictureNode(picture: LegacyWordPicture): HTMLElement {
+  if (!picture.asset) {
+    const notice = window.document.createElement("span");
+    notice.className = "ofv-msdoc-picture-unsupported";
+    notice.textContent = `图片格式不支持预览（${picture.kind || "unknown"}）`;
+    return notice;
+  }
+  const image = window.document.createElement("img");
+  image.className = "ofv-msdoc-picture";
+  image.alt = "";
+  image.loading = "lazy";
+  image.decoding = "async";
+  image.src = picture.asset.dataUrl;
+  image.style.display = "block";
+  image.style.maxWidth = "100%";
+  image.style.maxHeight = "calc(320px * var(--ofv-office-zoom, 1))";
+  image.style.objectFit = "contain";
+  return image;
 }
 
 function isReferenceTerm(value: string): boolean {
@@ -957,6 +1051,62 @@ function extractImageAssets(cfb: CompoundFile): LegacyWordAsset[] {
     }
   }
   return assets;
+}
+
+function readLegacyWordPictures(data: Uint8Array | undefined, assets: LegacyWordAsset[]): LegacyWordPicture[] {
+  if (!data || data.length < 16) {
+    return [];
+  }
+  const escherPictures = readEscherBlipPictures(data, assets);
+  if (escherPictures.length > 0) {
+    return escherPictures;
+  }
+  const pictures: LegacyWordPicture[] = [];
+  for (const image of extractImagesFromBytes(data, "Data")) {
+    const dataUrl = `data:${image.mimeType};base64,${bytesToBase64(image.bytes)}`;
+    const asset = assets.find((item) => item.dataUrl === dataUrl);
+    if (asset) {
+      pictures.push({ asset });
+    }
+  }
+  return pictures;
+}
+
+function readEscherBlipPictures(data: Uint8Array, assets: LegacyWordAsset[]): LegacyWordPicture[] {
+  const view = dataView(data);
+  const pictures: LegacyWordPicture[] = [];
+  for (let offset = 0; offset + 8 <= data.length; offset += 1) {
+    const kind = WORD_BLIP_RECORD_KINDS[view.getUint16(offset + 2, true)];
+    if (!kind) {
+      continue;
+    }
+    const length = view.getUint32(offset + 4, true);
+    if (length < 24 || offset + 8 + length > data.length) {
+      continue;
+    }
+    const body = data.subarray(offset + 8, offset + 8 + length);
+    const image = kind === "png" || kind === "jpeg" ? extractImagesFromBytes(body, "Data")[0] : undefined;
+    if (image) {
+      const dataUrl = `data:${image.mimeType};base64,${bytesToBase64(image.bytes)}`;
+      const asset = assets.find((item) => item.dataUrl === dataUrl);
+      pictures.push(asset ? { asset } : { kind });
+    } else {
+      pictures.push({ kind });
+    }
+    offset += 7 + length;
+  }
+  return pictures;
+}
+
+function markLegacyWordPictureMarks(text: string, pictureCount: number): string {
+  let index = 0;
+  return text.replace(/\u0001/g, () => {
+    if (index >= pictureCount) {
+      return "";
+    }
+    index += 1;
+    return String.fromCharCode(WORD_PICTURE_MARK_BASE + index);
+  });
 }
 
 function parseStyleTable(tableStream: Uint8Array, fib: FibInfo): LegacyWordStyle[] {
@@ -1405,6 +1555,7 @@ function readWordProperties(bytes: Uint8Array): WordProperty[] {
 
 type InlineWordContext = {
   paragraphRuns(text: string, startCp: number): LegacyWordInlineRun[] | undefined;
+  pictureAt(cp: number): LegacyWordInlineRun | undefined;
 };
 
 function readInlineWordContext(
@@ -1467,6 +1618,7 @@ function readInlineWordContext(
     return run;
   };
   return {
+    pictureAt,
     paragraphRuns(text, startCp) {
       if (!text.includes("\u0001")) return;
       const runs: LegacyWordInlineRun[] = [];
@@ -1714,10 +1866,38 @@ function buildWordBlocks(segments: WordSegment[]): LegacyWordBlock[] {
   return blocks;
 }
 
-// 短行的最后一个单元格按表格最大列数补跨度，近似还原合并单元格布局。
 function applyTableColumnSpans(rows: string[][]): LegacyWordTableRow[] {
-  const columnCount = Math.max(...rows.map((row) => row.length));
-  return rows.map((row) => {
+  if (rows.length === 0) {
+    return [];
+  }
+  let columnCount = Math.max(...rows.map((row) => row.length));
+  while (columnCount > 0 && rows.every((row) => row.length < columnCount || getTableCellText(row[columnCount - 1]).length === 0)) {
+    columnCount -= 1;
+  }
+  // Word auto-numbered sequence columns are not part of the text stream.
+  // Restore them before calculating spans so data rows stay aligned.
+  let normalizedRows = rows.map((row) => row.slice(0, columnCount)).filter((row) => row.length > 0);
+  if (normalizedRows.length === 0) {
+    return [];
+  }
+  const headerCells = normalizedRows[0].map((cell) => getTableCellText(cell));
+  if (headerCells[0] === "序号") {
+    normalizedRows = normalizedRows.map((row, index) => {
+      if (index === 0) {
+        return row;
+      }
+      const cells = row.slice();
+      while (cells.length > 0 && getTableCellText(cells[cells.length - 1]).length === 0) {
+        cells.pop();
+      }
+      if (cells.length > 0 && !/^\d+$/.test(getTableCellText(cells[0]))) {
+        cells.unshift(String(index));
+      }
+      return cells;
+    });
+  }
+  columnCount = Math.max(...normalizedRows.map((row) => row.length));
+  return normalizedRows.map((row) => {
     if (row.length >= columnCount || row.length === 0) {
       return row;
     }

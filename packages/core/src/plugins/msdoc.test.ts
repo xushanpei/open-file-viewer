@@ -58,6 +58,33 @@ describe("legacy Word embedded images", () => {
   it("still rejects documents with neither readable text nor images", () => {
     expect(() => parseLegacyWordDocument(wordFile([]))).toThrow("未解析到可显示的正文段落");
   });
+
+  it("maps unreferenced table picture marks sequentially and restores sequence columns", () => {
+    const text =
+      "序号\u0007图纸编号\u0007提出图纸问题\u0007设计院回复意见\u0007\u0007\u0007" +
+      "结施03\u0007问题一\u0001\u0007回复一\u0007\u0007\u0007" +
+      "结施04\u0007问题二\u0001\u0007回复二\u0007\u0007\u0007";
+    const model = parseLegacyWordDocument(wordFile([png, png], text));
+    const table = model.blocks.find((block) => block.type === "table");
+    expect(table?.type).toBe("table");
+    if (!table || table.type !== "table") return;
+    expect(model.pictures).toHaveLength(2);
+    expect(table.rows[0]).toHaveLength(4);
+    expect(table.rows[1]).toHaveLength(4);
+    expect(table.rows[2]).toHaveLength(4);
+
+    const panel = document.createElement("div");
+    renderLegacyWordDocument(panel, model);
+    const rows = panel.querySelectorAll(".ofv-msdoc-table tr");
+    expect(rows).toHaveLength(3);
+    expect(rows[1].children[0].textContent).toBe("1");
+    expect(rows[1].children[2].querySelector("img")).not.toBeNull();
+    expect(rows[2].children[0].textContent).toBe("2");
+    expect(rows[2].children[2].querySelector("img")).not.toBeNull();
+    expect(panel.querySelectorAll(".ofv-msdoc-table img")).toHaveLength(2);
+    expect(panel.querySelector<HTMLElement>(".ofv-msdoc-page")?.style.height).toBe("auto");
+    expect(panel.querySelector<HTMLElement>(".ofv-msdoc-page")?.style.overflow).toBe("visible");
+  });
 });
 
 // Minimal FIB + piece table + CHPX FKP + PICF, generated rather than copying a
